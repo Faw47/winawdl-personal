@@ -42,10 +42,14 @@ measurements, the open risks and the safety notes before installing anything.
 
 ## Building
 
-Clone with the submodules:
+Clone, then fetch the two submodules and OWL's radiotap. A recursive clone
+would also pull devourer's vendor reference trees, which nothing here builds.
 
 ```powershell
-git clone --recurse-submodules https://github.com/raph559/winawdl.git
+git clone https://github.com/raph559/winawdl.git
+cd winawdl
+git submodule update --init
+git -C upstream/owl submodule update --init radiotap
 ```
 
 Requires Visual Studio Build Tools 2022 with its bundled vcpkg, CMake, the

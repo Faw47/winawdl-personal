@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $repo  = Split-Path $PSScriptRoot -Parent
 $build = "$repo\build\radio"
 if (-not (Test-Path "$repo\upstream\devourer\CMakeLists.txt")) {
-  throw 'devourer sources missing: run "git submodule update --init --recursive".'
+  throw 'devourer sources missing: run "git submodule update --init".'
 }
 
 # The vcpkg that ships with the Build Tools only works from a manifest.
