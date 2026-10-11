@@ -211,13 +211,6 @@ int radio_client_pop(struct radio_client *client, uint8_t *frame) {
 	return length;
 }
 
-int radio_client_has_frame(struct radio_client *client) {
-	EnterCriticalSection(&client->queue_lock);
-	int waiting = client->count > 0;
-	LeaveCriticalSection(&client->queue_lock);
-	return waiting;
-}
-
 int radio_client_send(struct radio_client *client, uint16_t type, const uint8_t *payload,
 		      uint32_t length) {
 	struct radio_link_header header = {.type = type, .length = length};
