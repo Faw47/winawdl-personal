@@ -21,6 +21,19 @@ static const uint8_t awdl_action[] = {0x7F, 0x00, 0x17, 0xF2, 0x08};
 #define HT_CAPABILITIES_OFFSET 2
 /* Supported channel width, short guard interval at 40 MHz, CCK at 40 MHz. */
 #define HT_CAPABILITIES_40MHZ 0x1042
+#define HT_CAPABILITIES_SHORT_GI_20MHZ 0x0020
+/* After the capabilities come the A-MPDU parameters, then one byte of
+ * supported rates per spatial stream. */
+#define HT_SECOND_STREAM_RATES_OFFSET 6
+#define HT_ALL_RATES 0xFF
+
+static int announce_two_streams;
+static int announce_short_gi;
+
+void frame_fixup_announce(int two_streams, int short_guard_interval) {
+	announce_two_streams = two_streams;
+	announce_short_gi = short_guard_interval;
+}
 
 static unsigned read_le16(const uint8_t *bytes) {
 	return bytes[0] | bytes[1] << 8;
@@ -87,10 +100,16 @@ void frame_fixup_sent(uint8_t *frame, int length) {
 	walk_tlvs(frame, offset, length - fcs_len, TLV_HT_CAPABILITIES, &found);
 	if (found < 0)
 		return;
-	uint8_t *caps = frame + found + TLV_HEADER_LEN + HT_CAPABILITIES_OFFSET;
-	if (caps + 2 > frame + length)
+	uint8_t *value = frame + found + TLV_HEADER_LEN;
+	int value_len = (int) read_le16(frame + found + 1);
+	if (value_len < HT_CAPABILITIES_OFFSET + 2)
 		return;
-	unsigned cleared = read_le16(caps) & ~HT_CAPABILITIES_40MHZ;
-	caps[0] = (uint8_t) cleared;
-	caps[1] = (uint8_t) (cleared >> 8);
+	uint8_t *caps = value + HT_CAPABILITIES_OFFSET;
+	unsigned announced = read_le16(caps) & ~HT_CAPABILITIES_40MHZ;
+	if (announce_short_gi)
+		announced |= HT_CAPABILITIES_SHORT_GI_20MHZ;
+	caps[0] = (uint8_t) announced;
+	caps[1] = (uint8_t) (announced >> 8);
+	if (announce_two_streams && value_len > HT_SECOND_STREAM_RATES_OFFSET)
+		value[HT_SECOND_STREAM_RATES_OFFSET] = HT_ALL_RATES;
 }

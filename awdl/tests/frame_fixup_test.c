@@ -85,8 +85,17 @@ int main(void) {
 	frame_fixup_sent(frame, sent);
 	expect(frame[caps] == 0x8C && frame[caps + 1] == 0x01,
 	       "an outgoing frame no longer claims 40 MHz reception");
-	expect(frame[caps + 2] == 0x1B && frame[caps + 3] == 0xFF,
+	expect(frame[caps + 2] == 0x1B && frame[caps + 3] == 0xFF && frame[caps + 4] == 0,
 	       "the rest of its capabilities stay");
+
+	sent = add(frame, start_frame(frame, 0), ht_tlv, sizeof(ht_tlv));
+	frame_fixup_announce(1, 1);
+	frame_fixup_sent(frame, sent);
+	expect(frame[caps] == 0xAC && frame[caps + 1] == 0x01,
+	       "the short guard interval at 20 MHz can be announced");
+	expect(frame[caps + 3] == 0xFF && frame[caps + 4] == 0xFF && frame[caps + 5] == 0,
+	       "and so can the rates of a second stream");
+	frame_fixup_announce(0, 0);
 
 	return failures ? 1 : 0;
 }

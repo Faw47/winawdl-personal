@@ -1,7 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* AWDL daemon for Windows: OWL's protocol core, driven by the radio daemon.
- * Usage: awdld [-c 6|44|149] [-n] [-r] [-v] [-v]. -n: no host adapter.
- * -r: no device identities in the log. */
+ * Usage: awdld [-c 6|44|149] [-n] [-r] [-s 1|2] [-g] [-v] [-v]. -n: no host
+ * adapter. -r: no device identities in the log. -s: spatial streams to
+ * announce. -g: announce the short guard interval. */
 #include <getopt.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -9,6 +10,7 @@
 #include <windows.h>
 
 #include "core.h"
+#include "frame_fixup.h"
 #include "host_if.h"
 #include "log.h"
 #include "radio_client.h"
@@ -87,23 +89,32 @@ int main(int argc, char *argv[]) {
 	int channel = DEFAULT_CHANNEL;
 	int log_level = LOG_INFO;
 	const char *host_name = HOST_IF_NAME;
+	int streams = 1;
+	int short_guard_interval = 0;
 	int option;
-	while ((option = getopt(argc, argv, "c:nrv")) != -1) {
+	while ((option = getopt(argc, argv, "c:nrs:gv")) != -1) {
 		if (option == 'c') {
 			channel = atoi(optarg);
 		} else if (option == 'n') {
 			host_name = "";
 		} else if (option == 'r') {
 			redact_log = 1;
+		} else if (option == 's') {
+			streams = atoi(optarg);
+		} else if (option == 'g') {
+			short_guard_interval = 1;
 		} else if (option == 'v') {
 			if (log_level < LOG_TRACE)
 				log_level++;
 		} else {
-			fprintf(stderr, "usage: %s [-c 6|44|149] [-n] [-r] [-v] [-v]\n", argv[0]);
+			fprintf(stderr,
+				"usage: %s [-c 6|44|149] [-n] [-r] [-s 1|2] [-g] [-v] [-v]\n",
+				argv[0]);
 			return EXIT_FAILURE;
 		}
 	}
 	log_set_level(log_level);
+	frame_fixup_announce(streams == 2, short_guard_interval);
 	shown_level = log_level;
 
 	struct awdl_chan chan;
