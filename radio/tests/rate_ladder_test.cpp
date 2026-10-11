@@ -25,8 +25,16 @@ void run(RateLadder &ladder, unsigned count, bool given_up,
     ladder.finished(ladder.next(now), given_up, true, now);
 }
 
+/* One window's worth of frames, the first `failed` of them given up on. */
+void window(RateLadder &ladder, unsigned failed, Clock::time_point now) {
+  run(ladder, failed, true, now);
+  run(ladder, RateLadder::kWindowFrames - failed, false, now);
+}
+
 constexpr unsigned kClimb =
     RateLadder::kWindowFrames * RateLadder::kCleanWindowsToClimb;
+/* Three frames in four lost: a rate that is too fast. */
+constexpr unsigned kMostlyLost = RateLadder::kWindowFrames * 3 / 4;
 
 } // namespace
 
@@ -67,14 +75,29 @@ int main() {
   }
   {
     RateLadder ladder(2);
-    run(ladder, kClimb + 1, false, start);
-    run(ladder, RateLadder::kWindowFrames, true, start);
+    run(ladder, kClimb, false, start);
+    window(ladder, 0, start);
+    window(ladder, kMostlyLost, start);
     expect(ladder.next(start) == 1, "one bad window is not enough to fall");
-    run(ladder, RateLadder::kWindowFrames, false, start);
-    run(ladder, RateLadder::kWindowFrames, true, start);
-    expect(ladder.next(start) == 1, "nor two with a good one between them");
-    run(ladder, RateLadder::kWindowFrames, true, start);
-    expect(ladder.next(start) == 0, "two in a row are");
+    window(ladder, 0, start);
+    window(ladder, kMostlyLost, start);
+    window(ladder, kMostlyLost, start);
+    expect(ladder.next(start) == 1, "nor a few among good ones");
+    for (unsigned i = 0; i < 3; i++) window(ladder, kMostlyLost, start);
+    expect(ladder.next(start) == 0,
+           "half the frames of the last windows lost is");
+  }
+  {
+    RateLadder ladder(2);
+    run(ladder, kClimb, false, start);
+    window(ladder, 0, start);
+    window(ladder, kMostlyLost, start);
+    for (unsigned i = 0; i < 20; i++)
+      window(ladder, RateLadder::kWindowFrames, start);
+    window(ladder, kMostlyLost, start);
+    expect(ladder.next(start) == 1 && ladder.falls() == 0,
+           "a station away for a while, with a ragged window on either side, "
+           "changes nothing");
   }
   {
     RateLadder ladder(2);

@@ -430,8 +430,8 @@ reason not found.
 A rate the phone does not take means no connection at all, so the daemon
 chooses (`radio/rate_ladder.h`). Each exchange starts at OWL's rate. It goes
 up a level after four windows of 32 frames that were acknowledged, and back
-down after two in which half were given up on, as the card's release reports
-say (`TxStats::reported` and `given_up` in the fork). A frame given up on
+down when half were given up on, as the card's release reports say
+(`TxStats::reported` and `given_up` in the fork). A frame given up on
 while the station had not been heard for 20 ms is not counted: the phone is
 off the channel for part of every second. In the one run so far 191 frames
 went at 12 Mbit/s, 223 at MCS 7 and 20,063 at the VHT rate, the rate never
@@ -498,6 +498,32 @@ to the phone then go out under an agreement as well, 1,812 frames of them.
 A 151.5 MB video arrived in 9.7 s, 15.6 MB/s as before, at 23 to 25 MB/s
 in its steady seconds, and a 28 MB one in 4.1 s.
 
+The one write left for a frame was the next limit: 17,000 frames a second
+at the peak, with 14 frames to an aggregate. The radio daemon now leaves
+frames in the card's ring and writes the index once the AWDL daemon has no
+more ready, or after 32 (`tx_kick` in the fork), and a frame crosses the
+pipe between the two daemons in one system call a side, not two. That came
+to 7 to 9 frames a write and 33 to 35 to a block ack.
+
+The first long transfer that way showed two things. The rate went down for
+the first time on the card, twice, and wrongly: a phone that leaves the
+channel takes a whole aggregate or two with it, which made two windows in a
+row bad, and each fall cost 2 s at 2 to 5 MB/s before the faster rate was
+tried again. A level is now left when half the frames of eight windows
+failed, and a window in which nothing got through is not counted: a rate
+that is too fast still gets some frames across. And the AWDL daemon dropped
+2,566 received frames unread, its queue of 256 full while it was sending;
+the queue is 2,048 now.
+
+After both, a 144.5 MB video went to the iPhone in 10.0 s, 14.5 MB/s,
+16.3 MB/s on the air, without the rate going down, with 19 notices and
+0.36% of the TCP segments sent twice. The same session sent the 24.5 MB one
+at 9.3 MB/s, and the session before at 11.7. In a 200 ms span with the
+phone on the channel throughout up to 5,502 frames went, about 40 MB/s; the
+spans in which it was away for part of the time carry a third of that. What
+the card holds when the phone leaves is still lost and sent again by TCP,
+which then slows down for a while.
+
 ## Fallback: a small kernel driver
 
 A KMDF driver of a few hundred lines would do all five services properly,
@@ -532,7 +558,7 @@ on the first attempt.
 | AWDL daemon (`awdl/`, OWL core on Windows) | Passed on air 2026-10-11 on channel 6: added the owner's iPhone as a peer, elected it sync master, received its action and data frames while transmitting 24 action frames per second |
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
 | AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44, 1,710 kB/s with block ack, and 6.7 MB/s with joined segments and two streams |
-| AirDrop sender (`airdrop/sender.py`) | First file sent 2026-10-11: a 1.0 MB photo reached the owner's iPhone's Photos, after two attempts that failed at different steps. A 24.5 MB video then went at 2.2 MB/s with the rate chosen by the radio daemon, and at 9.9 MB/s in aggregates |
+| AirDrop sender (`airdrop/sender.py`) | First file sent 2026-10-11: a 1.0 MB photo reached the owner's iPhone's Photos, after two attempts that failed at different steps. A 24.5 MB video then went at 2.2 MB/s with the rate chosen by the radio daemon, then at 9.9 MB/s in aggregates, and a 144.5 MB one at 14.5 MB/s |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.

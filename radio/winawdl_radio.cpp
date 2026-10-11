@@ -73,6 +73,9 @@ constexpr uint8_t kAggregateDensity = 7;
 constexpr std::chrono::milliseconds kStationHeardRecently{20};
 /* More frames than the card holds at once: a longer queue has lost count. */
 constexpr size_t kMostInFlight = 4096;
+/* The card is told of the frames queued for it once the client has no more
+ * ready, and at the latest after this many. */
+constexpr unsigned kMostUntold = 32;
 
 /* Radiotap header put on received frames: FLAGS and DBM_ANTSIGNAL only. */
 constexpr uint8_t kRadiotapBytes = 10;
@@ -637,8 +640,9 @@ void ask_for_aggregates(IRadio &radio, FrameCapture *capture,
 
 /* Serves client messages until the client leaves or the daemon stops. Returns
  * false for a client that sent nothing, such as a probe for the pipe. */
-bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
-                  FrameCapture *capture, uint8_t channel, Logger_t logger) {
+bool serve_client(PipeServer &pipe, IRadio &radio, devourer::PcieTransport &bus,
+                  Session &session, FrameCapture *capture, uint8_t channel,
+                  Logger_t logger) {
   radio_link_hello hello{RADIO_LINK_VERSION, channel, session.width_mhz, {}};
   pipe.send(RADIO_LINK_HELLO,
             {reinterpret_cast<const uint8_t *>(&hello), sizeof(hello)});
@@ -650,8 +654,18 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
   uint64_t messages = 0, sent = 0, failed = 0, to_one = 0, agreements = 0;
   std::optional<OpenBlockAck> open_block_ack;
   radio_link_header header{};
-  while (!stopping() && pipe.read_exact(&header, sizeof(header))) {
+  uint64_t tellings = 0;
+  unsigned untold = 0;
+  const auto tell_card = [&] {
+    tellings += bus.tx_kick();
+    untold = 0;
+  };
+  for (;;) {
+    /* Frames wait in the card's ring while the client has more ready. */
+    if (!pipe.buffered(sizeof(header)) || untold >= kMostUntold) tell_card();
+    if (stopping() || !pipe.read_exact(&header, sizeof(header))) break;
     messages++;
+    untold++;
     if (header.length > RADIO_LINK_MAX_PAYLOAD) {
       logger->error("radio: client sent an oversized message ({} bytes)",
                     header.length);
@@ -691,6 +705,7 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
       answer_block_ack(radio, pipe, session, capture, rates, ended,
                        open_block_ack, agreements);
   }
+  tell_card();
   radio.ClearAmpduMode();
   radio.EndBlockAck();
   session.reorder.stop(pipe);
@@ -711,6 +726,10 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
     logger->warn("radio: data frames a station acknowledged: {}; the rate "
                  "went up {} times and back down {} times",
                  by_rate, rates.ladder().climbs(), rates.ladder().falls());
+    if (tellings)
+      logger->warn("radio: told the card of queued frames {} times, {} "
+                   "frames a time",
+                   tellings, sent / tellings);
     if (session.aggregate)
       logger->warn("radio: asked {} times for aggregates, sent {} frames as "
                    "part of an agreement, heard {} block acks, moved the "
@@ -843,6 +862,8 @@ int main(int argc, char **argv) {
   bus.tx_quick_submit = options->quick_submit;
   auto transport = devourer::PcieTransport::Open("win", logger, bus);
   if (!transport) return 1;
+  /* The driver owns it from here on; this is for the calls no radio has. */
+  const std::shared_ptr<devourer::PcieTransport> card = transport;
   WiFiDriver driver(logger);
   devourer::DeviceConfig config;
   config.tx.retry_limit = options->retries;
@@ -878,8 +899,10 @@ int main(int argc, char **argv) {
   logger->set_level(Logger::Level::Warn);
   bool served = false;
   while (!stopping() && !served && pipe.wait_for_client()) {
-    served =
-        serve_client(pipe, *radio, session, capture.get(), channel, logger);
+    card->set_tx_kick_deferred(options->quick_submit);
+    served = serve_client(pipe, *radio, *card, session, capture.get(), channel,
+                          logger);
+    card->set_tx_kick_deferred(false);
     pipe.drop_client();
   }
   logger->set_level(Logger::Level::Info);

@@ -9,8 +9,8 @@ frames in monitor mode from an ordinary Windows program. On top of it the AWDL
 daemon joins the AWDL channel, finds nearby Apple devices, synchronises with
 them and carries IPv6 traffic to and from them. An AirDrop receiver on top of
 that has received photos, a 28 MB video and a Live Photo from an iPhone, at
-about 16 MB/s, and a sender has put files into the iPhone's Photos at about
-10 MB/s. All of it has run on one machine with one card. Read
+about 16 MB/s, and a sender has put files into the iPhone's Photos at 9 to
+14 MB/s. All of it has run on one machine with one card. Read
 [DESIGN-NOTES.md](DESIGN-NOTES.md) for the design, the
 measurements, the open risks and the safety notes before installing anything.
 
@@ -149,8 +149,9 @@ unlocked, and with `awdl-run.ps1` running:
 ```
 
 It needs the computer's Bluetooth to wake the receiver, and the firewall
-rules above. One 24.5 MB video went at 9.9 MB/s. Three things make up that
-speed, each with a switch on `awdl-run.ps1`: the rate of outgoing data
+rules above. A 144.5 MB video went at 14.5 MB/s and a 24.5 MB one at 9 to
+12 MB/s. Three things make up that speed, each with a switch on
+`awdl-run.ps1`: the rate of outgoing data
 frames follows what the receiver acknowledges (`-DataRate` fixes it), the
 receiver is asked to take those frames in aggregates (`-NoAggregate`), and
 the card is handed frames fast enough to fill them (`-NoQuickSubmit`).

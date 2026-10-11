@@ -10,7 +10,7 @@
 #include "log.h"
 #include "radio_link.h"
 
-#define SLOT_COUNT 256
+#define SLOT_COUNT 2048
 #define CONNECT_TIMEOUT_MS 15000
 #define CONNECT_RETRY_MS 100
 #define HELLO_TIMEOUT_MS 10000
@@ -227,9 +227,19 @@ int radio_client_has_frame(struct radio_client *client) {
 int radio_client_send(struct radio_client *client, uint16_t type, const uint8_t *payload,
 		      uint32_t length) {
 	struct radio_link_header header = {.type = type, .length = length};
+	/* Header and frame in one write: one system call a frame, not two. */
+	static uint8_t message[sizeof(struct radio_link_header) + RADIO_CLIENT_MAX_FRAME];
+	BOOL ok;
 	EnterCriticalSection(&client->write_lock);
-	BOOL ok = write_all(client, &header, sizeof(header)) &&
-		  (length == 0 || write_all(client, payload, length));
+	if (length <= RADIO_CLIENT_MAX_FRAME) {
+		memcpy(message, &header, sizeof(header));
+		if (length)
+			memcpy(message + sizeof(header), payload, length);
+		ok = write_all(client, message, (DWORD) sizeof(header) + length);
+	} else {
+		ok = write_all(client, &header, sizeof(header)) &&
+		     write_all(client, payload, length);
+	}
 	LeaveCriticalSection(&client->write_lock);
 	return ok ? 0 : -1;
 }

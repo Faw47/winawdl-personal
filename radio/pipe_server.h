@@ -7,12 +7,15 @@
 #define NOMINMAX
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <mutex>
 #include <span>
 #include <string>
+#include <vector>
 
 #include "radio_link.h"
 
@@ -63,21 +66,23 @@ public:
   /* Frees the single pipe instance for the next client. */
   void drop_client() {
     _connected = false;
+    _taken = _filled = 0;
     DisconnectNamedPipe(_handle);
   }
+
+  /* Whether read_exact would hand over `length` bytes without waiting for
+   * the client: they were read along with what came before them. */
+  bool buffered(DWORD length) const { return _filled - _taken >= length; }
 
   bool read_exact(void *data, DWORD length) {
     auto *bytes = static_cast<uint8_t *>(data);
     while (length > 0) {
-      OVERLAPPED io{};
-      io.hEvent = _read_event;
-      DWORD got = 0;
-      if (!ReadFile(_handle, bytes, length, &got, &io) &&
-          (GetLastError() != ERROR_IO_PENDING || !finish(io, got)))
-        return disconnect();
-      if (got == 0) return disconnect();
-      bytes += got;
-      length -= got;
+      if (_taken == _filled && !refill()) return false;
+      const DWORD step = (std::min)(length, _filled - _taken);
+      std::memcpy(bytes, _in.data() + _taken, step);
+      _taken += step;
+      bytes += step;
+      length -= step;
     }
     return true;
   }
@@ -87,8 +92,12 @@ public:
     std::lock_guard<std::mutex> lock(_write_mutex);
     const radio_link_header header{static_cast<uint16_t>(type), 0,
                                    static_cast<uint32_t>(payload.size())};
-    return write_all(&header, sizeof(header)) &&
-           write_all(payload.data(), static_cast<DWORD>(payload.size()));
+    /* One write for the two: a frame is then one system call, not two. */
+    _out.resize(sizeof(header) + payload.size());
+    std::memcpy(_out.data(), &header, sizeof(header));
+    if (!payload.empty())
+      std::memcpy(_out.data() + sizeof(header), payload.data(), payload.size());
+    return write_all(_out.data(), static_cast<DWORD>(_out.size()));
   }
 
 private:
@@ -98,6 +107,20 @@ private:
   bool disconnect() {
     _connected = false;
     return false;
+  }
+
+  /* Reads all the client has written so far, waiting for the first byte. */
+  bool refill() {
+    OVERLAPPED io{};
+    io.hEvent = _read_event;
+    DWORD got = 0;
+    if (!ReadFile(_handle, _in.data(), kBufferBytes, &got, &io) &&
+        (GetLastError() != ERROR_IO_PENDING || !finish(io, got)))
+      return disconnect();
+    if (got == 0) return disconnect();
+    _taken = 0;
+    _filled = got;
+    return true;
   }
 
   bool finish(OVERLAPPED &io, DWORD &transferred) {
@@ -132,4 +155,7 @@ private:
   HANDLE _write_event = nullptr;
   std::atomic<bool> _connected{false};
   std::mutex _write_mutex;
+  std::vector<uint8_t> _out; /* under _write_mutex */
+  std::vector<uint8_t> _in = std::vector<uint8_t>(kBufferBytes);
+  DWORD _taken = 0, _filled = 0;
 };
