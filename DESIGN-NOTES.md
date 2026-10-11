@@ -280,7 +280,8 @@ packets although they exceed the adapter's MTU of 1450.
 | Block ack, one stream | 1.9 MB/s |
 | With joining | 3.0 MB/s, one acknowledgement per 7 segments, 21 frames per aggregate |
 | With joining, two streams and the short guard interval | 6.7 MB/s for 30 MB, 5.9 MB/s for 131 MB, about 30 frames per aggregate |
-| The same on a 40 MHz channel | 12.3 MB/s for 30 MB, 45 frames per aggregate, 37 us per frame against 90 |
+| The same on a 40 MHz channel | 12.3 MB/s for 30 MB and 13.7 MB/s for 103 MB, 45 frames per aggregate, 37 us per frame against 90 |
+| Tuned to 80 MHz, with VHT capabilities announced | 15.9 MB/s for 103 MB, about 100 frames per RTS, 31 us per frame |
 
 Tried on the way and dropped:
 
@@ -294,18 +295,25 @@ OWL passes on its whole 1518-byte buffer for each received packet, and up to
 68 bytes of whatever lay behind the packet went to the adapter with it.
 `host_frame_ip6` now cuts at the length the IPv6 header gives.
 
-On 5 GHz the radio daemon tunes the card to 40 MHz, channel 44 with 48, and
-the daemon then leaves OWL's 40 MHz capabilities as they are. For that the
+On 5 GHz the radio daemon tunes the card wider than 20 MHz, and the daemon
+then leaves OWL's 40 MHz capabilities as they are. For that the
 MAC has to be told the width and where the primary 20 MHz lies, which
 devourer's `set_channel` did not do (see `set_channel_mac` in the fork). The
 capture labels these frames 20 MHz all the same: the width it records from
 the receive descriptor is not to be trusted.
 
-What still separates this from two Apple devices: 80 MHz and its faster
-modulation are not announced, about 40% of each cycle goes to the
-acknowledgement, and the iPhone is on the channel a little over half the
-time. Its schedule keeps slots for channels 6 and 149 and for its access
-point's channel.
+At 40 MHz an aggregate stops at about 64 KiB, the most an HT station can
+announce. Tuned to 80 MHz, the daemon therefore appends VHT capabilities to
+the frames that carry OWL's HT ones, in the TLV an iPhone uses for its own
+(`frame_fixup.c`): two streams up to MCS 9 and A-MPDUs of up to 1 MiB. The
+iPhone then sends VHT MCS 9 in bursts of about 100 frames, at 31 us a frame.
+That is the 40 MHz rate: it does not send 80 MHz frames, for a reason not
+found. The card is tuned to 80 MHz all the same, so that it could take them.
+
+What still separates this from two Apple devices: the iPhone keeps to
+40 MHz, about 30% of each cycle goes to the acknowledgement, and the iPhone
+is on the channel about half the time. Its schedule keeps slots for
+channels 6 and 149 and for its access point's channel.
 
 ## The AirDrop layer
 

@@ -428,7 +428,7 @@ std::optional<Options> parse_options(int argc, char **argv) {
   /* 40 MHz pairs a 5 GHz channel with the one above it, 80 MHz takes its
    * block of four; 2.4 GHz stays narrow. */
   const bool wide_fits = options.channel > kLast2GChannel;
-  if (options.width_mhz == 0) options.width_mhz = wide_fits ? 40 : 20;
+  if (options.width_mhz == 0) options.width_mhz = wide_fits ? 80 : 20;
   const bool wide = options.width_mhz == 40 || options.width_mhz == 80;
   if (options.width_mhz != 20 && !(wide && wide_fits)) return std::nullopt;
   return options;

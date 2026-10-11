@@ -6,8 +6,7 @@
 # -Streams 1 and -LongGuard announce slower reception. -Join is how many
 # microseconds the daemon waits for the next TCP segment of a burst before it
 # hands Windows the joined ones; 0 hands each over as it comes.
-# -Width 20 keeps a 5 GHz channel at 20 MHz, where it is 40 unless told.
-# -Width 80 is experimental.
+# -Width 20 or 40 narrows a 5 GHz channel, which is 80 MHz unless told.
 param([ValidateSet(6, 44, 149)][int]$Channel = 44, [switch]$Detail, [switch]$Redact,
       [string]$Capture, [switch]$NoBlockAck, [ValidateSet(1, 2)][int]$Streams = 2,
       [switch]$LongGuard, [ValidateRange(0, 3000)][int]$Join = 400,
