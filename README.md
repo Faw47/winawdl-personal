@@ -65,6 +65,9 @@ found by itself. Its tests run without hardware:
 py -m unittest discover -s airdrop\tests
 ```
 
+C and C++ sources follow the `.clang-format` files, and the Python is checked
+with `ruff check airdrop` against `airdrop\ruff.toml`.
+
 The AWDL daemon hands traffic to Windows through
 [Wintun](https://www.wintun.net/), WireGuard's virtual network adapter.
 `scripts\fetch-wintun.ps1` downloads version 0.14.1, checks its published hash
