@@ -139,7 +139,7 @@ and reading that share, 2026-10-11:
   using, and devourer does not set up coexistence on the 8852C. Which of the
   two bits is the one that matters was not separated.
 
-`HalKestrel::set_station_identity` in the devourer patch does these three
+`HalKestrel::set_station_identity` in the devourer fork does these three
 things, behind `IRadio::SetStationIdentity`, and the radio daemon calls it as
 soon as its client has given its address and BSSID. Reception then narrows
 from every frame to those for the client, broadcast and multicast, which is
@@ -267,24 +267,24 @@ needs no adapter.
 | Sign the driver package (`scripts/package-driver.ps1`) | Done, with a local non-exportable code-signing certificate |
 | Trust the certificate and bind the driver (`scripts/install-driver.ps1`) | Done 2026-10-11, from an elevated prompt. `scripts/uninstall-driver.ps1` reverts |
 | `tools/regproxy_test`: open the proxy, check the chip ID | Passed 2026-10-11: die id 0x52, cut 1, register space readable |
-| Windows backend for devourer's `PcieTransport` (`patches/devourer`) | Written, builds with MSVC, untested on hardware |
+| Windows backend for devourer's `PcieTransport` (`upstream/devourer`, branch `winawdl/pcie-windows`) | Written, builds with MSVC. The rows below are its hardware tests |
 | DMA under Kernel DMA Protection (`pcieprobe win fw`) | Passed 2026-10-11: firmware downloaded and booted on the first attempt |
 | Receive frames in monitor mode (`scripts/rx-test.ps1`) | Passed 2026-10-11: 1140 frames on channel 6, first frame 981 ms after launch, clean shutdown |
 | Transmit frames (`scripts/tx-test.ps1`) | Passed 2026-10-11: 500 submitted, 0 failed, 499 release reports with status done, while receiving 1364 frames |
 | Hear AWDL devices (`radio/awdl_sniff`) | Passed 2026-10-11: the owner's iPhone heard on channel 6 (97 PSF, 50 MIF, 14 data frames in 40 s) and on channel 44 (38 MIF), same AWDL address on both |
-| Hardware ACK of unicast frames addressed to us | Found 2026-10-11 by sweep: 0% repeated frames once responses stop waiting for Bluetooth, against 85% before. Now applied by the radio daemon in every session; that permanent form has not run on the card yet |
+| Hardware ACK of unicast frames addressed to us | Found 2026-10-11 by sweep: 0% repeated frames once responses stop waiting for Bluetooth, against 85% before. Now applied by the radio daemon in every session: one such session received 41,968 data frames, 4% of them repeats |
 | Radio daemon (`radio/winawdl_radio`) serving frames over a named pipe | Passed 2026-10-11: 827 frames transmitted for its client, none failed |
 | AWDL daemon (`awdl/`, OWL core on Windows) | Passed on air 2026-10-11 on channel 6: added the owner's iPhone as a peer, elected it sync master, received its action and data frames while transmitting 24 action frames per second |
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
-| AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s |
+| AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.
 
 ## Practical notes
 
-- Reference clones live in `upstream/` and are not tracked: devourer, OWL and
-  omdrop-plugin.
+- devourer and OWL are submodules under `upstream/`. A reference clone of
+  omdrop-plugin may sit beside them; it is not tracked.
 - Installed: Visual Studio Build Tools 2019 and 2022, Windows SDK and WDK
   10.0.26100, CMake, Ninja.
 - Build scripts do not rely on `vcvars64.bat`. They call `cl.exe` with

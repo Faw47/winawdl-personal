@@ -1,10 +1,13 @@
-# Builds the radio-side programs and the patched devourer into build\radio.
+# Builds the radio-side programs and devourer (upstream\devourer) into build\radio.
 # The devourer_demos target is devourer's rxdemo, txdemo and pcieprobe.
 param([string[]]$Targets = @('winawdl_radio', 'awdl_sniff', 'pipe_server_test', 'dma_address_test', 'devourer_demos'))
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path $PSScriptRoot -Parent
 $build = "$repo\build\radio"
+if (-not (Test-Path "$repo\upstream\devourer\CMakeLists.txt")) {
+  throw 'devourer sources missing: run "git submodule update --init --recursive".'
+}
 
 # The vcpkg that ships with the Build Tools only works from a manifest.
 $env:VCPKG_ROOT = 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\vcpkg'

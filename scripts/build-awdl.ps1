@@ -7,7 +7,7 @@ $build = "$repo\build\awdl"
 $mingw = 'C:\Strawberry\c\bin'
 if (-not (Test-Path "$mingw\gcc.exe")) { throw "MinGW-w64 GCC not found in $mingw" }
 if (-not (Test-Path "$repo\upstream\owl\radiotap\radiotap.c")) {
-  throw 'OWL radiotap sources missing: run "git submodule update --init radiotap" in upstream\owl.'
+  throw 'OWL radiotap sources missing: run "git submodule update --init --recursive".'
 }
 
 # GCC loads its own helper DLLs from the directory it lives in.

@@ -7,9 +7,8 @@ This is research code. The radio works: the card receives and transmits Wi-Fi
 frames in monitor mode from an ordinary Windows program. On top of it the AWDL
 daemon joins the AWDL channel, finds nearby Apple devices, synchronises with
 them and carries IPv6 traffic to and from them. An AirDrop receiver on top of
-that has received a photo from an iPhone. That transfer was slow and
-unreliable because the card did not acknowledge frames; the fix for that has
-been found but not yet tried on a transfer. Read
+that has received photos, a 28 MB video and a Live Photo from an iPhone, at
+300 to 430 kB/s. All of it has run on one machine with one card. Read
 [DESIGN-NOTES.md](DESIGN-NOTES.md) for the design, the
 measurements, the open risks and the safety notes before installing anything.
 
@@ -32,16 +31,22 @@ measurements, the open risks and the safety notes before installing anything.
 | Piece | What it does |
 |---|---|
 | `driver/regproxy` | User-mode (UMDF 2) driver bound to the card. Relays register accesses and stops the chip's DMA if its client dies |
-| `patches/devourer` | Windows PCIe backend for [devourer](https://github.com/OpenIPC/devourer), the user-space Realtek driver that runs the chip |
-| `radio` | Programs built on the patched devourer, including the radio daemon `winawdl_radio` |
-| `awdl` | The AWDL daemon `awdld`: [OWL](https://github.com/seemoo-lab/owl)'s protocol core with a Windows I/O layer |
+| `upstream/devourer` | Submodule: a fork of [devourer](https://github.com/OpenIPC/devourer), the user-space Realtek driver that runs the chip, with a Windows PCIe backend on its `winawdl/pcie-windows` branch |
+| `radio` | Programs built on that devourer, including the radio daemon `winawdl_radio` |
+| `upstream/owl` | Submodule: [OWL](https://github.com/seemoo-lab/owl), unmodified |
+| `awdl` | The AWDL daemon `awdld`: OWL's protocol core with a Windows I/O layer |
 | `airdrop` | The AirDrop receiver, adapted from [omdrop](https://github.com/brentkearney/omdrop-plugin): service announcement and the HTTPS endpoints senders talk to |
 | `tools`, `probes` | Small clients of the driver and one-off measurements |
 | `scripts` | Build, packaging, install and test helpers |
 | `deps` | Pinned vcpkg manifest for devourer's dependencies, and Wintun once fetched |
-| `upstream` | Clones of devourer, OWL and omdrop. Not tracked. The patch applies to the devourer commit named in `patches/devourer/BASE` |
 
 ## Building
+
+Clone with the submodules:
+
+```powershell
+git clone --recurse-submodules https://github.com/raph559/winawdl.git
+```
 
 Requires Visual Studio Build Tools 2022 with its bundled vcpkg, CMake, the
 Windows SDK, the Windows Driver Kit 10.0.26100, and MinGW-w64 GCC for the AWDL
@@ -50,8 +55,8 @@ daemon (the build script expects the one in `C:\Strawberry\c\bin`).
 ```powershell
 .\driver\regproxy\build.ps1   # the driver
 .\tools\build.ps1             # driver test clients and probes
-.\scripts\build-radio.ps1     # patched devourer, its demos, and radio\
-.\scripts\build-awdl.ps1      # the AWDL daemon; needs OWL's radiotap submodule
+.\scripts\build-radio.ps1     # devourer, its demos, and radio\
+.\scripts\build-awdl.ps1      # the AWDL daemon
 ```
 
 All four only compile. `awdl\tests\fake-radio.ps1` then exercises the AWDL
@@ -119,12 +124,12 @@ rules.
 Everything is MIT-licensed ([LICENSE](LICENSE)) except two folders that
 build on copyleft projects:
 
-- `radio` and `patches/devourer` link or modify devourer and are
-  GPL-2.0-only. `radio/radio_link.h`, the protocol between the two daemons,
-  is MIT so that both sides may include it.
+- `radio` links devourer and is GPL-2.0-only. `radio/radio_link.h`, the
+  protocol between the two daemons, is MIT so that both sides may include it.
 - `awdl` builds on OWL and is GPL-3.0-or-later.
 
 `airdrop` is adapted from omdrop and carries omdrop's own MIT notice in
 `airdrop/LICENSE`. Wintun's prebuilt DLL comes under its own license, copied
 next to it by the fetch script; it is loaded at run time and is not part of
-this repository.
+this repository. The submodules keep their own licenses: devourer GPL-2.0,
+OWL GPL-3.0.
