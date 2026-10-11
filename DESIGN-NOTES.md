@@ -315,6 +315,26 @@ What still separates this from two Apple devices: the iPhone keeps to
 is on the channel about half the time. Its schedule keeps slots for
 channels 6 and 149 and for its access point's channel.
 
+### Retries
+
+devourer sends a frame once unless told otherwise (`tx.retry_limit` in its
+`DeviceConfig`), which suits the broadcast video links it was written for.
+Here it meant that a reply lost on the air stayed lost until Windows repeated
+it, a second later at the earliest. In one session of five photos the answer
+to the iPhone's connection request went missing for two of them: one upload
+started 1.0 s late, and one never connected after three answers in a row were
+lost. Windows sent 8 of its 46 segments twice.
+
+The radio daemon now asks the card for 7 retries, a station's usual number
+(`-Retries` on `awdl-run.ps1`). In the next session of five photos every
+connection request was answered at the first try, and Windows sent none of
+its 41 segments twice. That is one session each.
+
+An iPhone repeats a connection request 33 ms after the first, and doubles
+that wait from the sixth on, up to 2 s. Several copies in one aggregate
+therefore mean a fraction of a second spent off the channel. The capture
+keeps the whole TCP header for this: the timestamp option dates each copy.
+
 ## The AirDrop layer
 
 `airdrop/` is the receiving half of omdrop, adapted for Windows. omdrop's

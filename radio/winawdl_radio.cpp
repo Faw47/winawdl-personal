@@ -2,7 +2,7 @@
 /* Radio daemon: owns the Wi-Fi card through devourer and relays frames for one
  * client over the pipe in radio_link.h.
  * Usage: winawdl_radio <channel> [--width 20|40|80] [--capture file.pcap]
- *        [--no-block-ack] */
+ *        [--no-block-ack] [--retries 0..62] */
 
 #include <array>
 #include <atomic>
@@ -42,6 +42,10 @@ constexpr uint8_t kFrameTypeMask = 0x0C;
 constexpr uint8_t kFrameTypeData = 0x08;
 constexpr uint8_t kRetryFlag = 0x08;
 constexpr uint8_t kLast2GChannel = 14;
+/* How often a station usually repeats an unacknowledged frame. devourer's
+ * default is never: its video links are broadcast. */
+constexpr int kDefaultRetries = 7;
+constexpr int kMostRetries = 62;
 constexpr size_t kSenderOffset = 10;
 constexpr size_t kSequenceOffset = 22;
 constexpr uint8_t kFrameControlQosData = 0x88;
@@ -408,6 +412,7 @@ struct Options {
   std::string capture_path;
   bool block_ack = true;
   uint8_t width_mhz = 0; /* 0: the widest the channel allows */
+  int retries = kDefaultRetries;
 };
 
 std::optional<Options> parse_options(int argc, char **argv) {
@@ -422,6 +427,8 @@ std::optional<Options> parse_options(int argc, char **argv) {
       options.capture_path = argv[++i];
     else if (argument == "--width" && i + 1 < argc)
       options.width_mhz = static_cast<uint8_t>(std::atoi(argv[++i]));
+    else if (argument == "--retries" && i + 1 < argc)
+      options.retries = std::atoi(argv[++i]);
     else
       return std::nullopt;
   }
@@ -431,6 +438,8 @@ std::optional<Options> parse_options(int argc, char **argv) {
   if (options.width_mhz == 0) options.width_mhz = wide_fits ? 80 : 20;
   const bool wide = options.width_mhz == 40 || options.width_mhz == 80;
   if (options.width_mhz != 20 && !(wide && wide_fits)) return std::nullopt;
+  if (options.retries < 0 || options.retries > kMostRetries)
+    return std::nullopt;
   return options;
 }
 
@@ -441,7 +450,7 @@ int main(int argc, char **argv) {
   if (!options) {
     std::fprintf(stderr,
                  "usage: %s <channel> [--width 20|40|80] [--capture file.pcap] "
-                 "[--no-block-ack]\n",
+                 "[--no-block-ack] [--retries 0..62]\n",
                  argv[0]);
     return 2;
   }
@@ -469,8 +478,9 @@ int main(int argc, char **argv) {
   auto transport = devourer::PcieTransport::Open("win", logger);
   if (!transport) return 1;
   WiFiDriver driver(logger);
-  auto radio =
-      driver.CreateRadioPcie(std::move(transport), devourer::DeviceConfig{});
+  devourer::DeviceConfig config;
+  config.tx.retry_limit = options->retries;
+  auto radio = driver.CreateRadioPcie(std::move(transport), config);
   if (!radio) return 1;
 
   try {
