@@ -1,0 +1,2452 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a3c66b1..c36702f 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -43,7 +43,9 @@ option(DEVOURER_KESTREL_8852C "RTL8852CU / 8832CU (Kestrel 11ax, G6)"
+ # parts (RTL8812AE/8821AE) CANNOT — pre-HalMAC silicon with the older
+ # rtlwifi-style own-bit descriptor DMA, a different engine.
+ # OFF by default — libusb-only builds are bit-identical.
+-option(DEVOURER_PCIE          "PCIe transport via vfio-pci (Linux; RTL8821CE, RTL8852CE)"  OFF)
++option(DEVOURER_PCIE          "PCIe transport (Linux vfio-pci: RTL8821CE, RTL8852CE; Windows register proxy: RTL8852CE)"  OFF)
++set(DEVOURER_REGPROXY_INCLUDE_DIR "" CACHE PATH
++    "Windows PCIe only: directory holding the register proxy driver's regproxy_ioctl.h")
+ # MediaTek MT7612U / MT7662U — the first non-Realtek part. Compiles the
+ # src/mt7612u subtree (its own C++ library with a C ABI, landed unwired in #412)
+ # into libdevourer along with Mt7612uRadio, the IRadio backend WiFiDriver
+@@ -110,8 +112,22 @@ if(NOT DEVOURER_JAGUAR1 AND NOT DEVOURER_JAGUAR2 AND NOT DEVOURER_JAGUAR3
+         "/ DEVOURER_KESTREL_8852C.")
+ endif()
+ if(DEVOURER_PCIE)
+-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+-        message(FATAL_ERROR "DEVOURER_PCIE=ON requires Linux (vfio-pci).")
++    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" AND NOT WIN32)
++        message(FATAL_ERROR
++            "DEVOURER_PCIE=ON requires Linux (vfio-pci) or Windows (register proxy).")
++    endif()
++    if(WIN32)
++        if(NOT DEVOURER_KESTREL_8852C)
++            message(FATAL_ERROR
++                "DEVOURER_PCIE=ON on Windows requires DEVOURER_KESTREL_8852C=ON: "
++                "only the AX plane is ported there (the 88xx plane waits on an "
++                "eventfd).")
++        endif()
++        if(NOT EXISTS "${DEVOURER_REGPROXY_INCLUDE_DIR}/regproxy_ioctl.h")
++            message(FATAL_ERROR
++                "DEVOURER_PCIE=ON on Windows needs DEVOURER_REGPROXY_INCLUDE_DIR "
++                "pointing at the register proxy driver's regproxy_ioctl.h.")
++        endif()
+     endif()
+     if(NOT DEVOURER_JAGUAR2_8821C AND NOT DEVOURER_KESTREL_8852C)
+         message(FATAL_ERROR
+@@ -413,12 +429,26 @@ if(DEVOURER_MT7612U)
+     target_compile_definitions(devourer PUBLIC DEVOURER_HAVE_MT7612U=1)
+ endif()
+ 
+-# --- PCIe transport (vfio-pci; see src/PcieTransport.h) ---
++# sleep_for cannot wait less than a scheduler tick on Windows.
++target_sources(devourer PRIVATE src/PreciseDelay.h)
++if(WIN32)
++    target_sources(devourer PRIVATE src/PreciseDelayWin.cpp)
++endif()
++
++# --- PCIe transport (one host backend per OS; see src/PcieTransport.h) ---
+ if(DEVOURER_PCIE)
+     target_sources(devourer PRIVATE
+         src/PcieTransport.cpp src/PcieTransport.h src/PcieDmaPlane.h
+         src/PcieDmaUtil.h)
+-    if(DEVOURER_JAGUAR2_8821C)
++    if(WIN32)
++        target_sources(devourer PRIVATE src/PcieTransportWin.cpp)
++        target_include_directories(devourer PRIVATE
++            "${DEVOURER_REGPROXY_INCLUDE_DIR}")
++        target_link_libraries(devourer PUBLIC setupapi)
++    else()
++        target_sources(devourer PRIVATE src/PcieTransportVfio.cpp)
++    endif()
++    if(DEVOURER_JAGUAR2_8821C AND NOT WIN32)
+         target_sources(devourer PRIVATE src/PcieDma88xx.cpp src/PcieDma88xx.h)
+     endif()
+     if(DEVOURER_KESTREL_8852C)
+@@ -619,7 +649,7 @@ endif()
+ # pcieprobe — staged PCIe bring-up driver for the RTL8821CE / RTL8852CE
+ # milestones (id/MMIO sanity -> power-on + EFUSE -> firmware download). rxdemo's
+ # DEVOURER_PCIE_BDF branch is the full-RX consumer; this probe validates the
+-# layers below it one at a time. Linux/vfio only.
++# layers below it one at a time.
+ if(DEVOURER_PCIE)
+     add_executable(pcieprobe
+         examples/pcieprobe/main.cpp
+@@ -630,7 +660,7 @@ endif()
+ # kestrel_tbtt_probe — bench probe for the AX beacon TBTT vs port-TSF semantics
+ # (two RTL8852CEs: one beacons, the other reads the on-air egress TSF). The
+ # ground truth behind Kestrel's PinBeaconTbtt.
+-if(DEVOURER_PCIE AND DEVOURER_KESTREL_8852C)
++if(DEVOURER_PCIE AND DEVOURER_KESTREL_8852C AND NOT WIN32)
+     add_executable(kestrel_tbtt_probe
+         tests/kestrel_tbtt_probe.cpp
+     )
+@@ -638,7 +668,7 @@ if(DEVOURER_PCIE AND DEVOURER_KESTREL_8852C)
+ endif()
+ # pcie_ptp_tsf_discipline — the AP-beacon → PTP loop for TSF-locked-TBTT parts
+ # (actuator = the TSF itself); sibling of tests/pcie_ptp_beacon.cpp.
+-if(DEVOURER_PCIE)
++if(DEVOURER_PCIE AND NOT WIN32)
+     add_executable(pcie_ptp_tsf_discipline
+         tests/pcie_ptp_tsf_discipline.cpp
+     )
+diff --git a/examples/pcieprobe/main.cpp b/examples/pcieprobe/main.cpp
+index 9baba80..6b3da66 100644
+--- a/examples/pcieprobe/main.cpp
++++ b/examples/pcieprobe/main.cpp
+@@ -38,16 +38,6 @@
+ #include "kestrel/ChipVariant.h"
+ #include "kestrel/HalKestrel.h"
+ #endif
+-#include <fstream>
+-
+-/* PCI device id from sysfs — the AX dies dispatch id-first (kestrel/CLAUDE.md:
+- * 0x00FC is R_AX_SYS_CHIPINFO there, not the Jaguar chip-id). */
+-static uint16_t pci_device_id(const std::string &bdf) {
+-  std::ifstream f("/sys/bus/pci/devices/" + bdf + "/device");
+-  unsigned v = 0;
+-  f >> std::hex >> v;
+-  return static_cast<uint16_t>(v);
+-}
+ 
+ #if defined(DEVOURER_HAVE_KESTREL_8852C)
+ /* RTL8852CE (Kestrel, AX): M0 die-id + cut, M1 = HalKestrel PCIe power-on
+@@ -189,8 +179,11 @@ int main(int argc, char **argv) {
+   }
+ 
+   /* ---- stage id (M0): pure MMIO register plane, no power, no DMA ---- */
++  /* The AX dies dispatch id-first (kestrel/CLAUDE.md: 0x00FC is
++   * R_AX_SYS_CHIPINFO there, not the Jaguar chip-id). */
++  const uint16_t pci_did = transport->pci_device_id();
+   RtlAdapter adapter(transport, logger, {});
+-  if (pci_device_id(bdf) == 0xC852) {
++  if (pci_did == 0xC852) {
+ #if defined(DEVOURER_HAVE_KESTREL_8852C)
+     return probe_8852c(adapter, logger, want);
+ #else
+@@ -200,7 +193,7 @@ int main(int argc, char **argv) {
+   }
+ #if !defined(DEVOURER_HAVE_JAGUAR2_8821C)
+   logger->error("PCI device {:04x} is not an RTL8852CE and 8821C support is not "
+-                "compiled in", pci_device_id(bdf));
++                "compiled in", pci_did);
+   return 1;
+ #else
+   const uint8_t chip_id = adapter.rtw_read8(0x00FC);
+diff --git a/src/PcieDma88xx.cpp b/src/PcieDma88xx.cpp
+index 588292a..3144660 100644
+--- a/src/PcieDma88xx.cpp
++++ b/src/PcieDma88xx.cpp
+@@ -143,7 +143,14 @@ size_t PcieDma88xx::slab_bytes() const {
+   return page_align(off_rxbuf + static_cast<size_t>(rxn) * _rx_buf_size);
+ }
+ 
+-bool PcieDma88xx::attach(uint8_t *slab, uint64_t slab_iova) {
++bool PcieDma88xx::attach(const DmaSlab &dma) {
++  /* The bounce buffers and RX buffers here are laid out for one bus run. */
++  if (dma.chunk_bytes != 0) {
++    _logger->error("PcieDma88xx: a chunked DMA slab is not supported");
++    return false;
++  }
++  uint8_t *const slab = dma.va;
++  const uint64_t slab_iova = dma.iova(0);
+   const uint32_t rxn = _rx_ring_len;
+   size_t off_txbd = 0;
+   size_t off_bounce = off_txbd + Q_MAX * PAGE_SZ;
+diff --git a/src/PcieDma88xx.h b/src/PcieDma88xx.h
+index b6141e8..87ddfdf 100644
+--- a/src/PcieDma88xx.h
++++ b/src/PcieDma88xx.h
+@@ -38,7 +38,7 @@ public:
+ 
+   const char *name() const override { return "88xx-bd"; }
+   size_t slab_bytes() const override;
+-  bool attach(uint8_t *slab_va, uint64_t slab_iova) override;
++  bool attach(const DmaSlab &slab) override;
+   void setup_rings() override;
+   int tx_submit(uint8_t hint, uint8_t *buf, size_t len,
+                 int timeout_ms) override;
+diff --git a/src/PcieDmaAx.cpp b/src/PcieDmaAx.cpp
+index e581fb1..d620968 100644
+--- a/src/PcieDmaAx.cpp
++++ b/src/PcieDmaAx.cpp
+@@ -6,9 +6,11 @@
+ #include <string>
+ #include <thread>
+ 
++#include "PcieDmaAxDesc.h"
+ #include "PcieDmaUtil.h"
+ #include "PcieTransport.h"
+ #include "kestrel/FrameParserKestrel.h"
++#include "kestrel/MacRegAx.h"
+ 
+ namespace devourer {
+ 
+@@ -50,8 +52,7 @@ constexpr uint16_t TXBD_OPTION_LS = 1u << 14;
+ constexpr uint16_t TXWP_VALID = 1u << 15;
+ constexpr uint32_t ADDR_INFO_NR_MAX = 10;        /* RTW89_TXADDR_INFO_NR_V1 */
+ constexpr uint32_t ADDR_INFO_LEN_MAX = 2044;     /* TXADDR_INFO_LENTHG_V1_MAX */
+-constexpr uint16_t ADDR_INFO_LS = 1u << 15;      /* B_PCIADDR_LS_V1_MASK */
+-constexpr uint32_t ADDR_INFO_SZ = 6;
++constexpr uint32_t ADDR_INFO_SZ = pcie_ax::kAddrInfoBytes;
+ constexpr uint32_t WP_INFO_SZ = 8;
+ constexpr uint32_t RXBD_INFO_FS = 1u << 15;
+ constexpr uint32_t RXBD_INFO_LS = 1u << 14;
+@@ -88,38 +89,46 @@ inline void wr_le16(uint8_t *p, uint16_t v) {
+   p[0] = static_cast<uint8_t>(v);
+   p[1] = static_cast<uint8_t>(v >> 8);
+ }
+-/* 8-byte BD {le16 a, le16 b, le32 dma} as volatile byte stores. */
+-inline void bd_write(volatile uint8_t *e, uint16_t a, uint16_t b, uint32_t dma) {
+-  e[0] = static_cast<uint8_t>(a);
+-  e[1] = static_cast<uint8_t>(a >> 8);
+-  e[2] = static_cast<uint8_t>(b);
+-  e[3] = static_cast<uint8_t>(b >> 8);
+-  e[4] = static_cast<uint8_t>(dma);
+-  e[5] = static_cast<uint8_t>(dma >> 8);
+-  e[6] = static_cast<uint8_t>(dma >> 16);
+-  e[7] = static_cast<uint8_t>(dma >> 24);
+-}
+-
+-/* Slab layout offsets (page-aligned sections). */
++using pcie_ax::addr_info_write;
++using pcie_ax::bd_write;
++
++constexpr size_t RING_BYTES = PcieDmaAx::kBdLen * BD_SZ;
++
++constexpr bool is_pow2(size_t v) { return v && (v & (v - 1)) == 0; }
++static_assert(is_pow2(RING_BYTES) && is_pow2(PcieDmaAx::kRxBufStride) &&
++                  is_pow2(PcieDmaAx::kWdPageSize) &&
++                  is_pow2(PcieDmaAx::kPayloadSize) &&
++                  is_pow2(PcieDmaAx::kFwcmdSlotStride),
++              "slab strides must be powers of two (chunk-boundary safety)");
++static_assert(PcieDmaAx::kRxBufStride >= PcieDmaAx::kRxBufSize &&
++                  PcieDmaAx::kFwcmdSlotStride >= PcieDmaAx::kFwcmdSlotSize,
++              "a stride must hold its object");
++
++/* Slab layout offsets. Every area starts on a multiple of its object stride
++ * and every stride is a power of two, so an object can only straddle a chunk
++ * boundary of a chunked slab if the chunk is smaller than the stride. */
+ struct Layout {
+   size_t txbd, rxq_bd, rpq_bd, rxq_buf, rpq_buf, wd, payload, fwcmd, total;
+ };
+ Layout layout() {
++  size_t end = 0;
++  auto area = [&end](size_t stride, size_t count) {
++    const size_t align = stride > PAGE_SZ ? stride : PAGE_SZ;
++    const size_t start = (end + align - 1) & ~(align - 1);
++    end = start + stride * count;
++    return start;
++  };
+   Layout l{};
+-  l.txbd = 0;
+-  l.rxq_bd = l.txbd + page_align(PcieDmaAx::kTxChannels * PcieDmaAx::kBdLen * BD_SZ);
+-  l.rpq_bd = l.rxq_bd + page_align(PcieDmaAx::kBdLen * BD_SZ);
+-  l.rxq_buf = l.rpq_bd + page_align(PcieDmaAx::kBdLen * BD_SZ);
+-  l.rpq_buf = l.rxq_buf + page_align(static_cast<size_t>(PcieDmaAx::kBdLen) *
+-                                     PcieDmaAx::kRxBufSize);
+-  l.wd = l.rpq_buf + page_align(static_cast<size_t>(PcieDmaAx::kBdLen) *
+-                                PcieDmaAx::kRxBufSize);
+-  l.payload = l.wd + page_align(static_cast<size_t>(PcieDmaAx::kWdPages) *
+-                                PcieDmaAx::kWdPageSize);
+-  l.fwcmd = l.payload + page_align(static_cast<size_t>(PcieDmaAx::kWdPages) *
+-                                   PcieDmaAx::kPayloadSize);
+-  l.total = l.fwcmd + page_align(static_cast<size_t>(PcieDmaAx::kBdLen) *
+-                                 PcieDmaAx::kFwcmdSlotSize);
++  /* First, so that it gets the slab's lowest memory: see low_slab_bytes. */
++  l.payload = area(PcieDmaAx::kPayloadSize, PcieDmaAx::kWdPages);
++  l.txbd = area(RING_BYTES, PcieDmaAx::kTxChannels);
++  l.rxq_bd = area(RING_BYTES, 1);
++  l.rpq_bd = area(RING_BYTES, 1);
++  l.rxq_buf = area(PcieDmaAx::kRxBufStride, PcieDmaAx::kBdLen);
++  l.rpq_buf = area(PcieDmaAx::kRxBufStride, PcieDmaAx::kBdLen);
++  l.wd = area(PcieDmaAx::kWdPageSize, PcieDmaAx::kWdPages);
++  l.fwcmd = area(PcieDmaAx::kFwcmdSlotStride, PcieDmaAx::kBdLen);
++  l.total = page_align(end);
+   return l;
+ }
+ 
+@@ -137,13 +146,63 @@ PcieDmaAx::PcieDmaAx(PcieTransport &t, Logger_t logger, int rx_poll_us)
+ 
+ size_t PcieDmaAx::slab_bytes() const { return layout().total; }
+ 
+-bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
++unsigned PcieDmaAx::dma_address_bits() const { return pcie_ax::kAddressBits; }
++
++/* The frame payloads, which the chip reaches through the address entries of
++ * a WD page. Rings, receive buffers and WD pages work above 4 GiB on the
++ * RTL8852CE; with the payloads there too, peers stopped answering although
++ * every frame was reported sent. */
++size_t PcieDmaAx::low_slab_bytes() const {
++  const Layout l = layout();
++  return l.payload + static_cast<size_t>(kPayloadSize) * kWdPages;
++}
++
++std::vector<DmaQuiesceOp> PcieDmaAx::quiesce_ops() const {
++  /* HalKestrel::pcie_ctrl_dma_all(false), then the stop bit of every channel. */
++  namespace r = kestrel::reg;
++  return {
++      {r::R_AX_HAXI_INIT_CFG1, r::B_AX_STOP_AXI_MST, true},
++      {r::R_AX_HAXI_INIT_CFG1, r::B_AX_TXHCI_EN_V1 | r::B_AX_RXHCI_EN_V1, false},
++      {r::R_AX_HAXI_DMA_STOP1,
++       r::HAXI_DMA_STOP1_CHANS | r::B_AX_STOP_WPDMA | r::B_AX_STOP_PCIEIO, true},
++      {r::R_AX_HAXI_DMA_STOP2, r::HAXI_DMA_STOP2_CHANS, true},
++  };
++}
++
++bool PcieDmaAx::attach(const DmaSlab &dma) {
+   const Layout l = layout();
++  if (dma.len < l.total ||
++      (dma.chunk_bytes && dma.chunk_bytes % kRxBufStride != 0)) {
++    _logger->error("PcieDmaAx: DMA slab unusable ({} B in {} B chunks, need {} "
++                   "B in multiples of {} B)",
++                   dma.len, dma.chunk_bytes, l.total, kRxBufStride);
++    return false;
++  }
++  const size_t chunk_span = dma.chunk_bytes ? dma.chunk_bytes : dma.len;
++  for (const uint64_t base : dma.chunk_iova) {
++    if (base + chunk_span > pcie_ax::kAddressLimit) {
++      _logger->error("PcieDmaAx: DMA slab at 0x{:x} is beyond the {} address "
++                     "bits the descriptors carry",
++                     base, pcie_ax::kAddressBits);
++      return false;
++    }
++  }
++  for (uint32_t page = 0; page < kWdPages; page++) {
++    const uint64_t at =
++        dma.iova(l.payload + static_cast<size_t>(page) * kPayloadSize);
++    if (at + kPayloadSize > pcie_ax::kLowAddressLimit) {
++      _logger->error("PcieDmaAx: frame payload at 0x{:x} is not below 4 GiB",
++                     at);
++      return false;
++    }
++  }
++  _slab = dma;
++  uint8_t *const slab = dma.va;
+   for (uint32_t ch = 0; ch < kTxChannels; ch++) {
+     TxRing &r = _tx[ch];
+-    const size_t off = l.txbd + static_cast<size_t>(ch) * kBdLen * BD_SZ;
++    const size_t off = l.txbd + static_cast<size_t>(ch) * RING_BYTES;
+     r.bd = slab + off;
+-    r.bd_iova = slab_iova + off;
++    r.bd_iova = dma.iova(off);
+     r.wp = 0;
+     r.reg_num = kTxCh[ch].num;
+     r.reg_idx = kTxCh[ch].idx;
+@@ -153,16 +212,16 @@ bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
+               (static_cast<uint32_t>(kTxCh[ch].bd_min) << 16);
+   }
+   _rxq.bd = slab + l.rxq_bd;
+-  _rxq.bd_iova = slab_iova + l.rxq_bd;
++  _rxq.bd_iova = dma.iova(l.rxq_bd);
+   _rxq.bufs = slab + l.rxq_buf;
+-  _rxq.bufs_iova = slab_iova + l.rxq_buf;
++  _rxq.bufs_off = l.rxq_buf;
+   _rxq.reg_num = R_RXQ_NUM;
+   _rxq.reg_idx = R_RXQ_IDX;
+   _rxq.reg_desa_l = R_RXQ_DESA_L;
+   _rpq.bd = slab + l.rpq_bd;
+-  _rpq.bd_iova = slab_iova + l.rpq_bd;
++  _rpq.bd_iova = dma.iova(l.rpq_bd);
+   _rpq.bufs = slab + l.rpq_buf;
+-  _rpq.bufs_iova = slab_iova + l.rpq_buf;
++  _rpq.bufs_off = l.rpq_buf;
+   _rpq.reg_num = R_RPQ_NUM;
+   _rpq.reg_idx = R_RPQ_IDX;
+   _rpq.reg_desa_l = R_RPQ_DESA_L;
+@@ -171,11 +230,11 @@ bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
+     arm_rx_bd(_rpq, i);
+   }
+   _wd_pages = slab + l.wd;
+-  _wd_pages_iova = slab_iova + l.wd;
++  _wd_off = l.wd;
+   _payload = slab + l.payload;
+-  _payload_iova = slab_iova + l.payload;
++  _payload_off = l.payload;
+   _fwcmd = slab + l.fwcmd;
+-  _fwcmd_iova = slab_iova + l.fwcmd;
++  _fwcmd_off = l.fwcmd;
+   _free_pages.clear();
+   _free_pages.reserve(kWdPages);
+   for (uint32_t i = kWdPages; i-- > 0;)
+@@ -187,8 +246,7 @@ bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
+ void PcieDmaAx::arm_rx_bd(RxRing &r, uint32_t idx) {
+   bd_write(r.bd + static_cast<size_t>(idx) * BD_SZ,
+            static_cast<uint16_t>(kRxBufSize), 0,
+-           static_cast<uint32_t>(r.bufs_iova +
+-                                 static_cast<uint64_t>(idx) * kRxBufSize));
++           _slab.iova(r.bufs_off + static_cast<size_t>(idx) * kRxBufStride));
+ }
+ 
+ uint32_t PcieDmaAx::hw_idx(uint16_t reg_idx) {
+@@ -209,23 +267,28 @@ uint32_t PcieDmaAx::hw_idx(uint16_t reg_idx) {
+ }
+ 
+ void PcieDmaAx::setup_rings() {
+-  /* rtw89_pci_reset_trx_rings: per TX channel num + BDRAM + desa_l (desa_h
+-   * never written), per RX ring num + desa_l; host indices to 0. The index
+-   * registers themselves were cleared by the HAL's clr_idx_all just before. */
++  /* rtw89_pci_reset_trx_rings: per TX channel num + BDRAM + ring base, per RX
++   * ring num + ring base; host indices to 0. The index registers themselves
++   * were cleared by the HAL's clr_idx_all just before. */
+   std::lock_guard<std::mutex> lk(_pool_mu);
++  /* desa_h sits right after desa_l in every bank. */
++  auto write_ring_base = [this](uint16_t reg_desa_l, uint64_t iova) {
++    _t.mmio_write<uint32_t>(reg_desa_l, static_cast<uint32_t>(iova));
++    _t.mmio_write<uint32_t>(reg_desa_l + 4u, static_cast<uint32_t>(iova >> 32));
++  };
+   for (uint32_t ch = 0; ch < kTxChannels; ch++) {
+     TxRing &r = _tx[ch];
+     r.wp = 0;
+     _t.mmio_write<uint16_t>(r.reg_num, static_cast<uint16_t>(kBdLen & IDX_MASK));
+     _t.mmio_write<uint32_t>(r.reg_bdram, r.bdram);
+-    _t.mmio_write<uint32_t>(r.reg_desa_l, static_cast<uint32_t>(r.bd_iova));
++    write_ring_base(r.reg_desa_l, r.bd_iova);
+   }
+   for (RxRing *r : {&_rxq, &_rpq}) {
+     r->wp = 0;
+     for (uint32_t i = 0; i < kBdLen; i++)
+       arm_rx_bd(*r, i);
+     _t.mmio_write<uint16_t>(r->reg_num, static_cast<uint16_t>(kBdLen & IDX_MASK));
+-    _t.mmio_write<uint32_t>(r->reg_desa_l, static_cast<uint32_t>(r->bd_iova));
++    write_ring_base(r->reg_desa_l, r->bd_iova);
+   }
+   /* Every page is free again: the DMA engine was stopped + index-cleared
+    * before this, so nothing in flight can still name an old page. */
+@@ -238,7 +301,7 @@ void PcieDmaAx::setup_rings() {
+   std::atomic_thread_fence(std::memory_order_seq_cst);
+   _logger->info("PcieDmaAx: rings programmed (13 TX × {} BDs, RXQ/RPQ {} × "
+                 "{} B, {} WD pages @ IOVA 0x{:x})",
+-                kBdLen, kBdLen, kRxBufSize, kWdPages, _wd_pages_iova);
++                kBdLen, kBdLen, kRxBufSize, kWdPages, _slab.iova(_wd_off));
+ }
+ 
+ bool PcieDmaAx::ring_has_room(const TxRing &r, int ch) {
+@@ -307,11 +370,11 @@ int PcieDmaAx::submit_fwcmd(uint8_t *buf, size_t len, int timeout_ms) {
+   if (!ring_has_room(r, kFwcmdCh))
+     return -1;
+   const uint32_t slot = r.wp;
+-  uint8_t *dst = _fwcmd + static_cast<size_t>(slot) * kFwcmdSlotSize;
+-  std::memcpy(dst, buf, len);
+-  const uint64_t iova = _fwcmd_iova + static_cast<uint64_t>(slot) * kFwcmdSlotSize;
++  const size_t slot_off = static_cast<size_t>(slot) * kFwcmdSlotStride;
++  std::memcpy(_fwcmd + slot_off, buf, len);
++  const uint64_t iova = _slab.iova(_fwcmd_off + slot_off);
+   bd_write(r.bd + static_cast<size_t>(slot) * BD_SZ, static_cast<uint16_t>(len),
+-           TXBD_OPTION_LS, static_cast<uint32_t>(iova));
++           TXBD_OPTION_LS, iova);
+   std::atomic_thread_fence(std::memory_order_seq_cst);
+   r.wp = (r.wp + 1) % kBdLen;
+   _t.mmio_write<uint16_t>(r.reg_idx, static_cast<uint16_t>(r.wp & IDX_MASK));
+@@ -367,10 +430,12 @@ int PcieDmaAx::submit_wd(int ch, uint8_t *buf, size_t len, int timeout_ms) {
+     _page_busy[page] = true;
+   }
+ 
+-  uint8_t *pg = _wd_pages + static_cast<size_t>(page) * kWdPageSize;
+-  const uint64_t pg_iova = _wd_pages_iova + static_cast<uint64_t>(page) * kWdPageSize;
+-  uint8_t *pl = _payload + static_cast<size_t>(page) * kPayloadSize;
+-  const uint64_t pl_iova = _payload_iova + static_cast<uint64_t>(page) * kPayloadSize;
++  const size_t pg_off = static_cast<size_t>(page) * kWdPageSize;
++  const size_t pl_off = static_cast<size_t>(page) * kPayloadSize;
++  uint8_t *pg = _wd_pages + pg_off;
++  const uint64_t pg_iova = _slab.iova(_wd_off + pg_off);
++  uint8_t *pl = _payload + pl_off;
++  const uint64_t pl_iova = _slab.iova(_payload_off + pl_off);
+ 
+   std::memcpy(pl, buf + wd_len, flen);
+   std::memset(pg, 0, kWdPageSize);
+@@ -390,11 +455,7 @@ int PcieDmaAx::submit_wd(int ch, uint8_t *buf, size_t len, int timeout_ms) {
+   for (; n < ADDR_INFO_NR_MAX && remain; n++) {
+     const uint32_t chunk = remain > ADDR_INFO_LEN_MAX ? ADDR_INFO_LEN_MAX : remain;
+     remain -= chunk;
+-    const uint16_t len_opt =
+-        static_cast<uint16_t>((chunk & 0x7FF) | (remain == 0 ? ADDR_INFO_LS : 0));
+-    wr_le16(ai + 0, len_opt);
+-    wr_le16(ai + 2, static_cast<uint16_t>(dma & 0xFFFF));
+-    wr_le16(ai + 4, static_cast<uint16_t>((dma >> 16) & 0xFFFF));
++    addr_info_write(ai, chunk, /*last=*/remain == 0, dma);
+     dma += chunk;
+     ai += ADDR_INFO_SZ;
+   }
+@@ -412,8 +473,7 @@ int PcieDmaAx::submit_wd(int ch, uint8_t *buf, size_t len, int timeout_ms) {
+ 
+   TxRing &r = _tx[ch];
+   bd_write(r.bd + static_cast<size_t>(r.wp) * BD_SZ,
+-           static_cast<uint16_t>(page_len), TXBD_OPTION_LS,
+-           static_cast<uint32_t>(pg_iova));
++           static_cast<uint16_t>(page_len), TXBD_OPTION_LS, pg_iova);
+   std::atomic_thread_fence(std::memory_order_seq_cst);
+   r.wp = (r.wp + 1) % kBdLen;
+   _t.mmio_write<uint16_t>(r.reg_idx, static_cast<uint16_t>(r.wp & IDX_MASK));
+@@ -446,7 +506,7 @@ uint32_t PcieDmaAx::reap_rpq_locked() {
+   std::atomic_thread_fence(std::memory_order_acquire);
+   uint32_t n = 0;
+   while (_rpq.wp != hw && n < kBdLen) {
+-    const uint8_t *buf = _rpq.bufs + static_cast<size_t>(_rpq.wp) * kRxBufSize;
++    const uint8_t *buf = _rpq.bufs + static_cast<size_t>(_rpq.wp) * kRxBufStride;
+     const uint32_t info = rd_le32(buf);
+     const uint32_t blen = info & RXBD_INFO_LEN_MSK;
+     const bool fs = info & RXBD_INFO_FS, ls = info & RXBD_INFO_LS;
+@@ -484,7 +544,7 @@ uint32_t PcieDmaAx::reap_rxq(
+   std::atomic_thread_fence(std::memory_order_acquire);
+   uint32_t n = 0;
+   while (_rxq.wp != hw && n < kBdLen) {
+-    const uint8_t *buf = _rxq.bufs + static_cast<size_t>(_rxq.wp) * kRxBufSize;
++    const uint8_t *buf = _rxq.bufs + static_cast<size_t>(_rxq.wp) * kRxBufStride;
+     const uint32_t info = rd_le32(buf);
+     const uint32_t blen = info & RXBD_INFO_LEN_MSK;
+     const bool fs = info & RXBD_INFO_FS, ls = info & RXBD_INFO_LS;
+diff --git a/src/PcieDmaAx.h b/src/PcieDmaAx.h
+index 6249473..3f8f561 100644
+--- a/src/PcieDmaAx.h
++++ b/src/PcieDmaAx.h
+@@ -60,12 +60,19 @@ public:
+   static constexpr uint32_t kRxBufSize = 11496;  /* RTW89_PCI_RX_BUF_SIZE 11494, 8-aligned */
+   static constexpr uint32_t kPayloadSize = 4096; /* per-page frame bounce */
+   static constexpr uint32_t kFwcmdSlotSize = 2304; /* rxd 16 + fwcmd hdr 8 + 2020 section, rounded */
++  /* Slab spacing of RX buffers and fwcmd slots: the next power of two above
++   * their size, so that no object straddles a chunk of a chunked DmaSlab. */
++  static constexpr uint32_t kRxBufStride = 16384;
++  static constexpr uint32_t kFwcmdSlotStride = 4096;
+ 
+   PcieDmaAx(PcieTransport &t, Logger_t logger, int rx_poll_us);
+ 
+   const char *name() const override { return "ax-haxi"; }
+   size_t slab_bytes() const override;
+-  bool attach(uint8_t *slab_va, uint64_t slab_iova) override;
++  unsigned dma_address_bits() const override;
++  size_t low_slab_bytes() const override;
++  bool attach(const DmaSlab &slab) override;
++  std::vector<DmaQuiesceOp> quiesce_ops() const override;
+   void setup_rings() override;
+   int tx_submit(uint8_t hint, uint8_t *buf, size_t len,
+                 int timeout_ms) override;
+@@ -91,8 +98,8 @@ private:
+   struct RxRing {
+     volatile uint8_t *bd = nullptr; /* kBdLen × 8 B */
+     uint64_t bd_iova = 0;
+-    uint8_t *bufs = nullptr; /* kBdLen × kRxBufSize */
+-    uint64_t bufs_iova = 0;
++    uint8_t *bufs = nullptr; /* kBdLen buffers, kRxBufStride apart */
++    size_t bufs_off = 0;     /* slab offset of bufs */
+     uint32_t wp = 0;
+     uint16_t reg_num = 0, reg_idx = 0, reg_desa_l = 0;
+   };
+@@ -117,18 +124,22 @@ private:
+   std::array<TxRing, kTxChannels> _tx{};
+   RxRing _rxq{}, _rpq{};
+ 
+-  /* WD page pool: page VA/IOVA + its payload bounce; freed by RPP seq. */
++  /* Bus addresses come from the slab per object: it may be chunked. */
++  DmaSlab _slab;
++
++  /* WD page pool: page VA + slab offset, and its payload bounce; freed by RPP
++   * seq. */
+   uint8_t *_wd_pages = nullptr;
+-  uint64_t _wd_pages_iova = 0;
++  size_t _wd_off = 0;
+   uint8_t *_payload = nullptr;
+-  uint64_t _payload_iova = 0;
++  size_t _payload_off = 0;
+   std::vector<uint16_t> _free_pages;       /* LIFO of free page indices */
+   std::array<bool, kWdPages> _page_busy{}; /* in flight until its RPP */
+   mutable std::mutex _pool_mu;             /* pool + RPQ ring state + _rpp */
+   std::array<std::mutex, kTxChannels> _tx_mu; /* per-channel ring state */
+ 
+-  uint8_t *_fwcmd = nullptr; /* kBdLen × kFwcmdSlotSize bounce ring (CH12) */
+-  uint64_t _fwcmd_iova = 0;
++  uint8_t *_fwcmd = nullptr; /* kBdLen slots, kFwcmdSlotStride apart (CH12) */
++  size_t _fwcmd_off = 0;
+ 
+   std::vector<uint8_t> _rx_assembly; /* FS..LS spanning reassembly */
+   bool _rx_assembling = false;
+diff --git a/src/PcieDmaAxDesc.h b/src/PcieDmaAxDesc.h
+new file mode 100644
+index 0000000..60ee465
+--- /dev/null
++++ b/src/PcieDmaAxDesc.h
+@@ -0,0 +1,62 @@
++#pragma once
++
++/* The descriptor encodings of the AX (HAXI) DMA plane that carry a bus
++ * address. They live apart from the plane so they can be checked without
++ * hardware: a wrong address here makes the chip read or write memory it was
++ * never given. Field positions are rtw89's (pci.h). */
++
++#include <cstdint>
++
++namespace devourer::pcie_ax {
++
++/* The DMA mask rtw89 sets on the 8852C, which needs no enabling: only the
++ * 8852A/8852B generation has to be switched to 64-bit addressing first. */
++constexpr unsigned kAddressBits = 36;
++constexpr uint64_t kAddressLimit = uint64_t{1} << kAddressBits;
++constexpr uint64_t kLowAddressLimit = uint64_t{1} << 32;
++
++constexpr unsigned kBdOptAddressHighShift = 6; /* *_OPT_DMA_HI [13:6] */
++constexpr uint32_t kAddrInfoBytes = 6;
++constexpr uint16_t kAddrInfoLengthMask = 0x7FF;   /* B_PCIADDR_LEN_V1_MASK */
++constexpr unsigned kAddrInfoAddressHighShift = 11; /* B_PCIADDR_HIGH_SEL_V1 */
++constexpr uint16_t kAddrInfoLast = 1u << 15;       /* B_PCIADDR_LS_V1_MASK */
++
++/* Address bits [35:32], the part that does not fit a descriptor's 32-bit
++ * address field. */
++constexpr uint16_t address_high(uint64_t dma) {
++  return static_cast<uint16_t>((dma >> 32) & 0xF);
++}
++
++/* A TX or RX buffer descriptor: {le16 length, le16 opt, le32 dma}, written
++ * as volatile byte stores because the chip reads it. */
++inline void bd_write(volatile uint8_t *bd, uint16_t length, uint16_t opt,
++                     uint64_t dma) {
++  opt = static_cast<uint16_t>(opt |
++                              (address_high(dma) << kBdOptAddressHighShift));
++  bd[0] = static_cast<uint8_t>(length);
++  bd[1] = static_cast<uint8_t>(length >> 8);
++  bd[2] = static_cast<uint8_t>(opt);
++  bd[3] = static_cast<uint8_t>(opt >> 8);
++  bd[4] = static_cast<uint8_t>(dma);
++  bd[5] = static_cast<uint8_t>(dma >> 8);
++  bd[6] = static_cast<uint8_t>(dma >> 16);
++  bd[7] = static_cast<uint8_t>(dma >> 24);
++}
++
++/* One addr_info_v1 entry of a WD page: {le16 length_opt, le16 dma[15:0],
++ * le16 dma[31:16]}. `last` marks the final piece of the frame. */
++inline void addr_info_write(uint8_t *entry, uint32_t length, bool last,
++                            uint64_t dma) {
++  const uint16_t length_opt = static_cast<uint16_t>(
++      (length & kAddrInfoLengthMask) |
++      (address_high(dma) << kAddrInfoAddressHighShift) |
++      (last ? kAddrInfoLast : 0));
++  entry[0] = static_cast<uint8_t>(length_opt);
++  entry[1] = static_cast<uint8_t>(length_opt >> 8);
++  entry[2] = static_cast<uint8_t>(dma);
++  entry[3] = static_cast<uint8_t>(dma >> 8);
++  entry[4] = static_cast<uint8_t>(dma >> 16);
++  entry[5] = static_cast<uint8_t>(dma >> 24);
++}
++
++} /* namespace devourer::pcie_ax */
+diff --git a/src/PcieDmaPlane.h b/src/PcieDmaPlane.h
+index 2eb6308..89c929f 100644
+--- a/src/PcieDmaPlane.h
++++ b/src/PcieDmaPlane.h
+@@ -15,9 +15,35 @@
+ #include <cstddef>
+ #include <cstdint>
+ #include <functional>
++#include <vector>
+ 
+ namespace devourer {
+ 
++/* DMA memory handed to a plane: virtually contiguous, but bus-contiguous only
++ * inside a chunk. vfio maps the whole slab at one IOVA (chunk_bytes == 0); a
++ * host without an IOMMU mapping of its own hands out physical blocks instead,
++ * and no DMA object may then straddle a chunk boundary. */
++struct DmaSlab {
++  uint8_t *va = nullptr;
++  size_t len = 0;
++  size_t chunk_bytes = 0;
++  std::vector<uint64_t> chunk_iova;
++
++  uint64_t iova(size_t off) const {
++    return chunk_bytes ? chunk_iova[off / chunk_bytes] + off % chunk_bytes
++                       : chunk_iova[0] + off;
++  }
++};
++
++/* A register bit operation that stops a plane's DMA engine. The transport
++ * hands these to a host that can replay them if the process dies with DMA
++ * live (vfio resets the function instead and ignores them). */
++struct DmaQuiesceOp {
++  uint32_t reg;
++  uint32_t bits;
++  bool set; /* false = clear */
++};
++
+ class IPcieDmaPlane {
+ public:
+   virtual ~IPcieDmaPlane() = default;
+@@ -26,10 +52,20 @@ public:
+ 
+   /* DMA slab bytes this plane needs (rings + buffers). Called before attach. */
+   virtual size_t slab_bytes() const = 0;
+-  /* Carve the slab (VA + its IOVA, both page-aligned) into rings/buffers and
+-   * arm the RX descriptors. Register programming is NOT done here — that is
+-   * setup_rings(), which runs at the generation's intf_pre_init slot. */
+-  virtual bool attach(uint8_t *slab_va, uint64_t slab_iova) = 0;
++  /* Width of the bus addresses this plane can hand the chip. Every address
++   * in the slab must fit. */
++  virtual unsigned dma_address_bits() const { return 32; }
++  /* How many leading bytes of the slab must lie below 4 GiB even when
++   * dma_address_bits() allows more. */
++  virtual size_t low_slab_bytes() const { return 0; }
++  /* Carve the slab into rings/buffers and arm the RX descriptors. Register
++   * programming is NOT done here — that is setup_rings(), which runs at the
++   * generation's intf_pre_init slot. Returns false for a slab layout the
++   * plane cannot use (a chunked slab on a plane that needs one run). */
++  virtual bool attach(const DmaSlab &slab) = 0;
++
++  /* 32-bit register operations that stop this plane's DMA, in order. */
++  virtual std::vector<DmaQuiesceOp> quiesce_ops() const { return {}; }
+ 
+   /* Program the ring base/num/index registers and reset the host indices
+    * (rtw88 rtw_pci_reset_buf_desc / rtw89 rtw89_pci_reset_trx_rings). Where
+diff --git a/src/PcieDmaUtil.h b/src/PcieDmaUtil.h
+index e55ecd0..3e41bc7 100644
+--- a/src/PcieDmaUtil.h
++++ b/src/PcieDmaUtil.h
+@@ -2,9 +2,9 @@
+ 
+ /* Small helpers shared by the PCIe DMA planes. */
+ 
+-#include <chrono>
+ #include <cstddef>
+-#include <thread>
++
++#include "PreciseDelay.h"
+ 
+ namespace devourer::pcie_dma {
+ 
+@@ -12,8 +12,6 @@ constexpr size_t kPageSize = 4096;
+ inline size_t page_align(size_t v) {
+   return (v + kPageSize - 1) & ~(kPageSize - 1);
+ }
+-inline void sleep_us(unsigned us) {
+-  std::this_thread::sleep_for(std::chrono::microseconds(us));
+-}
++inline void sleep_us(unsigned us) { devourer::precise_delay_us(us); }
+ 
+ } /* namespace devourer::pcie_dma */
+diff --git a/src/PcieTransport.cpp b/src/PcieTransport.cpp
+index 226a692..1fe0f15 100644
+--- a/src/PcieTransport.cpp
++++ b/src/PcieTransport.cpp
+@@ -1,21 +1,12 @@
+ #include "PcieTransport.h"
+ 
+-/* Linux-only (vfio). Compiled only when DEVOURER_PCIE=ON — the CMake option is
+- * gated on Linux. */
+-
+-#include <cerrno>
+-#include <cstring>
+-
+-#include <fcntl.h>
+-#include <linux/vfio.h>
+-#include <sys/eventfd.h>
+-#include <sys/ioctl.h>
+-#include <sys/mman.h>
+-#include <unistd.h>
++/* Bus-neutral half of the PCIe transport. The host backend that reaches the
++ * device lives in PcieTransportVfio.cpp (Linux) or PcieTransportWin.cpp. */
+ 
+ #include "Event.h"
+-#if defined(DEVOURER_HAVE_JAGUAR2_8821C)
++#if defined(DEVOURER_HAVE_JAGUAR2_8821C) && !defined(_WIN32)
+ #include "PcieDma88xx.h"
++#define DEVOURER_PCIE_HAVE_88XX 1
+ #endif
+ #if defined(DEVOURER_HAVE_KESTREL_8852C)
+ #include "PcieDmaAx.h"
+@@ -38,9 +29,7 @@ std::shared_ptr<PcieTransport> PcieTransport::Open(const std::string &bdf,
+                                                    const Config &cfg) {
+   std::shared_ptr<PcieTransport> t(new PcieTransport(logger, cfg));
+   t->_bdf = bdf;
+-  if (!t->open_vfio(bdf))
+-    return nullptr;
+-  if (!t->map_bar2())
++  if (!t->open_device(bdf))
+     return nullptr;
+   if (!t->setup_config_space())
+     return nullptr;
+@@ -52,9 +41,8 @@ std::shared_ptr<PcieTransport> PcieTransport::Open(const std::string &bdf,
+     logger->warn("PcieTransport: MSI setup failed — RX falls back to polling");
+   logger->info("PcieTransport: {} ready ({} plane, BAR2 {} KiB, DMA slab {} "
+                "KiB @ IOVA 0x{:x}, RX {})",
+-               bdf, t->_dma->name(), t->_mmio_len / 1024, t->_slab_len / 1024,
+-               t->_cfg.iova_base,
+-               t->_msi_evt >= 0 ? "MSI+eventfd" : "polled");
++               bdf, t->_dma->name(), t->_mmio_len / 1024, t->_slab.len / 1024,
++               t->_slab.iova(0), t->msi_fd() >= 0 ? "MSI+eventfd" : "polled");
+   return t;
+ }
+ 
+@@ -77,188 +65,20 @@ bool PcieTransport::select_dma_plane() {
+                    _pci_vid, _pci_did);
+     return false;
+   default:
+-#if defined(DEVOURER_HAVE_JAGUAR2_8821C)
++#if defined(DEVOURER_PCIE_HAVE_88XX)
+     /* The HalMAC 88xx ring plane; the factory still checks the chip-id. */
+     _dma = std::make_unique<PcieDma88xx>(*this, _logger, _cfg.rx_ring_len,
+                                          _cfg.rx_buf_size, _cfg.rx_poll_us);
+     return true;
+ #else
+     _logger->error("PcieTransport: PCI device {:04x}:{:04x} has no DMA plane "
+-                   "in this build (DEVOURER_JAGUAR2_8821C=OFF)",
++                   "in this build",
+                    _pci_vid, _pci_did);
+     return false;
+ #endif
+   }
+ }
+ 
+-bool PcieTransport::setup_msi() {
+-  struct vfio_irq_info info{};
+-  info.argsz = sizeof(info);
+-  info.index = VFIO_PCI_MSI_IRQ_INDEX;
+-  if (ioctl(_device, VFIO_DEVICE_GET_IRQ_INFO, &info) < 0 || info.count < 1) {
+-    _logger->warn("PcieTransport: no MSI IRQ available");
+-    return false;
+-  }
+-  int evt = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
+-  if (evt < 0)
+-    return false;
+-  /* One MSI vector -> the eventfd. */
+-  char buf[sizeof(struct vfio_irq_set) + sizeof(int32_t)] = {};
+-  auto *is = reinterpret_cast<struct vfio_irq_set *>(buf);
+-  is->argsz = sizeof(buf);
+-  is->flags = VFIO_IRQ_SET_DATA_EVENTFD | VFIO_IRQ_SET_ACTION_TRIGGER;
+-  is->index = VFIO_PCI_MSI_IRQ_INDEX;
+-  is->start = 0;
+-  is->count = 1;
+-  memcpy(is->data, &evt, sizeof(int32_t));
+-  if (ioctl(_device, VFIO_DEVICE_SET_IRQS, is) < 0) {
+-    _logger->warn("PcieTransport: VFIO_DEVICE_SET_IRQS(MSI) failed: {}",
+-                  strerror(errno));
+-    close(evt);
+-    return false;
+-  }
+-  _msi_evt = evt;
+-  return true;
+-}
+-
+-PcieTransport::~PcieTransport() {
+-  if (_msi_evt >= 0) {
+-    if (_mmio && _dma)
+-      _dma->irq_mask(); /* mask before dropping the vector */
+-    struct vfio_irq_set off{};
+-    off.argsz = sizeof(off);
+-    off.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_TRIGGER;
+-    off.index = VFIO_PCI_MSI_IRQ_INDEX;
+-    off.count = 0;
+-    ioctl(_device, VFIO_DEVICE_SET_IRQS, &off);
+-    close(_msi_evt);
+-  }
+-  _dma.reset();
+-  if (_mmio)
+-    munmap(const_cast<uint8_t *>(_mmio), _mmio_len);
+-  if (_slab && _container >= 0) {
+-    struct vfio_iommu_type1_dma_unmap um{};
+-    um.argsz = sizeof(um);
+-    um.iova = _cfg.iova_base;
+-    um.size = _slab_len;
+-    ioctl(_container, VFIO_IOMMU_UNMAP_DMA, &um);
+-  }
+-  if (_slab)
+-    munmap(_slab, _slab_len);
+-  if (_device >= 0)
+-    close(_device);
+-  if (_group >= 0)
+-    close(_group);
+-  if (_container >= 0)
+-    close(_container);
+-}
+-
+-bool PcieTransport::open_vfio(const std::string &bdf) {
+-  /* IOMMU group number from sysfs. */
+-  std::string link = "/sys/bus/pci/devices/" + bdf + "/iommu_group";
+-  char buf[256];
+-  ssize_t n = readlink(link.c_str(), buf, sizeof(buf) - 1);
+-  if (n <= 0) {
+-    _logger->error("PcieTransport: readlink({}) failed: {}", link,
+-                   strerror(errno));
+-    return false;
+-  }
+-  buf[n] = 0;
+-  const char *slash = strrchr(buf, '/');
+-  std::string group_num = slash ? slash + 1 : buf;
+-
+-  _container = open("/dev/vfio/vfio", O_RDWR);
+-  if (_container < 0) {
+-    _logger->error("PcieTransport: open /dev/vfio/vfio failed: {} (modprobe "
+-                   "vfio-pci?)",
+-                   strerror(errno));
+-    return false;
+-  }
+-  if (ioctl(_container, VFIO_GET_API_VERSION) != VFIO_API_VERSION) {
+-    _logger->error("PcieTransport: VFIO API version mismatch");
+-    return false;
+-  }
+-  int iommu_type = 0;
+-  if (ioctl(_container, VFIO_CHECK_EXTENSION, VFIO_TYPE1v2_IOMMU) == 1)
+-    iommu_type = VFIO_TYPE1v2_IOMMU;
+-  else if (ioctl(_container, VFIO_CHECK_EXTENSION, VFIO_TYPE1_IOMMU) == 1)
+-    iommu_type = VFIO_TYPE1_IOMMU;
+-  else {
+-    _logger->error("PcieTransport: no Type1 IOMMU support");
+-    return false;
+-  }
+-
+-  std::string group_path = "/dev/vfio/" + group_num;
+-  _group = open(group_path.c_str(), O_RDWR);
+-  if (_group < 0) {
+-    _logger->error("PcieTransport: open {} failed: {} (device bound to "
+-                   "vfio-pci? permissions?)",
+-                   group_path, strerror(errno));
+-    return false;
+-  }
+-  struct vfio_group_status st{};
+-  st.argsz = sizeof(st);
+-  if (ioctl(_group, VFIO_GROUP_GET_STATUS, &st) < 0 ||
+-      !(st.flags & VFIO_GROUP_FLAGS_VIABLE)) {
+-    _logger->error("PcieTransport: IOMMU group {} not viable (all devices in "
+-                   "the group must be bound to vfio-pci)",
+-                   group_num);
+-    return false;
+-  }
+-  if (ioctl(_group, VFIO_GROUP_SET_CONTAINER, &_container) < 0) {
+-    _logger->error("PcieTransport: GROUP_SET_CONTAINER failed: {}",
+-                   strerror(errno));
+-    return false;
+-  }
+-  if (ioctl(_container, VFIO_SET_IOMMU, iommu_type) < 0) {
+-    _logger->error("PcieTransport: SET_IOMMU failed: {}", strerror(errno));
+-    return false;
+-  }
+-  _device = ioctl(_group, VFIO_GROUP_GET_DEVICE_FD, bdf.c_str());
+-  if (_device < 0) {
+-    _logger->error("PcieTransport: GET_DEVICE_FD({}) failed: {}", bdf,
+-                   strerror(errno));
+-    return false;
+-  }
+-  _logger->info("PcieTransport: vfio group {} opened for {}", group_num, bdf);
+-  return true;
+-}
+-
+-bool PcieTransport::map_bar2() {
+-  struct vfio_region_info reg{};
+-  reg.argsz = sizeof(reg);
+-  reg.index = VFIO_PCI_BAR2_REGION_INDEX;
+-  if (ioctl(_device, VFIO_DEVICE_GET_REGION_INFO, &reg) < 0) {
+-    _logger->error("PcieTransport: BAR2 region info failed: {}",
+-                   strerror(errno));
+-    return false;
+-  }
+-  if (!(reg.flags & VFIO_REGION_INFO_FLAG_MMAP) || reg.size == 0) {
+-    _logger->error("PcieTransport: BAR2 not mmap-able (size={} flags={:#x})",
+-                   (unsigned long long)reg.size, reg.flags);
+-    return false;
+-  }
+-  void *p = mmap(nullptr, reg.size, PROT_READ | PROT_WRITE, MAP_SHARED,
+-                 _device, reg.offset);
+-  if (p == MAP_FAILED) {
+-    _logger->error("PcieTransport: BAR2 mmap failed: {}", strerror(errno));
+-    return false;
+-  }
+-  _mmio = static_cast<volatile uint8_t *>(p);
+-  _mmio_len = reg.size;
+-  return true;
+-}
+-
+-bool PcieTransport::cfg_read(uint32_t off, void *buf, size_t len) {
+-  return pread(_device, buf, len, _cfg_region_off + off) ==
+-         static_cast<ssize_t>(len);
+-}
+-
+-bool PcieTransport::cfg_write(uint32_t off, const void *buf, size_t len) {
+-  return pwrite(_device, buf, len, _cfg_region_off + off) ==
+-         static_cast<ssize_t>(len);
+-}
+-
+ bool PcieTransport::ltr_allowed() {
+   if (!_pcie_cap)
+     return false;
+@@ -268,111 +88,6 @@ bool PcieTransport::ltr_allowed() {
+   return (devctl2 & (1u << 10)) != 0; /* LTR Mechanism Enable */
+ }
+ 
+-bool PcieTransport::setup_config_space() {
+-  struct vfio_region_info reg{};
+-  reg.argsz = sizeof(reg);
+-  reg.index = VFIO_PCI_CONFIG_REGION_INDEX;
+-  if (ioctl(_device, VFIO_DEVICE_GET_REGION_INFO, &reg) < 0) {
+-    _logger->error("PcieTransport: config region info failed: {}",
+-                   strerror(errno));
+-    return false;
+-  }
+-  _cfg_region_off = reg.offset;
+-  _cfg_region_len = reg.size;
+-
+-  uint16_t vid = 0, did = 0;
+-  cfg_read(0x00, &vid, 2);
+-  cfg_read(0x02, &did, 2);
+-  if (vid == 0xFFFF) {
+-    _logger->error("PcieTransport: config space reads 0xFFFF — link down?");
+-    return false;
+-  }
+-  _pci_vid = vid;
+-  _pci_did = did;
+-  _logger->info("PcieTransport: PCI device {:04x}:{:04x}", vid, did);
+-
+-  /* Memory + bus-master enable. Without bus-master every register read works
+-   * but no DMA moves — the classic silent-failure trap. */
+-  uint16_t cmd = 0;
+-  cfg_read(0x04, &cmd, 2);
+-  cmd |= 0x2 /* MEMORY */ | 0x4 /* MASTER */;
+-  cfg_write(0x04, &cmd, 2);
+-
+-  /* Find the PCI Express capability (id 0x10) for LNKCTL / DEVCTL2. */
+-  uint8_t cap_ptr = 0;
+-  cfg_read(0x34, &cap_ptr, 1);
+-  uint32_t pcie_cap = 0;
+-  for (int guard = 0; cap_ptr && guard < 48; guard++) {
+-    uint8_t id = 0, next = 0;
+-    cfg_read(cap_ptr, &id, 1);
+-    cfg_read(cap_ptr + 1, &next, 1);
+-    if (id == 0x10) {
+-      pcie_cap = cap_ptr;
+-      break;
+-    }
+-    cap_ptr = next;
+-  }
+-  _pcie_cap = pcie_cap;
+-  if (pcie_cap) {
+-    /* Clear ASPM (LNKCTL[1:0]) during bring-up — L1 entry on a half-configured
+-     * link is a known hang source. */
+-    uint16_t lnkctl = 0;
+-    cfg_read(pcie_cap + 0x10, &lnkctl, 2);
+-    if (lnkctl & 0x3) {
+-      lnkctl &= ~0x3;
+-      cfg_write(pcie_cap + 0x10, &lnkctl, 2);
+-      _logger->info("PcieTransport: ASPM disabled for bring-up");
+-    }
+-    /* Disable completion timeout (DEVCTL2 bit4) — rtw88 does this specifically
+-     * for the 8821C (rtw_pci_phy_cfg). Only there: with the timeout off, a
+-     * read of a device that stops answering never completes and the CPU
+-     * hangs in the MMIO load instead of seeing all-ones, so the AX parts
+-     * (rtw89 leaves the timeout alone) keep it. */
+-    if (_pci_did != kPciDidRtl8852ce) {
+-      uint16_t devctl2 = 0;
+-      cfg_read(pcie_cap + 0x28, &devctl2, 2);
+-      devctl2 |= 1u << 4;
+-      cfg_write(pcie_cap + 0x28, &devctl2, 2);
+-    }
+-  } else {
+-    _logger->warn("PcieTransport: PCIe capability not found — skipping "
+-                  "ASPM/completion-timeout config");
+-  }
+-  return true;
+-}
+-
+-bool PcieTransport::init_dma() {
+-  _slab_len = _dma->slab_bytes();
+-  void *p = mmap(nullptr, _slab_len, PROT_READ | PROT_WRITE,
+-                 MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+-  if (p == MAP_FAILED) {
+-    _logger->error("PcieTransport: DMA slab mmap({} KiB) failed: {}",
+-                   _slab_len / 1024, strerror(errno));
+-    return false;
+-  }
+-  _slab = static_cast<uint8_t *>(p);
+-  memset(_slab, 0, _slab_len);
+-
+-  if (_cfg.iova_base + _slab_len > (1ull << 32)) {
+-    _logger->error("PcieTransport: IOVA base 0x{:x} + slab exceeds 4 GiB (the "
+-                   "descriptor dma fields are 32-bit)",
+-                   _cfg.iova_base);
+-    return false;
+-  }
+-  struct vfio_iommu_type1_dma_map m{};
+-  m.argsz = sizeof(m);
+-  m.flags = VFIO_DMA_MAP_FLAG_READ | VFIO_DMA_MAP_FLAG_WRITE;
+-  m.vaddr = reinterpret_cast<uint64_t>(_slab);
+-  m.iova = _cfg.iova_base;
+-  m.size = _slab_len;
+-  if (ioctl(_container, VFIO_IOMMU_MAP_DMA, &m) < 0) {
+-    _logger->error("PcieTransport: VFIO_IOMMU_MAP_DMA failed: {}",
+-                   strerror(errno));
+-    return false;
+-  }
+-  return _dma->attach(_slab, _cfg.iova_base);
+-}
+-
+ void PcieTransport::warn_oob(uint32_t off) {
+   if (!_warned_oob.exchange(true))
+     _logger->warn("PcieTransport: register 0x{:x} is past the {} KiB BAR2 — "
+@@ -403,15 +118,9 @@ uint32_t PcieTransport::read_split(uint32_t off, size_t n) {
+   size_t done = 0;
+   while (done < n) {
+     const uint32_t a = off + static_cast<uint32_t>(done);
+-    if ((a & 1) == 0 && n - done >= 2) {
+-      v |= static_cast<uint32_t>(*reinterpret_cast<volatile uint16_t *>(_mmio + a))
+-           << (8 * done);
+-      done += 2;
+-    } else {
+-      v |= static_cast<uint32_t>(*reinterpret_cast<volatile uint8_t *>(_mmio + a))
+-           << (8 * done);
+-      done += 1;
+-    }
++    const size_t width = ((a & 1) == 0 && n - done >= 2) ? 2 : 1;
++    v |= reg_read(a, width) << (8 * done);
++    done += width;
+   }
+   return v;
+ }
+@@ -420,15 +129,9 @@ void PcieTransport::write_split(uint32_t off, size_t n, uint32_t v) {
+   size_t done = 0;
+   while (done < n) {
+     const uint32_t a = off + static_cast<uint32_t>(done);
+-    if ((a & 1) == 0 && n - done >= 2) {
+-      *reinterpret_cast<volatile uint16_t *>(_mmio + a) =
+-          static_cast<uint16_t>(v >> (8 * done));
+-      done += 2;
+-    } else {
+-      *reinterpret_cast<volatile uint8_t *>(_mmio + a) =
+-          static_cast<uint8_t>(v >> (8 * done));
+-      done += 1;
+-    }
++    const size_t width = ((a & 1) == 0 && n - done >= 2) ? 2 : 1;
++    reg_write(a, width, (v >> (8 * done)) & (width == 2 ? 0xFFFFu : 0xFFu));
++    done += width;
+   }
+ }
+ 
+diff --git a/src/PcieTransport.h b/src/PcieTransport.h
+index 423c040..967c7c3 100644
+--- a/src/PcieTransport.h
++++ b/src/PcieTransport.h
+@@ -1,19 +1,31 @@
+ #pragma once
+ 
+-/* PcieTransport — vfio-pci userspace transport for the PCIe Realtek parts
+- * (RTL8821CE on the Jaguar2 HAL; RTL8852CE on the Kestrel HAL).
++/* PcieTransport — userspace transport for the PCIe Realtek parts (RTL8821CE on
++ * the Jaguar2 HAL; RTL8852CE on the Kestrel HAL).
+  *
+- * The caller owns vfio, mirroring the USB doctrine ("the caller owns libusb"):
+- * PcieTransport::Open(bdf) is the recommended open path — it walks
+- * /sys/bus/pci/devices/<bdf>/iommu_group, opens the vfio container + group,
+- * maps BAR2 (the MMIO window exposing the same register space the USB
++ * This class is the bus-neutral half. What reaches the device is a host
++ * backend, one per file, chosen at build time:
++ *
++ *   PcieTransportVfio.cpp (Linux): the caller owns vfio, mirroring the USB
++ *   doctrine ("the caller owns libusb"). Open(bdf) walks
++ *   /sys/bus/pci/devices/<bdf>/iommu_group, opens the vfio container + group,
++ *   maps BAR2, enables PCI bus mastering, and DMA-maps one anonymous slab at a
++ *   chosen IOVA. The device must already be bound to vfio-pci
++ *   (tests/pcie_vfio_bind.sh).
++ *
++ *   PcieTransportWin.cpp (Windows): the card is bound to a user-mode register
++ *   proxy driver that relays register accesses; the DMA slab is locked 2 MiB
++ *   blocks owned by this process, whose physical addresses are used as bus
++ *   addresses. Config space is out of reach there, so bus mastering and ASPM
++ *   stay as the OS left them. RTL8852CE only.
++ *
++ * BAR2 is the MMIO window exposing the same register space the USB
+  * vendor-control path addresses: 64 KiB on the 11ac parts, 1 MiB on the AX
+  * parts, where the halbb/halrf BB window above 0x10000 is directly
+- * addressable), enables PCI bus mastering, and DMA-maps one anonymous slab
+- * for the rings + buffers. The device must already be bound to vfio-pci
+- * (tests/pcie_vfio_bind.sh).
++ * addressable.
+  *
+- * Registers: plain volatile loads/stores on the BAR2 mapping.
++ * Registers: one aligned access at a time through the backend (a volatile
++ * load/store on the BAR2 mapping under vfio).
+  *
+  * Frames: the DMA engine differs per generation and lives behind
+  * IPcieDmaPlane (src/PcieDmaPlane.h), chosen from the PCI device id at
+@@ -46,7 +58,7 @@ public:
+      * 256-entry rings, 11494-byte RX buffers, 512 WD pages). */
+     uint32_t rx_ring_len = 512;   /* RTK_MAX_RX_DESC_NUM */
+     uint32_t rx_buf_size = 11480; /* RTK_PCI_RX_BUF_SIZE (11478) 8-aligned */
+-    uint64_t iova_base = 0x10000000; /* slab IOVA; must stay < 4 GiB */
++    uint64_t iova_base = 0x10000000; /* vfio slab IOVA; must stay < 4 GiB */
+     int rx_poll_us = 200;            /* RX hw-index poll interval */
+     /* MSI-via-eventfd RX wakeups (VFIO_DEVICE_SET_IRQS) on a plane that
+      * consumes them (the 88xx plane; the AX plane polls and never registers
+@@ -57,12 +69,14 @@ public:
+     bool use_msi = true;
+   };
+ 
+-  /* Open the vfio-pci device at `bdf` ("0000:01:00.0"). Returns null and logs
+-   * on any failure (group not viable, BAR2 map failed, DMA map failed, no DMA
+-   * plane for this device id...). Bus mastering + ASPM-off +
+-   * completion-timeout-disable are applied here. (Two overloads instead of a
+-   * defaulted Config arg: a nested class with default member initializers
+-   * cannot be a default argument inside its own enclosing class.) */
++  /* Open the device at `bdf` ("0000:01:00.0"). Returns null and logs on any
++   * failure (group not viable, BAR2 map failed, DMA map failed, no DMA plane
++   * for this device id...). Under vfio, bus mastering + ASPM-off +
++   * completion-timeout-disable are applied here. On Windows `bdf` only labels
++   * log lines: the one card bound to the proxy driver is opened. (Two
++   * overloads instead of a defaulted Config arg: a nested class with default
++   * member initializers cannot be a default argument inside its own enclosing
++   * class.) */
+   static std::shared_ptr<PcieTransport> Open(const std::string &bdf,
+                                              Logger_t logger,
+                                              const Config &cfg);
+@@ -113,20 +127,19 @@ public:
+    * it is per generation (Jaguar2: before power-on; Kestrel: after
+    * dmac_func_pre_en, before FWDL). */
+   void hci_setup() override { _dma->setup_rings(); }
+-  /* Live DEVCTL2 LTR_EN read through the vfio config region (see ITransport).
+-   * False when the PCIe capability is missing or unreadable — silence is the
+-   * safe side. */
++  /* Live DEVCTL2 LTR_EN read from config space (see ITransport). False when
++   * the PCIe capability is missing or unreadable — silence is the safe
++   * side. */
+   bool ltr_allowed() override;
+   TxStats tx_stats() const override;
+ 
+-  volatile uint8_t *mmio() const { return _mmio; }
+   size_t mmio_len() const { return _mmio_len; }
+   /* PCI config-space identity (the AX parts dispatch on the device id — their
+    * 0x00FC byte is R_AX_SYS_CHIPINFO, not a Jaguar chip-id). */
+   uint16_t pci_vendor_id() const { return _pci_vid; }
+   uint16_t pci_device_id() const { return _pci_did; }
+ 
+-  /* ---- PCI config space (via the vfio config region) ---- */
++  /* ---- PCI config space (false where the host backend cannot reach it) ---- */
+   bool cfg_read(uint32_t off, void *buf, size_t len);
+   bool cfg_write(uint32_t off, const void *buf, size_t len);
+ 
+@@ -151,7 +164,7 @@ public:
+       return 0;
+     }
+     if ((off & (sizeof(T) - 1)) == 0)
+-      return *reinterpret_cast<volatile T *>(_mmio + off);
++      return static_cast<T>(reg_read(off, sizeof(T)));
+     return static_cast<T>(read_split(off, sizeof(T)));
+   }
+   template <typename T> void mmio_write(uint32_t off, T v) {
+@@ -160,25 +173,35 @@ public:
+       return;
+     }
+     if ((off & (sizeof(T) - 1)) == 0) {
+-      *reinterpret_cast<volatile T *>(_mmio + off) = v;
++      reg_write(off, sizeof(T), static_cast<uint32_t>(v));
+       return;
+     }
+     write_split(off, sizeof(T), static_cast<uint32_t>(v));
+   }
+-  int msi_fd() const { return _msi_evt; }
++  /* eventfd signalled per MSI; -1 = polling mode. */
++  int msi_fd() const;
+   const Config &config() const { return _cfg; }
+   const std::string &bdf() const { return _bdf; }
+   IPcieDmaPlane &dma_plane() { return *_dma; }
+ 
+ private:
+-  PcieTransport(Logger_t logger, Config cfg) : _logger(std::move(logger)), _cfg(cfg) {}
++  struct Os; /* host backend state, defined in its .cpp */
++
++  PcieTransport(Logger_t logger, Config cfg);
+ 
+-  bool open_vfio(const std::string &bdf);
+-  bool map_bar2();
++  /* ---- host backend (PcieTransportVfio.cpp / PcieTransportWin.cpp) ---- */
++  /* Reach the device and its registers; sets _mmio_len. */
++  bool open_device(const std::string &bdf);
++  /* Sets _pci_vid/_pci_did; applies what config-space setup the host allows. */
+   bool setup_config_space();
+-  bool select_dma_plane();
++  /* Allocates the slab the plane asked for and attaches the plane to it. */
+   bool init_dma();
+   bool setup_msi();
++  /* One naturally aligned register access of 1, 2 or 4 bytes. */
++  uint32_t reg_read(uint32_t off, size_t width);
++  void reg_write(uint32_t off, size_t width, uint32_t v);
++
++  bool select_dma_plane();
+   void warn_oob(uint32_t off);
+ 
+   template <typename T> T guarded_read(uint16_t reg) {
+@@ -205,16 +228,10 @@ private:
+   std::string _bdf;
+   uint16_t _pci_vid = 0, _pci_did = 0;
+ 
+-  int _container = -1, _group = -1, _device = -1;
+-  int _msi_evt = -1;        /* eventfd signalled per MSI; -1 = polling mode */
+-  volatile uint8_t *_mmio = nullptr;
++  std::unique_ptr<Os> _os;
+   size_t _mmio_len = 0;
+-  uint64_t _cfg_region_off = 0;
+   uint32_t _pcie_cap = 0; /* PCI Express capability offset (0 = not found) */
+-  size_t _cfg_region_len = 0;
+-
+-  uint8_t *_slab = nullptr; /* DMA slab VA (anonymous, VFIO-pinned) */
+-  size_t _slab_len = 0;
++  DmaSlab _slab;          /* memory owned by _os */
+ 
+   /* TX submission counters (TxStats.h contract, like the USB transport). */
+   std::atomic<uint64_t> _tx_submitted{0};
+diff --git a/src/PcieTransportVfio.cpp b/src/PcieTransportVfio.cpp
+new file mode 100644
+index 0000000..5586482
+--- /dev/null
++++ b/src/PcieTransportVfio.cpp
+@@ -0,0 +1,332 @@
++#include "PcieTransport.h"
++
++/* Linux host backend: vfio-pci. Compiled when DEVOURER_PCIE=ON on Linux. */
++
++#include <cerrno>
++#include <cstring>
++
++#include <fcntl.h>
++#include <linux/vfio.h>
++#include <sys/eventfd.h>
++#include <sys/ioctl.h>
++#include <sys/mman.h>
++#include <unistd.h>
++
++namespace devourer {
++
++namespace {
++constexpr uint16_t kPciDidRtl8852ce = 0xC852;
++} /* namespace */
++
++struct PcieTransport::Os {
++  int container = -1, group = -1, device = -1;
++  int msi_evt = -1; /* eventfd signalled per MSI; -1 = polling mode */
++  volatile uint8_t *mmio = nullptr;
++  uint64_t cfg_region_off = 0;
++  size_t cfg_region_len = 0;
++  uint8_t *slab = nullptr; /* DMA slab VA (anonymous, VFIO-pinned) */
++  size_t slab_len = 0;
++};
++
++PcieTransport::PcieTransport(Logger_t logger, Config cfg)
++    : _logger(std::move(logger)), _cfg(cfg), _os(std::make_unique<Os>()) {}
++
++int PcieTransport::msi_fd() const { return _os->msi_evt; }
++
++bool PcieTransport::setup_msi() {
++  struct vfio_irq_info info{};
++  info.argsz = sizeof(info);
++  info.index = VFIO_PCI_MSI_IRQ_INDEX;
++  if (ioctl(_os->device, VFIO_DEVICE_GET_IRQ_INFO, &info) < 0 ||
++      info.count < 1) {
++    _logger->warn("PcieTransport: no MSI IRQ available");
++    return false;
++  }
++  int evt = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
++  if (evt < 0)
++    return false;
++  /* One MSI vector -> the eventfd. */
++  char buf[sizeof(struct vfio_irq_set) + sizeof(int32_t)] = {};
++  auto *is = reinterpret_cast<struct vfio_irq_set *>(buf);
++  is->argsz = sizeof(buf);
++  is->flags = VFIO_IRQ_SET_DATA_EVENTFD | VFIO_IRQ_SET_ACTION_TRIGGER;
++  is->index = VFIO_PCI_MSI_IRQ_INDEX;
++  is->start = 0;
++  is->count = 1;
++  memcpy(is->data, &evt, sizeof(int32_t));
++  if (ioctl(_os->device, VFIO_DEVICE_SET_IRQS, is) < 0) {
++    _logger->warn("PcieTransport: VFIO_DEVICE_SET_IRQS(MSI) failed: {}",
++                  strerror(errno));
++    close(evt);
++    return false;
++  }
++  _os->msi_evt = evt;
++  return true;
++}
++
++PcieTransport::~PcieTransport() {
++  if (_os->msi_evt >= 0) {
++    if (_os->mmio && _dma)
++      _dma->irq_mask(); /* mask before dropping the vector */
++    struct vfio_irq_set off{};
++    off.argsz = sizeof(off);
++    off.flags = VFIO_IRQ_SET_DATA_NONE | VFIO_IRQ_SET_ACTION_TRIGGER;
++    off.index = VFIO_PCI_MSI_IRQ_INDEX;
++    off.count = 0;
++    ioctl(_os->device, VFIO_DEVICE_SET_IRQS, &off);
++    close(_os->msi_evt);
++  }
++  _dma.reset();
++  if (_os->mmio)
++    munmap(const_cast<uint8_t *>(_os->mmio), _mmio_len);
++  if (_os->slab && _os->container >= 0) {
++    struct vfio_iommu_type1_dma_unmap um{};
++    um.argsz = sizeof(um);
++    um.iova = _cfg.iova_base;
++    um.size = _os->slab_len;
++    ioctl(_os->container, VFIO_IOMMU_UNMAP_DMA, &um);
++  }
++  if (_os->slab)
++    munmap(_os->slab, _os->slab_len);
++  if (_os->device >= 0)
++    close(_os->device);
++  if (_os->group >= 0)
++    close(_os->group);
++  if (_os->container >= 0)
++    close(_os->container);
++}
++
++bool PcieTransport::open_device(const std::string &bdf) {
++  /* IOMMU group number from sysfs. */
++  std::string link = "/sys/bus/pci/devices/" + bdf + "/iommu_group";
++  char buf[256];
++  ssize_t n = readlink(link.c_str(), buf, sizeof(buf) - 1);
++  if (n <= 0) {
++    _logger->error("PcieTransport: readlink({}) failed: {}", link,
++                   strerror(errno));
++    return false;
++  }
++  buf[n] = 0;
++  const char *slash = strrchr(buf, '/');
++  std::string group_num = slash ? slash + 1 : buf;
++
++  _os->container = open("/dev/vfio/vfio", O_RDWR);
++  if (_os->container < 0) {
++    _logger->error("PcieTransport: open /dev/vfio/vfio failed: {} (modprobe "
++                   "vfio-pci?)",
++                   strerror(errno));
++    return false;
++  }
++  if (ioctl(_os->container, VFIO_GET_API_VERSION) != VFIO_API_VERSION) {
++    _logger->error("PcieTransport: VFIO API version mismatch");
++    return false;
++  }
++  int iommu_type = 0;
++  if (ioctl(_os->container, VFIO_CHECK_EXTENSION, VFIO_TYPE1v2_IOMMU) == 1)
++    iommu_type = VFIO_TYPE1v2_IOMMU;
++  else if (ioctl(_os->container, VFIO_CHECK_EXTENSION, VFIO_TYPE1_IOMMU) == 1)
++    iommu_type = VFIO_TYPE1_IOMMU;
++  else {
++    _logger->error("PcieTransport: no Type1 IOMMU support");
++    return false;
++  }
++
++  std::string group_path = "/dev/vfio/" + group_num;
++  _os->group = open(group_path.c_str(), O_RDWR);
++  if (_os->group < 0) {
++    _logger->error("PcieTransport: open {} failed: {} (device bound to "
++                   "vfio-pci? permissions?)",
++                   group_path, strerror(errno));
++    return false;
++  }
++  struct vfio_group_status st{};
++  st.argsz = sizeof(st);
++  if (ioctl(_os->group, VFIO_GROUP_GET_STATUS, &st) < 0 ||
++      !(st.flags & VFIO_GROUP_FLAGS_VIABLE)) {
++    _logger->error("PcieTransport: IOMMU group {} not viable (all devices in "
++                   "the group must be bound to vfio-pci)",
++                   group_num);
++    return false;
++  }
++  if (ioctl(_os->group, VFIO_GROUP_SET_CONTAINER, &_os->container) < 0) {
++    _logger->error("PcieTransport: GROUP_SET_CONTAINER failed: {}",
++                   strerror(errno));
++    return false;
++  }
++  if (ioctl(_os->container, VFIO_SET_IOMMU, iommu_type) < 0) {
++    _logger->error("PcieTransport: SET_IOMMU failed: {}", strerror(errno));
++    return false;
++  }
++  _os->device = ioctl(_os->group, VFIO_GROUP_GET_DEVICE_FD, bdf.c_str());
++  if (_os->device < 0) {
++    _logger->error("PcieTransport: GET_DEVICE_FD({}) failed: {}", bdf,
++                   strerror(errno));
++    return false;
++  }
++  _logger->info("PcieTransport: vfio group {} opened for {}", group_num, bdf);
++
++  struct vfio_region_info reg{};
++  reg.argsz = sizeof(reg);
++  reg.index = VFIO_PCI_BAR2_REGION_INDEX;
++  if (ioctl(_os->device, VFIO_DEVICE_GET_REGION_INFO, &reg) < 0) {
++    _logger->error("PcieTransport: BAR2 region info failed: {}",
++                   strerror(errno));
++    return false;
++  }
++  if (!(reg.flags & VFIO_REGION_INFO_FLAG_MMAP) || reg.size == 0) {
++    _logger->error("PcieTransport: BAR2 not mmap-able (size={} flags={:#x})",
++                   (unsigned long long)reg.size, reg.flags);
++    return false;
++  }
++  void *p = mmap(nullptr, reg.size, PROT_READ | PROT_WRITE, MAP_SHARED,
++                 _os->device, reg.offset);
++  if (p == MAP_FAILED) {
++    _logger->error("PcieTransport: BAR2 mmap failed: {}", strerror(errno));
++    return false;
++  }
++  _os->mmio = static_cast<volatile uint8_t *>(p);
++  _mmio_len = reg.size;
++  return true;
++}
++
++uint32_t PcieTransport::reg_read(uint32_t off, size_t width) {
++  volatile uint8_t *p = _os->mmio + off;
++  if (width == 4)
++    return *reinterpret_cast<volatile uint32_t *>(p);
++  if (width == 2)
++    return *reinterpret_cast<volatile uint16_t *>(p);
++  return *p;
++}
++
++void PcieTransport::reg_write(uint32_t off, size_t width, uint32_t v) {
++  volatile uint8_t *p = _os->mmio + off;
++  if (width == 4)
++    *reinterpret_cast<volatile uint32_t *>(p) = v;
++  else if (width == 2)
++    *reinterpret_cast<volatile uint16_t *>(p) = static_cast<uint16_t>(v);
++  else
++    *p = static_cast<uint8_t>(v);
++}
++
++bool PcieTransport::cfg_read(uint32_t off, void *buf, size_t len) {
++  return pread(_os->device, buf, len, _os->cfg_region_off + off) ==
++         static_cast<ssize_t>(len);
++}
++
++bool PcieTransport::cfg_write(uint32_t off, const void *buf, size_t len) {
++  return pwrite(_os->device, buf, len, _os->cfg_region_off + off) ==
++         static_cast<ssize_t>(len);
++}
++
++bool PcieTransport::setup_config_space() {
++  struct vfio_region_info reg{};
++  reg.argsz = sizeof(reg);
++  reg.index = VFIO_PCI_CONFIG_REGION_INDEX;
++  if (ioctl(_os->device, VFIO_DEVICE_GET_REGION_INFO, &reg) < 0) {
++    _logger->error("PcieTransport: config region info failed: {}",
++                   strerror(errno));
++    return false;
++  }
++  _os->cfg_region_off = reg.offset;
++  _os->cfg_region_len = reg.size;
++
++  uint16_t vid = 0, did = 0;
++  cfg_read(0x00, &vid, 2);
++  cfg_read(0x02, &did, 2);
++  if (vid == 0xFFFF) {
++    _logger->error("PcieTransport: config space reads 0xFFFF — link down?");
++    return false;
++  }
++  _pci_vid = vid;
++  _pci_did = did;
++  _logger->info("PcieTransport: PCI device {:04x}:{:04x}", vid, did);
++
++  /* Memory + bus-master enable. Without bus-master every register read works
++   * but no DMA moves — the classic silent-failure trap. */
++  uint16_t cmd = 0;
++  cfg_read(0x04, &cmd, 2);
++  cmd |= 0x2 /* MEMORY */ | 0x4 /* MASTER */;
++  cfg_write(0x04, &cmd, 2);
++
++  /* Find the PCI Express capability (id 0x10) for LNKCTL / DEVCTL2. */
++  uint8_t cap_ptr = 0;
++  cfg_read(0x34, &cap_ptr, 1);
++  uint32_t pcie_cap = 0;
++  for (int guard = 0; cap_ptr && guard < 48; guard++) {
++    uint8_t id = 0, next = 0;
++    cfg_read(cap_ptr, &id, 1);
++    cfg_read(cap_ptr + 1, &next, 1);
++    if (id == 0x10) {
++      pcie_cap = cap_ptr;
++      break;
++    }
++    cap_ptr = next;
++  }
++  _pcie_cap = pcie_cap;
++  if (pcie_cap) {
++    /* Clear ASPM (LNKCTL[1:0]) during bring-up — L1 entry on a half-configured
++     * link is a known hang source. */
++    uint16_t lnkctl = 0;
++    cfg_read(pcie_cap + 0x10, &lnkctl, 2);
++    if (lnkctl & 0x3) {
++      lnkctl &= ~0x3;
++      cfg_write(pcie_cap + 0x10, &lnkctl, 2);
++      _logger->info("PcieTransport: ASPM disabled for bring-up");
++    }
++    /* Disable completion timeout (DEVCTL2 bit4) — rtw88 does this specifically
++     * for the 8821C (rtw_pci_phy_cfg). Only there: with the timeout off, a
++     * read of a device that stops answering never completes and the CPU
++     * hangs in the MMIO load instead of seeing all-ones, so the AX parts
++     * (rtw89 leaves the timeout alone) keep it. */
++    if (_pci_did != kPciDidRtl8852ce) {
++      uint16_t devctl2 = 0;
++      cfg_read(pcie_cap + 0x28, &devctl2, 2);
++      devctl2 |= 1u << 4;
++      cfg_write(pcie_cap + 0x28, &devctl2, 2);
++    }
++  } else {
++    _logger->warn("PcieTransport: PCIe capability not found — skipping "
++                  "ASPM/completion-timeout config");
++  }
++  return true;
++}
++
++bool PcieTransport::init_dma() {
++  _os->slab_len = _dma->slab_bytes();
++  void *p = mmap(nullptr, _os->slab_len, PROT_READ | PROT_WRITE,
++                 MAP_SHARED | MAP_ANONYMOUS, -1, 0);
++  if (p == MAP_FAILED) {
++    _logger->error("PcieTransport: DMA slab mmap({} KiB) failed: {}",
++                   _os->slab_len / 1024, strerror(errno));
++    return false;
++  }
++  _os->slab = static_cast<uint8_t *>(p);
++  memset(_os->slab, 0, _os->slab_len);
++
++  if (_cfg.iova_base + _os->slab_len > (1ull << 32)) {
++    _logger->error("PcieTransport: IOVA base 0x{:x} + slab exceeds 4 GiB (the "
++                   "descriptor dma fields are 32-bit)",
++                   _cfg.iova_base);
++    return false;
++  }
++  struct vfio_iommu_type1_dma_map m{};
++  m.argsz = sizeof(m);
++  m.flags = VFIO_DMA_MAP_FLAG_READ | VFIO_DMA_MAP_FLAG_WRITE;
++  m.vaddr = reinterpret_cast<uint64_t>(_os->slab);
++  m.iova = _cfg.iova_base;
++  m.size = _os->slab_len;
++  if (ioctl(_os->container, VFIO_IOMMU_MAP_DMA, &m) < 0) {
++    _logger->error("PcieTransport: VFIO_IOMMU_MAP_DMA failed: {}",
++                   strerror(errno));
++    return false;
++  }
++  /* One IOVA run for the whole slab; closing the device fd resets the
++   * function, so the plane's quiesce ops are not needed here. */
++  _slab.va = _os->slab;
++  _slab.len = _os->slab_len;
++  _slab.chunk_bytes = 0;
++  _slab.chunk_iova = {_cfg.iova_base};
++  return _dma->attach(_slab);
++}
++
++} /* namespace devourer */
+diff --git a/src/PcieTransportWin.cpp b/src/PcieTransportWin.cpp
+new file mode 100644
+index 0000000..e449ec4
+--- /dev/null
++++ b/src/PcieTransportWin.cpp
+@@ -0,0 +1,337 @@
++#include "PcieTransport.h"
++
++/* Windows host backend. Compiled when DEVOURER_PCIE=ON on Windows.
++ *
++ * Registers go through a user-mode register proxy driver bound to the card
++ * (the winawdl project's regproxy; its IOCTL contract is regproxy_ioctl.h,
++ * found through DEVOURER_REGPROXY_INCLUDE_DIR). The DMA slab is AWE memory
++ * owned by this process: locked 2 MiB blocks whose physical addresses are
++ * handed to the chip as bus addresses. Nothing remaps or fences that DMA, so
++ * the proxy is given the plane's quiesce ops to replay if this process dies. */
++
++#define WIN32_LEAN_AND_MEAN
++#define NOMINMAX
++#include <windows.h>
++
++#include <cfgmgr32.h>
++#include <setupapi.h>
++#include <winioctl.h>
++
++#include <algorithm>
++#include <cstring>
++#include <cwchar>
++#include <vector>
++
++#include "PhysicalBlocks.h"
++#include "regproxy_ioctl.h"
++
++namespace devourer {
++
++namespace {
++
++constexpr size_t kPageBytes = 4096;
++constexpr size_t kBlockBytes = size_t{2} << 20;
++constexpr size_t kPagesPerBlock = kBlockBytes / kPageBytes;
++constexpr unsigned kPageShift = 12;
++constexpr ULONG_PTR kFrameAt4GiB = ULONG_PTR{1} << (32 - kPageShift);
++/* The system hands out blocks wherever it likes: ask for more than needed
++ * and keep the lowest the DMA plane can address. The last attempt takes
++ * every free large page there is. */
++constexpr size_t kOverRequest[] = {4, 16};
++constexpr size_t kRequestEverything = 4096;
++
++using AllocatePages2Fn = BOOL(WINAPI *)(HANDLE, PULONG_PTR, PULONG_PTR,
++                                        PMEM_EXTENDED_PARAMETER, ULONG);
++
++bool enable_lock_memory_privilege() {
++  HANDLE token = nullptr;
++  if (!OpenProcessToken(GetCurrentProcess(),
++                        TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token))
++    return false;
++  TOKEN_PRIVILEGES privileges{};
++  privileges.PrivilegeCount = 1;
++  privileges.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
++  const bool found = LookupPrivilegeValueW(nullptr, L"SeLockMemoryPrivilege",
++                                           &privileges.Privileges[0].Luid);
++  if (found)
++    AdjustTokenPrivileges(token, FALSE, &privileges, 0, nullptr, nullptr);
++  /* AdjustTokenPrivileges succeeds even when the privilege is not held. */
++  const bool enabled = found && GetLastError() == ERROR_SUCCESS;
++  CloseHandle(token);
++  return enabled;
++}
++
++/* Allocates `count` locked 2 MiB blocks; each entry of the result is the
++ * frame number of a block's first 4 KiB page. May return fewer. */
++std::vector<ULONG_PTR> allocate_blocks(size_t count) {
++  /* Looked up at run time: the import library that carries it varies by SDK. */
++  const auto allocate = reinterpret_cast<AllocatePages2Fn>(GetProcAddress(
++      GetModuleHandleW(L"kernelbase.dll"), "AllocateUserPhysicalPages2"));
++  std::vector<ULONG_PTR> frames(count);
++  MEM_EXTENDED_PARAMETER large{};
++  large.Type = MemExtendedParameterAttributeFlags;
++  large.ULong64 = MEM_EXTENDED_PARAMETER_NONPAGED_LARGE;
++  ULONG_PTR got = count;
++  if (!allocate ||
++      !allocate(GetCurrentProcess(), &got, frames.data(), &large, 1))
++    got = 0;
++  frames.resize(got);
++  return frames;
++}
++
++void free_blocks(std::vector<ULONG_PTR> &frames) {
++  ULONG_PTR count = frames.size();
++  if (count)
++    FreeUserPhysicalPages(GetCurrentProcess(), &count, frames.data());
++  frames.clear();
++}
++
++/* "PCI\VEN_10EC&DEV_C852&..." -> the hex field after `key`. */
++uint16_t instance_id_field(const wchar_t *instance_id, const wchar_t *key) {
++  const wchar_t *at = std::wcsstr(instance_id, key);
++  return at ? static_cast<uint16_t>(
++                  std::wcstoul(at + std::wcslen(key), nullptr, 16))
++            : 0;
++}
++
++} /* namespace */
++
++struct PcieTransport::Os {
++  HANDLE proxy = INVALID_HANDLE_VALUE;
++  uint8_t *slab = nullptr;         /* one MEM_PHYSICAL view over all blocks */
++  std::vector<ULONG_PTR> blocks;   /* first frame of each mapped block */
++  std::vector<REGPROXY_OP> quiesce; /* stops the plane's DMA engine */
++  std::atomic<bool> io_error_logged{false};
++};
++
++PcieTransport::PcieTransport(Logger_t logger, Config cfg)
++    : _logger(std::move(logger)), _cfg(cfg), _os(std::make_unique<Os>()) {}
++
++PcieTransport::~PcieTransport() {
++  _dma.reset();
++  if (_os->proxy != INVALID_HANDLE_VALUE && !_os->quiesce.empty()) {
++    /* The device object stops DMA on its own teardown; repeating it here is
++     * what makes freeing the slab safe when that object never existed. */
++    DWORD returned = 0;
++    const DWORD bytes =
++        static_cast<DWORD>(_os->quiesce.size() * sizeof(REGPROXY_OP));
++    DeviceIoControl(_os->proxy, IOCTL_REGPROXY_BATCH, _os->quiesce.data(),
++                    bytes, _os->quiesce.data(), bytes, &returned, nullptr);
++    DeviceIoControl(_os->proxy, IOCTL_REGPROXY_SET_CLOSE_OPS, nullptr, 0,
++                    nullptr, 0, &returned, nullptr);
++  }
++  if (_os->slab) {
++    for (size_t i = 0; i < _os->blocks.size(); i++)
++      MapUserPhysicalPages(_os->slab + i * kBlockBytes, kPagesPerBlock,
++                           nullptr);
++    VirtualFree(_os->slab, 0, MEM_RELEASE);
++  }
++  free_blocks(_os->blocks);
++  if (_os->proxy != INVALID_HANDLE_VALUE)
++    CloseHandle(_os->proxy);
++}
++
++int PcieTransport::msi_fd() const { return -1; }
++
++bool PcieTransport::setup_msi() { return false; }
++
++bool PcieTransport::open_device(const std::string &bdf) {
++  (void)bdf;
++  const GUID *iface = &GUID_DEVINTERFACE_WINAWDL_REGPROXY;
++  HDEVINFO set = SetupDiGetClassDevsW(iface, nullptr, nullptr,
++                                      DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
++  if (set == INVALID_HANDLE_VALUE) {
++    _logger->error("PcieTransport: device enumeration failed ({})",
++                   GetLastError());
++    return false;
++  }
++
++  SP_DEVICE_INTERFACE_DATA data{};
++  data.cbSize = sizeof(data);
++  if (SetupDiEnumDeviceInterfaces(set, nullptr, iface, 0, &data)) {
++    DWORD size = 0;
++    SetupDiGetDeviceInterfaceDetailW(set, &data, nullptr, 0, &size, nullptr);
++    std::vector<uint8_t> storage(size);
++    auto *detail =
++        reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_W *>(storage.data());
++    detail->cbSize = sizeof(*detail);
++    SP_DEVINFO_DATA devinfo{};
++    devinfo.cbSize = sizeof(devinfo);
++    wchar_t instance_id[MAX_DEVICE_ID_LEN] = {};
++    if (SetupDiGetDeviceInterfaceDetailW(set, &data, detail, size, nullptr,
++                                         &devinfo) &&
++        SetupDiGetDeviceInstanceIdW(set, &devinfo, instance_id,
++                                    MAX_DEVICE_ID_LEN, nullptr)) {
++      _pci_vid = instance_id_field(instance_id, L"VEN_");
++      _pci_did = instance_id_field(instance_id, L"DEV_");
++      _os->proxy = CreateFileW(detail->DevicePath, GENERIC_READ | GENERIC_WRITE,
++                               0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
++                               nullptr);
++    }
++  }
++  const DWORD open_error = GetLastError();
++  SetupDiDestroyDeviceInfoList(set);
++  if (_os->proxy == INVALID_HANDLE_VALUE) {
++    _logger->error("PcieTransport: register proxy not openable ({}): is the "
++                   "driver bound to the card, the process elevated, and no "
++                   "other client running?",
++                   open_error);
++    return false;
++  }
++
++  REGPROXY_INFO info{};
++  DWORD returned = 0;
++  if (!DeviceIoControl(_os->proxy, IOCTL_REGPROXY_GET_INFO, nullptr, 0, &info,
++                       sizeof(info), &returned, nullptr)) {
++    _logger->error("PcieTransport: register proxy GET_INFO failed ({})",
++                   GetLastError());
++    return false;
++  }
++  if (info.version != REGPROXY_VERSION) {
++    _logger->error("PcieTransport: register proxy speaks version {}, this "
++                   "build needs {} — reinstall the driver",
++                   info.version, REGPROXY_VERSION);
++    return false;
++  }
++  _mmio_len = info.bar_len;
++  _logger->info("PcieTransport: register proxy opened, BAR2 {} KiB at 0x{:x}",
++                _mmio_len / 1024, info.bar_phys);
++  return true;
++}
++
++bool PcieTransport::setup_config_space() {
++  if (_pci_vid == 0 || _pci_did == 0) {
++    _logger->error("PcieTransport: PCI ids not found in the device instance id");
++    return false;
++  }
++  _logger->info("PcieTransport: PCI device {:04x}:{:04x}; config space is out "
++                "of reach here, bus mastering and ASPM stay as Windows set them",
++                _pci_vid, _pci_did);
++  return true;
++}
++
++bool PcieTransport::cfg_read(uint32_t, void *, size_t) { return false; }
++
++bool PcieTransport::cfg_write(uint32_t, const void *, size_t) { return false; }
++
++uint32_t PcieTransport::reg_read(uint32_t off, size_t width) {
++  REGPROXY_OP op{};
++  op.offset = off;
++  op.width = static_cast<unsigned char>(width);
++  op.kind = REGPROXY_READ;
++  DWORD returned = 0;
++  if (DeviceIoControl(_os->proxy, IOCTL_REGPROXY_BATCH, &op, sizeof(op), &op,
++                      sizeof(op), &returned, nullptr))
++    return op.value;
++  if (!_os->io_error_logged.exchange(true))
++    _logger->error("PcieTransport: register read 0x{:x} failed ({})", off,
++                   GetLastError());
++  /* What a device that stopped answering reads as; callers already cope. */
++  return 0xFFFFFFFFu >> (8 * (4 - width));
++}
++
++void PcieTransport::reg_write(uint32_t off, size_t width, uint32_t v) {
++  REGPROXY_OP op{};
++  op.offset = off;
++  op.value = v;
++  op.width = static_cast<unsigned char>(width);
++  op.kind = REGPROXY_WRITE;
++  DWORD returned = 0;
++  if (!DeviceIoControl(_os->proxy, IOCTL_REGPROXY_BATCH, &op, sizeof(op), &op,
++                       sizeof(op), &returned, nullptr) &&
++      !_os->io_error_logged.exchange(true))
++    _logger->error("PcieTransport: register write 0x{:x} failed ({})", off,
++                   GetLastError());
++}
++
++bool PcieTransport::init_dma() {
++  const size_t need = (_dma->slab_bytes() + kBlockBytes - 1) / kBlockBytes;
++  if (!enable_lock_memory_privilege()) {
++    _logger->error("PcieTransport: SeLockMemoryPrivilege is not available — "
++                   "run elevated");
++    return false;
++  }
++
++  const unsigned address_bits = _dma->dma_address_bits();
++  const ULONG_PTR limit_frame = ULONG_PTR{1} << (address_bits - kPageShift);
++  const size_t low_need =
++      (_dma->low_slab_bytes() + kBlockBytes - 1) / kBlockBytes;
++  std::vector<size_t> requests;
++  for (size_t factor : kOverRequest)
++    requests.push_back(need * factor);
++  requests.push_back(kRequestEverything);
++  for (size_t request : requests) {
++    std::vector<ULONG_PTR> frames = allocate_blocks(request);
++    _os->blocks = take_lowest_blocks(frames, need, kPagesPerBlock, limit_frame,
++                                     low_need, kFrameAt4GiB);
++    free_blocks(frames);
++    if (!_os->blocks.empty())
++      break;
++  }
++  if (_os->blocks.empty()) {
++    _logger->error("PcieTransport: could not get {} locked 2 MiB blocks within "
++                   "{} address bits, {} of them below 4 GiB — free memory is "
++                   "too fragmented; try after a reboot",
++                   need, address_bits, low_need);
++    return false;
++  }
++
++  const size_t slab_len = need * kBlockBytes;
++  _os->slab = static_cast<uint8_t *>(VirtualAlloc(
++      nullptr, slab_len, MEM_RESERVE | MEM_PHYSICAL, PAGE_READWRITE));
++  if (!_os->slab) {
++    _logger->error("PcieTransport: reserving the slab view failed ({})",
++                   GetLastError());
++    return false;
++  }
++  /* A block maps as its 512 consecutive 4 KiB frames; the documented large
++   * page flags are refused for AWE views. */
++  std::vector<ULONG_PTR> pages(kPagesPerBlock);
++  for (size_t i = 0; i < need; i++) {
++    for (size_t page = 0; page < kPagesPerBlock; page++)
++      pages[page] = _os->blocks[i] + page;
++    if (!MapUserPhysicalPages(_os->slab + i * kBlockBytes, kPagesPerBlock,
++                              pages.data())) {
++      _logger->error("PcieTransport: mapping slab block {} failed ({})", i,
++                     GetLastError());
++      return false;
++    }
++  }
++  std::memset(_os->slab, 0, slab_len);
++
++  _slab.va = _os->slab;
++  _slab.len = slab_len;
++  _slab.chunk_bytes = kBlockBytes;
++  _slab.chunk_iova.clear();
++  for (ULONG_PTR frame : _os->blocks)
++    _slab.chunk_iova.push_back(static_cast<uint64_t>(frame) * kPageBytes);
++  if (!_dma->attach(_slab))
++    return false;
++
++  for (const DmaQuiesceOp &q : _dma->quiesce_ops()) {
++    REGPROXY_OP op{};
++    op.offset = q.reg;
++    op.value = q.bits;
++    op.width = 4;
++    op.kind = q.set ? REGPROXY_SET_BITS : REGPROXY_CLEAR_BITS;
++    _os->quiesce.push_back(op);
++  }
++  DWORD returned = 0;
++  if (_os->quiesce.empty() ||
++      !DeviceIoControl(
++          _os->proxy, IOCTL_REGPROXY_SET_CLOSE_OPS, _os->quiesce.data(),
++          static_cast<DWORD>(_os->quiesce.size() * sizeof(REGPROXY_OP)),
++          nullptr, 0, &returned, nullptr)) {
++    _logger->error("PcieTransport: could not arm the DMA stop the driver "
++                   "replays on exit ({}) — refusing to enable DMA without it",
++                   GetLastError());
++    return false;
++  }
++  _logger->info("PcieTransport: DMA slab is {} locked 2 MiB blocks, physical "
++                "0x{:x}..0x{:x}, used as bus addresses",
++                need, _slab.chunk_iova.front(),
++                _slab.chunk_iova.back() + kBlockBytes);
++  return true;
++}
++
++} /* namespace devourer */
+diff --git a/src/PhysicalBlocks.h b/src/PhysicalBlocks.h
+new file mode 100644
+index 0000000..f9bf54e
+--- /dev/null
++++ b/src/PhysicalBlocks.h
+@@ -0,0 +1,38 @@
++#pragma once
++
++/* Choosing DMA blocks by physical address, apart from the operating system
++ * calls that allocate them so the choice can be checked without them. */
++
++#include <algorithm>
++#include <cstddef>
++#include <cstdint>
++#include <vector>
++
++namespace devourer {
++
++/* Moves the `need` lowest blocks that end at or below `limit_frame` out of
++ * `frames` and returns them in ascending order, provided the first
++ * `low_need` of them also end at or below `low_limit_frame`. Returns nothing,
++ * and takes nothing, otherwise. A block is `block_frames` page frames
++ * starting at its entry. Low blocks are preferred because every device can
++ * reach them, whatever its address width. */
++inline std::vector<uintptr_t> take_lowest_blocks(std::vector<uintptr_t> &frames,
++                                                 size_t need,
++                                                 uintptr_t block_frames,
++                                                 uintptr_t limit_frame,
++                                                 size_t low_need = 0,
++                                                 uintptr_t low_limit_frame = 0) {
++  std::sort(frames.begin(), frames.end());
++  auto fits = [&](size_t count, uintptr_t limit) {
++    return count <= frames.size() &&
++           (count == 0 || frames[count - 1] + block_frames <= limit);
++  };
++  std::vector<uintptr_t> taken;
++  if (fits(need, limit_frame) && fits(low_need, low_limit_frame)) {
++    taken.assign(frames.begin(), frames.begin() + need);
++    frames.erase(frames.begin(), frames.begin() + need);
++  }
++  return taken;
++}
++
++} /* namespace devourer */
+diff --git a/src/PreciseDelay.h b/src/PreciseDelay.h
+new file mode 100644
+index 0000000..f3c2600
+--- /dev/null
++++ b/src/PreciseDelay.h
+@@ -0,0 +1,24 @@
++#pragma once
++
++/* A delay that lasts about as long as it says.
++ *
++ * std::this_thread::sleep_for rounds up to the scheduler tick, and on Windows
++ * that tick can be 15.6 ms: a 1000 x 50 us register poll meant to give up
++ * after 50 ms takes 15 s there. PreciseDelayWin.cpp spins for the shortest
++ * waits and uses a high-resolution timer for the rest. */
++
++#include <chrono>
++#include <cstdint>
++#include <thread>
++
++namespace devourer {
++
++#if defined(_WIN32)
++void precise_delay_us(uint32_t us);
++#else
++inline void precise_delay_us(uint32_t us) {
++  std::this_thread::sleep_for(std::chrono::microseconds(us));
++}
++#endif
++
++} /* namespace devourer */
+diff --git a/src/PreciseDelayWin.cpp b/src/PreciseDelayWin.cpp
+new file mode 100644
+index 0000000..e41a944
+--- /dev/null
++++ b/src/PreciseDelayWin.cpp
+@@ -0,0 +1,49 @@
++#include "PreciseDelay.h"
++
++#define WIN32_LEAN_AND_MEAN
++#define NOMINMAX
++#include <windows.h>
++
++namespace devourer {
++
++namespace {
++
++/* Below this a timer's wake-up latency exceeds the wait itself. */
++constexpr uint32_t kSpinBelowUs = 100;
++
++/* High-resolution timers (Windows 10 1803+) wake within about half a
++ * millisecond whatever the system tick is. One per thread, closed with it. */
++HANDLE thread_timer() {
++  struct Timer {
++    HANDLE handle = CreateWaitableTimerExW(
++        nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
++        TIMER_ALL_ACCESS);
++    ~Timer() {
++      if (handle)
++        CloseHandle(handle);
++    }
++  };
++  thread_local Timer timer;
++  return timer.handle;
++}
++
++} /* namespace */
++
++void precise_delay_us(uint32_t us) {
++  if (us < kSpinBelowUs) {
++    const auto deadline =
++        std::chrono::steady_clock::now() + std::chrono::microseconds(us);
++    while (std::chrono::steady_clock::now() < deadline)
++      YieldProcessor();
++    return;
++  }
++  LARGE_INTEGER due;
++  due.QuadPart = -static_cast<LONGLONG>(us) * 10; /* relative, 100 ns units */
++  const HANDLE timer = thread_timer();
++  if (timer && SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE))
++    WaitForSingleObject(timer, INFINITE);
++  else
++    Sleep((us + 999) / 1000);
++}
++
++} /* namespace devourer */
+diff --git a/src/WiFiDriver.cpp b/src/WiFiDriver.cpp
+index 1783663..842e549 100644
+--- a/src/WiFiDriver.cpp
++++ b/src/WiFiDriver.cpp
+@@ -379,8 +379,7 @@ std::unique_ptr<IRadio> WiFiDriver::CreateRadioPcie(
+ 
+   /* Chip identity from SYS_CFG2 (0x00FC) over BAR2 MMIO — the same dispatch
+    * signal the USB factory reads via a vendor control transfer. */
+-  const uint8_t chip_id =
+-      *reinterpret_cast<volatile uint8_t *>(transport->mmio() + 0x00FC);
++  const uint8_t chip_id = transport->mmio_read<uint8_t>(0x00FC);
+ 
+   if (chip_id == kChipId8821C) {
+ #if defined(DEVOURER_HAVE_JAGUAR2_8821C)
+diff --git a/src/kestrel/HalKestrel.cpp b/src/kestrel/HalKestrel.cpp
+index 208a8f4..a4f16e2 100644
+--- a/src/kestrel/HalKestrel.cpp
++++ b/src/kestrel/HalKestrel.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include "KestrelFw.h"
+ #include "MacRegAx.h"
++#include "PreciseDelay.h"
+ #include "kestrel_halbb_glue.h" /* vendored halbb-G6 BB bring-up (C) */
+ #include "kestrel_halrf_glue.h" /* vendored halrf-G6 RF cals (C) */
+ 
+@@ -16,9 +17,7 @@ namespace kestrel {
+ namespace {
+ namespace r = kestrel::reg;
+ 
+-void delay_us(uint32_t us) {
+-  std::this_thread::sleep_for(std::chrono::microseconds(us));
+-}
++void delay_us(uint32_t us) { devourer::precise_delay_us(us); }
+ 
+ } /* namespace */
+ 
+@@ -542,7 +541,7 @@ bool HalKestrel::power_on_8852c() {
+   set32(r::R_AX_PMC_DBG_CTRL2, r::B_AX_SYSON_DIS_PMCR_AX_WRMSK); /* 0xCC[2]=1 */
+   set32(r::R_AX_SYS_ISO_CTRL, r::B_AX_ISO_EB2CORE);             /* 0x00[8]=1 */
+   clr32(r::R_AX_SYS_ISO_CTRL, 1u << 15);                        /* 0x00[15]=0 */
+-  std::this_thread::sleep_for(std::chrono::milliseconds(1));
++  delay_us(1000);
+   clr32(r::R_AX_SYS_ISO_CTRL, 1u << 14);                        /* 0x00[14]=0 */
+   clr32(r::R_AX_PMC_DBG_CTRL2, r::B_AX_SYSON_DIS_PMCR_AX_WRMSK); /* 0xCC[2]=0 */
+   if (pcie) /* PCIe: GPIO16/17/18 internal weak pull-low */
+@@ -611,7 +610,7 @@ bool HalKestrel::power_on() {
+       return false; /* poll 0x04[9]=0 */
+     clr32(r::R_AX_SYS_PW_CTRL, r::B_AX_EN_WLON);
+     clr32(r::R_AX_SYS_PW_CTRL, r::B_AX_APFM_SWLPS);
+-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
++    delay_us(1000);
+     /* 8852A/8852B/8851B/8852BT only (pwr.c:380): CMAC clock source back to
+      * default before the on-sequence. */
+     if (_variant != ChipVariant::C8852C)
+@@ -682,7 +681,7 @@ bool HalKestrel::power_on() {
+   set32(r::R_AX_PMC_DBG_CTRL2, r::B_AX_SYSON_DIS_PMCR_AX_WRMSK); /* 0xCC[2]=1 */
+   set32(r::R_AX_SYS_ISO_CTRL, r::B_AX_ISO_EB2CORE);             /* 0x00[8]=1 */
+   clr32(r::R_AX_SYS_ISO_CTRL, 1u << 15);                        /* 0x00[15]=0 */
+-  std::this_thread::sleep_for(std::chrono::milliseconds(1));
++  delay_us(1000);
+   clr32(r::R_AX_SYS_ISO_CTRL, 1u << 14);                    /* 0x00[14]=0 */
+   clr32(r::R_AX_PMC_DBG_CTRL2, r::B_AX_SYSON_DIS_PMCR_AX_WRMSK); /* 0xCC[2]=0 */
+ 
+@@ -834,7 +833,7 @@ void HalKestrel::fw_err_settle(const char *where, uint32_t ms) {
+                      where, i, _device.rtw_read32(r::R_AX_HALT_C2H));
+       return;
+     }
+-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
++    delay_us(1000);
+   }
+   _logger->info("Kestrel: fw stable through [{}] ({} ms, no SER)", where, ms);
+ }
+@@ -1594,6 +1593,40 @@ void HalKestrel::port_init() {
+                 v);
+ }
+ 
++namespace {
++/* With these set, a unicast or broadcast frame also has to come from the
++ * address CAM entry's peer, which a station in an open group never is. */
++constexpr uint32_t kRxFromPeerOnly =
++    kestrel::reg::B_AX_A_UC_CAM_MATCH | kestrel::reg::B_AX_A_BC_CAM_MATCH;
++} /* namespace */
++
++bool HalKestrel::set_station_identity(const uint8_t own[6],
++                                      const uint8_t bssid[6]) {
++  namespace r = kestrel::reg;
++  const bool ok = _fw.fw_upd_addr_cam(/*macid=*/0, own, r::MAC_AX_NET_TYPE_ADHOC,
++                                      /*addr_cam_idx=*/0, /*bssid_cam_idx=*/0,
++                                      bssid);
++  field32(r::R_AX_PORT_CFG_P0, r::MAC_AX_NET_TYPE_ADHOC, r::B_AX_NET_TYPE_P0_MSK,
++          r::B_AX_NET_TYPE_P0_SH);
++  clr32(r::R_AX_RX_FLTR_OPT, r::B_AX_SNIFFER_MODE | kRxFromPeerOnly);
++  clr32(r::R_AX_CCA_CONTROL, r::B_AX_SIFS_CHK_BTCCA);
++  clr32(r::R_AX_TRXPTCL_RESP_0, r::B_AX_RSP_CHK_BTCCA);
++  return ok;
++}
++
++bool HalKestrel::clear_station_identity(const uint8_t inject_sa[6]) {
++  namespace r = kestrel::reg;
++  const bool ok =
++      _fw.fw_upd_addr_cam(/*macid=*/0, inject_sa, r::MAC_AX_NET_TYPE_NO_LINK,
++                          /*addr_cam_idx=*/0, /*bssid_cam_idx=*/0);
++  field32(r::R_AX_PORT_CFG_P0, r::MAC_AX_NET_TYPE_NO_LINK,
++          r::B_AX_NET_TYPE_P0_MSK, r::B_AX_NET_TYPE_P0_SH);
++  set32(r::R_AX_RX_FLTR_OPT, r::B_AX_SNIFFER_MODE | kRxFromPeerOnly);
++  set32(r::R_AX_CCA_CONTROL, r::B_AX_SIFS_CHK_BTCCA);
++  set32(r::R_AX_TRXPTCL_RESP_0, r::B_AX_RSP_CHK_BTCCA);
++  return ok;
++}
++
+ void HalKestrel::sch_tx_en() {
+   namespace r = kestrel::reg;
+   /* set_hw_sch_tx_en (cmac_tx.c) band-0: RMW-enable the scheduler contention
+diff --git a/src/kestrel/HalKestrel.h b/src/kestrel/HalKestrel.h
+index c3d070c..6373a06 100644
+--- a/src/kestrel/HalKestrel.h
++++ b/src/kestrel/HalKestrel.h
+@@ -289,6 +289,18 @@ public:
+     return ok;
+   }
+ 
++  /* Makes the MAC answer for `own` in BSS `bssid`. The address CAM entry of
++   * macid 0 names them, reception narrows from sniffer mode to frames for
++   * `own`, broadcast and multicast, and response frames stop waiting for
++   * Bluetooth to be idle. Measured on an RTL8852CE whose Bluetooth half
++   * Windows was using: with that wait in place not one frame was
++   * acknowledged, without it every one was; the network type, an AP role
++   * and a join command made no difference. Leaves the CMAC control table
++   * alone, so injection keeps its rate and antenna path. */
++  bool set_station_identity(const uint8_t own[6], const uint8_t bssid[6]);
++  /* Back to `inject_sa` with no link, sniffer mode and the Bluetooth wait. */
++  bool clear_station_identity(const uint8_t inject_sa[6]);
++
+   /* ---- 802.11ax scheduled-UL levers (KestrelFwSched.cpp encoders) ---- */
+ 
+   /* Fire one HE Basic Trigger (UL-OFDMA grant) via the F2P command. */
+diff --git a/src/kestrel/KestrelFw.cpp b/src/kestrel/KestrelFw.cpp
+index 2a122cc..16194a7 100644
+--- a/src/kestrel/KestrelFw.cpp
++++ b/src/kestrel/KestrelFw.cpp
+@@ -7,6 +7,7 @@
+ 
+ #include "KestrelLe.h"
+ #include "MacRegAx.h"
++#include "PreciseDelay.h"
+ #include "SignalStop.h" /* g_devourer_should_stop — set by demo signal handlers */
+ #if defined(DEVOURER_HAVE_KESTREL_8852B)
+ #include "hal8852b_fw.h"
+@@ -20,9 +21,7 @@ namespace kestrel {
+ namespace {
+ namespace r = kestrel::reg;
+ 
+-void delay_us(uint32_t us) {
+-  std::this_thread::sleep_for(std::chrono::microseconds(us));
+-}
++void delay_us(uint32_t us) { devourer::precise_delay_us(us); }
+ 
+ /* le32 / put_le32 now live in KestrelLe.h (shared with KestrelFwSched.cpp);
+  * pull them into this anonymous namespace so existing unqualified uses below
+@@ -419,17 +418,24 @@ bool KestrelFw::fw_role_maintain(uint8_t macid, uint8_t self_role,
+   return ok;
+ }
+ 
++uint8_t KestrelFw::addr_cam_entry_size() const {
++  return _variant == ChipVariant::C8852C ? r::ADDR_CAM_ENT_SHORT_SIZE
++                                         : r::ADDR_CAM_ENT_LONG_SIZE;
++}
++
+ bool KestrelFw::fw_upd_addr_cam(uint8_t macid, const uint8_t self_mac[6],
+                                 uint8_t net_type, uint8_t addr_cam_idx,
+-                                uint8_t bssid_cam_idx) {
++                                uint8_t bssid_cam_idx, const uint8_t *bssid) {
+   /* fill_addr_cam_info + fill_bssid_cam_info (addr_cam.c). 15-dword body
+-   * (fwcmd_addrcam_info): dword0 rsvd, dword7 rsvd. mask_sel = NO_MSK, so both
+-   * hashes are the full-6-byte XOR (default case). len = ADDR_CAM_ENT_LONG_SIZE
+-   * (8852B), b_len = BSSID_CAM_ENT_SIZE. bssid = self_mac (self/NO_LINK STA). */
++   * (fwcmd_addrcam_info): dword0 and dword7 are reserved. mask_sel = NO_MSK,
++   * so both hashes are the full-6-byte XOR. Without `bssid` the entry is the
++   * self/NO_LINK STA one, bssid = tma = self_mac; with it, tma follows the
++   * BSSID as in rtw89_cam_fill_addr_cam_info. */
++  const uint8_t *tma = bssid ? bssid : self_mac;
+   uint8_t sma_hash = 0, tma_hash = 0;
+   for (int i = 0; i < 6; i++) {
+     sma_hash ^= self_mac[i];
+-    tma_hash ^= self_mac[i];
++    tma_hash ^= tma[i];
+   }
+   uint8_t c[60] = {0};
+   auto sw = [](uint32_t v, uint32_t msk, uint32_t sh) {
+@@ -437,7 +443,7 @@ bool KestrelFw::fw_upd_addr_cam(uint8_t macid, const uint8_t self_mac[6],
+   };
+   /* dword1: idx / offset / len */
+   put_le32(c + 4, sw(addr_cam_idx, 0xff, 0) | sw(0, 0xff, 8) |
+-                      sw(r::ADDR_CAM_ENT_LONG_SIZE, 0xff, 16));
++                      sw(addr_cam_entry_size(), 0xff, 16));
+   /* dword2: valid / net_type / bcn_hit_cond / hit_rule / addr_mask / mask_sel /
+    * sma_hash / tma_hash */
+   put_le32(c + 8, 0x1u /* VALID BIT(0) */ | sw(net_type, 0x3, 1) |
+@@ -450,24 +456,23 @@ bool KestrelFw::fw_upd_addr_cam(uint8_t macid, const uint8_t self_mac[6],
+                        sw(self_mac[2], 0xff, 16) | sw(self_mac[3], 0xff, 24));
+   /* dword5: sma[4],sma[5],tma[0],tma[1] */
+   put_le32(c + 20, sw(self_mac[4], 0xff, 0) | sw(self_mac[5], 0xff, 8) |
+-                       sw(self_mac[0], 0xff, 16) | sw(self_mac[1], 0xff, 24));
++                       sw(tma[0], 0xff, 16) | sw(tma[1], 0xff, 24));
+   /* dword6: tma[2..5] */
+-  put_le32(c + 24, sw(self_mac[2], 0xff, 0) | sw(self_mac[3], 0xff, 8) |
+-                       sw(self_mac[4], 0xff, 16) | sw(self_mac[5], 0xff, 24));
+-  /* dword7 rsvd (c+28) */
++  put_le32(c + 24, sw(tma[2], 0xff, 0) | sw(tma[3], 0xff, 8) |
++                       sw(tma[4], 0xff, 16) | sw(tma[5], 0xff, 24));
+   /* dword8: macid / port_int / tsf_sync / tgt_ind / frm_tgt_ind (all 0 here) */
+   put_le32(c + 32, sw(macid, 0xff, 0));
+   /* dword9..11: aid12 / sec — all 0 */
+   /* dword12: bssid cam idx / offset / len */
+   put_le32(c + 48, sw(bssid_cam_idx, 0xff, 0) | sw(0, 0xff, 8) |
+                        sw(r::BSSID_CAM_ENT_SIZE, 0xff, 16));
+-  /* dword13: b_valid / b_msk(NO_MSK) / bss_color / bssid[0..1] */
+-  put_le32(c + 52, 0x1u /* B_VALID BIT(0) */ | sw(r::MAC_AX_NO_MSK, 0x3f, 2) |
+-                       sw(0, 0x3f, 8) | sw(self_mac[0], 0xff, 16) |
+-                       sw(self_mac[1], 0xff, 24));
++  /* dword13: b_valid / b_msk / bss_color / bssid[0..1] */
++  put_le32(c + 52, 0x1u /* B_VALID BIT(0) */ |
++                       sw(r::BSSID_CAM_MATCH_ALL, 0x3f, 2) | sw(0, 0x3f, 8) |
++                       sw(tma[0], 0xff, 16) | sw(tma[1], 0xff, 24));
+   /* dword14: bssid[2..5] */
+-  put_le32(c + 56, sw(self_mac[2], 0xff, 0) | sw(self_mac[3], 0xff, 8) |
+-                       sw(self_mac[4], 0xff, 16) | sw(self_mac[5], 0xff, 24));
++  put_le32(c + 56, sw(tma[2], 0xff, 0) | sw(tma[3], 0xff, 8) |
++                       sw(tma[4], 0xff, 16) | sw(tma[5], 0xff, 24));
+   bool ok = send_h2c_cmd(r::FWCMD_H2C_CAT_MAC, r::FWCMD_H2C_CL_ADDR_CAM_UPDATE,
+                          r::FWCMD_H2C_FUNC_ADDRCAM_INFO, c, sizeof(c));
+   _logger->info("Kestrel: upd_addr_cam (macid={} net_type={} a_idx={} b_idx={} "
+diff --git a/src/kestrel/KestrelFw.h b/src/kestrel/KestrelFw.h
+index 072d641..1c99cb9 100644
+--- a/src/kestrel/KestrelFw.h
++++ b/src/kestrel/KestrelFw.h
+@@ -6,6 +6,8 @@
+ #include <mutex>
+ #include <vector>
+ 
++#include <array>
++
+ #include "ChipVariant.h"
+ #include "RtlAdapter.h"
+ #include "Sounding.h"
+@@ -74,7 +76,8 @@ public:
+    * CAM entries (0 for the first/self STA). The frame's SA/BSSID resolve from
+    * this entry; without it the CMAC cannot build the PPDU. */
+   bool fw_upd_addr_cam(uint8_t macid, const uint8_t self_mac[6], uint8_t net_type,
+-                       uint8_t addr_cam_idx, uint8_t bssid_cam_idx);
++                       uint8_t addr_cam_idx, uint8_t bssid_cam_idx,
++                       const uint8_t *bssid = nullptr);
+ 
+   /* mac_upd_cctl_info (tblupd.c): H2C cat=MAC, class=FR_EXCHG, func=CCTLINFO_UD
+    * — the per-MACID CMAC control table. Sets the default TX rate, the TX
+@@ -193,6 +196,8 @@ private:
+ 
+   RtlAdapter _device;
+   Logger_t _logger;
++  uint8_t addr_cam_entry_size() const;
++
+   ChipVariant _variant;
+   /* CH12 (FWDL/H2C) queue handle, bus-neutral: the bulk-OUT endpoint on USB
+    * (BULKOUTID2), the DMA channel number 12 on PCIe (PcieDmaAx routes on it). */
+diff --git a/src/kestrel/MacRegAx.h b/src/kestrel/MacRegAx.h
+index dfe96b6..c76622a 100644
+--- a/src/kestrel/MacRegAx.h
++++ b/src/kestrel/MacRegAx.h
+@@ -677,9 +677,14 @@ constexpr uint8_t FWCMD_H2C_CL_FR_EXCHG = 0x5;
+ constexpr uint8_t FWCMD_H2C_FUNC_CCTLINFO_UD = 0x2;
+ constexpr uint8_t FWCMD_H2C_FUNC_DCTLINFO_UD = 0x1;
+ 
+-/* addr_cam entry geometry (addr_cam.h): 8852B uses the LONG entry (0x40). */
++/* addr_cam entry geometry (addr_cam.h get_addr_cam_size): 8852A/8852B/8851B
++ * use the LONG entry, every later chip including the 8852C the SHORT one. */
+ constexpr uint8_t ADDR_CAM_ENT_LONG_SIZE = 0x40;
++constexpr uint8_t ADDR_CAM_ENT_SHORT_SIZE = 0x20;
+ constexpr uint8_t BSSID_CAM_ENT_SIZE = 0x08;
++/* BSSID CAM byte mask: one bit per BSSID byte that must match (rtw89
++ * RTW89_BSSID_MATCH_ALL). */
++constexpr uint8_t BSSID_CAM_MATCH_ALL = 0x3f;
+ /* mac_ax_addr_msk_sel (mac_def.h). */
+ constexpr uint8_t MAC_AX_NO_MSK = 0;
+ /* mac_ax_data_rate (type.h) — the CCTL default rate. */
+@@ -1417,6 +1422,9 @@ constexpr uint32_t CCA_CTRL_CLR =
+     (1u << 31) | (1u << 27) | (1u << 26) | (1u << 25) | /* TB tx_nav/cca s80/s40/s20 */
+     (1u << 19) | (1u << 18) | (1u << 17) |              /* SIFS cca s80/s40/s20 */
+     (1u << 8) | (1u << 20);                             /* CTN txnav, SIFS edcca */
++/* A SIFS-spaced transmission, which every response frame is, waits for
++ * Bluetooth to be idle (one of the cca_ctrl_init sets). */
++constexpr uint32_t B_AX_SIFS_CHK_BTCCA = 1u << 21;
+ constexpr uint16_t R_AX_RCR = 0xCE00;
+ constexpr uint8_t B_AX_CH_EN_SH = 0;
+ constexpr uint32_t B_AX_CH_EN_MSK = 0xf; /* 8852B RCR channel-enable [3:0] */
+@@ -1561,6 +1569,9 @@ constexpr uint32_t B_AX_SW_PREFER_AC_MSK = 0x3;
+ constexpr uint32_t MAC_AX_CMAC_AC_SEL_BK = 1;
+ /* trxptcl_init */
+ constexpr uint16_t R_AX_TRXPTCL_RESP_0 = 0xCC04;
++/* R_AX_TRXPTCL_RESP_0 [28:23], all set out of reset, are what must be idle
++ * for a response to be sent (rtw89 reg.h); this one is Bluetooth. */
++constexpr uint32_t B_AX_RSP_CHK_BTCCA = 1u << 25;
+ constexpr uint8_t B_AX_WMAC_SPEC_SIFS_CCK_SH = 0;
+ constexpr uint32_t B_AX_WMAC_SPEC_SIFS_CCK_MSK = 0xff;
+ constexpr uint32_t WMAC_SPEC_SIFS_CCK = 0xA;
+diff --git a/src/kestrel/RtlKestrelDevice.cpp b/src/kestrel/RtlKestrelDevice.cpp
+index 4f0d873..47502ae 100644
+--- a/src/kestrel/RtlKestrelDevice.cpp
++++ b/src/kestrel/RtlKestrelDevice.cpp
+@@ -853,6 +853,24 @@ bool RtlKestrelDevice::SendTrigger(const devourer::TriggerConfig &cfg) {
+   return _hal.send_trigger(cfg);
+ }
+ 
++bool RtlKestrelDevice::SetStationIdentity(const devourer::MacAddr &own,
++                                          const devourer::MacAddr &bssid) {
++  if (!_tx_up || _variant != kestrel::ChipVariant::C8852C || _device.is_usb()) {
++    _logger->error("Kestrel: SetStationIdentity needs an RTL8852CE after "
++                   "InitWrite");
++    return false;
++  }
++  _station_identity = _hal.set_station_identity(own.data(), bssid.data());
++  return _station_identity;
++}
++
++bool RtlKestrelDevice::ClearStationIdentity() {
++  if (!_station_identity)
++    return true;
++  _station_identity = false;
++  return _hal.clear_station_identity(kInjectSA);
++}
++
+ bool RtlKestrelDevice::ConfigureTwt(const devourer::TwtConfig &cfg) {
+   if (!_tx_up) {
+     _logger->error("Kestrel: ConfigureTwt before InitWrite");
+diff --git a/src/kestrel/RtlKestrelDevice.h b/src/kestrel/RtlKestrelDevice.h
+index ce5fa08..203b7f8 100644
+--- a/src/kestrel/RtlKestrelDevice.h
++++ b/src/kestrel/RtlKestrelDevice.h
+@@ -174,7 +174,13 @@ public:
+    * prior InitWrite. `beacon` is a full 802.11 beacon; the MAC airs it every
+    * `interval_tu` TU with the live TSF inserted. */
+   bool StartBeacon(const uint8_t *beacon, size_t len, int interval_tu) override;
++  /* The 8852C over PCIe only, where it was measured against an AWDL peer:
++   * see HalKestrel::set_station_identity. Call after InitWrite. */
++  bool SetStationIdentity(const devourer::MacAddr &own,
++                          const devourer::MacAddr &bssid) override;
++  bool ClearStationIdentity() override;
+   int _bcn_interval_tu = 0; /* >0 while a HW beacon is armed (StartBeacon) */
++  bool _station_identity = false; /* SetStationIdentity is in effect */
+ 
+   /* 802.11ax scheduled UL: air an HE Basic Trigger (UL-OFDMA grant), program
+    * TWT agreements + STA binds, and the fw-autonomous trigger cadence
