@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# AWDL daemon: OWL's protocol library and event core, unmodified from
+# upstream/owl, plus Windows replacements for its I/O layer. OWL is GPL-3.0 and
+# GNU C, hence a MinGW build kept apart from the GPL-2.0 radio side.
+cmake_minimum_required(VERSION 3.15)
+project(winawdl_awdl C)
+
+set(WINAWDL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+set(OWL "${WINAWDL_ROOT}/upstream/owl")
+
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_EXTENSIONS ON)
+
+# compat/ comes first so <ev.h>, <pcap/pcap.h>, <endian.h> and the BSD network
+# headers resolve to the shims. -mno-ms-bitfields keeps packed structs laid out
+# as GCC lays them out on Linux, where the on-air formats were written.
+add_library(owl_build INTERFACE)
+target_include_directories(owl_build INTERFACE
+    compat "${OWL}/src" "${OWL}/radiotap" "${OWL}/daemon" win
+    "${WINAWDL_ROOT}/radio")
+target_compile_options(owl_build INTERFACE
+    -include "${CMAKE_CURRENT_SOURCE_DIR}/compat/owl_win.h" -mno-ms-bitfields)
+
+add_library(radiotap STATIC "${OWL}/radiotap/radiotap.c")
+target_link_libraries(radiotap PRIVATE owl_build)
+# Its bounds checks subtract pointers through unsigned long, which is 32 bits
+# on Windows. The differences are small, so the truncation cancels out.
+target_compile_options(radiotap PRIVATE -Wno-pointer-to-int-cast)
+
+set(OWL_SOURCES log state election sync channel schedule tx rx frame crc32 wire
+    peers version hashmap siphash24 circular_buffer)
+list(TRANSFORM OWL_SOURCES PREPEND "${OWL}/src/")
+list(TRANSFORM OWL_SOURCES APPEND ".c")
+add_library(awdl STATIC ${OWL_SOURCES})
+target_link_libraries(awdl PUBLIC owl_build radiotap)
+
+# The host adapter is kept clear of owl_build: -mno-ms-bitfields must not
+# reach the Windows networking structures it fills in.
+add_library(host_if STATIC win/host_if.c win/host_frame.c)
+target_include_directories(host_if PUBLIC win)
+target_compile_options(host_if PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(host_if PRIVATE iphlpapi)
+
+set(WIN_SOURCES
+    win/main.c win/ev_win.c win/io_win.c win/netutils_win.c win/radio_client.c
+    compat/ether.c)
+add_executable(awdld "${OWL}/daemon/core.c" ${WIN_SOURCES})
+set_source_files_properties(${WIN_SOURCES} PROPERTIES
+    COMPILE_OPTIONS "-Wall;-Wextra;-Werror")
+target_link_libraries(awdld PRIVATE awdl host_if bcrypt)
+# Static, so the daemon does not need the MinGW runtime DLLs beside it.
+target_link_options(awdld PRIVATE -static)
+
+add_executable(host_frame_test tests/host_frame_test.c)
+target_compile_options(host_frame_test PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(host_frame_test PRIVATE host_if)
+target_link_options(host_frame_test PRIVATE -static)
