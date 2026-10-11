@@ -26,8 +26,9 @@ public:
 
   /* Bytes of the radiotap header put on received frames. */
   static constexpr uint16_t kRxRadiotapBytes = 20;
-  /* How much of a data frame is kept: header, LLC and the first of the IP. */
-  static constexpr size_t kDataFrameBytes = 96;
+  /* How much of a data frame is kept: up to the end of the longest TCP
+   * header, whose options date a segment. */
+  static constexpr size_t kDataFrameBytes = 144;
 
   explicit FrameCapture(const std::string &path)
       : _file(std::fopen(path.c_str(), "wb")) {
