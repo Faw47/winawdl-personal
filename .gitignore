@@ -1,0 +1,15 @@
+upstream/
+build/
+*.obj
+*.pdb
+*.exe
+*.dll
+*.cat
+*.pfx
+*.cer
+__pycache__/
+# Fetched by scripts/fetch-wintun.ps1, under Wintun's own license.
+deps/wintun/
+# The feasibility study this project grew out of stays local.
+reports/
+research_notes/

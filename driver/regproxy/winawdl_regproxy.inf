@@ -1,0 +1,72 @@
+; SPDX-License-Identifier: MIT
+; User-mode register proxy for the Realtek RTL8852CE.
+; Matches only the generic device ID, which ranks below the specific ID in
+; the vendor INF, so adding this package does not take over the card.
+
+[Version]
+Signature   = "$Windows NT$"
+Class       = WinAwdlRadio
+ClassGuid   = {42c93386-3172-4834-9a73-d5dbe38443f8}
+Provider    = %Provider%
+CatalogFile = winawdl_regproxy.cat
+DriverVer   = 10/11/2026,0.1.0.0
+PnpLockdown = 1
+
+[ClassInstall32]
+AddReg = Class_AddReg
+
+[Class_AddReg]
+HKR,,,,%ClassName%
+HKR,,Icon,,"-5"
+
+[Manufacturer]
+%Provider% = Models, NTamd64.10.0...19041
+
+[Models.NTamd64.10.0...19041]
+%DeviceDesc% = RegProxy, PCI\VEN_10EC&DEV_C852
+
+[SourceDisksNames]
+1 = %DiskName%
+
+[SourceDisksFiles]
+winawdl_regproxy.dll = 1
+
+[DestinationDirs]
+RegProxy_Copy = 13
+
+[RegProxy.NT]
+CopyFiles = RegProxy_Copy
+Include   = WUDFRD.inf
+Needs     = WUDFRD.NT
+
+[RegProxy_Copy]
+winawdl_regproxy.dll
+
+[RegProxy.NT.HW]
+Include = WUDFRD.inf
+Needs   = WUDFRD.NT.HW
+AddReg  = RegProxy_HwAddReg
+
+[RegProxy_HwAddReg]
+; Device object reachable by SYSTEM and Administrators only.
+HKR,,Security,,"D:P(A;;GA;;;SY)(A;;GA;;;BA)"
+
+[RegProxy.NT.Services]
+Include = WUDFRD.inf
+Needs   = WUDFRD.NT.Services
+
+[RegProxy.NT.Wdf]
+UmdfService               = winawdl_regproxy, RegProxy_Umdf
+UmdfServiceOrder          = winawdl_regproxy
+UmdfDirectHardwareAccess  = AllowDirectHardwareAccess
+UmdfRegisterAccessMode    = RegisterAccessUsingUserModeMapping
+
+[RegProxy_Umdf]
+UmdfLibraryVersion = 2.33.0
+ServiceBinary      = %13%\winawdl_regproxy.dll
+
+[Strings]
+Provider   = "winawdl project"
+ClassName  = "winawdl user-space radios"
+DeviceDesc = "RTL8852CE user-space register proxy (winawdl)"
+DiskName   = "winawdl register proxy"
