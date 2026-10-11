@@ -3,7 +3,8 @@
  * client over the pipe in radio_link.h.
  * Usage: winawdl_radio <channel> [--width 20|40|80] [--capture file.pcap]
  *        [--no-block-ack] [--retries 0..62]
- *        [--data-rate auto|client|MCS7/20] [--aggregate] [--quick-submit] */
+ *        [--data-rate auto|client|MCS7/20] [--no-aggregate]
+ *        [--no-quick-submit] */
 
 #include <array>
 #include <atomic>
@@ -735,8 +736,8 @@ struct Options {
   /* "auto", "client" for the rate the client gives each frame, or one rate
    * in devourer's notation. */
   std::string data_rate = "auto";
-  bool aggregate = false;
-  bool quick_submit = false;
+  bool aggregate = true;
+  bool quick_submit = true;
 };
 
 /* The rate `spec` names, or nothing if it names none or asks for a wider
@@ -777,10 +778,10 @@ std::optional<Options> parse_options(int argc, char **argv) {
     const std::string_view argument = argv[i];
     if (argument == "--no-block-ack")
       options.block_ack = false;
-    else if (argument == "--aggregate")
-      options.aggregate = true;
-    else if (argument == "--quick-submit")
-      options.quick_submit = true;
+    else if (argument == "--no-aggregate")
+      options.aggregate = false;
+    else if (argument == "--no-quick-submit")
+      options.quick_submit = false;
     else if (argument == "--capture" && i + 1 < argc)
       options.capture_path = argv[++i];
     else if (argument == "--width" && i + 1 < argc)
@@ -812,8 +813,8 @@ int main(int argc, char **argv) {
     std::fprintf(stderr,
                  "usage: %s <channel> [--width 20|40|80] [--capture file.pcap] "
                  "[--no-block-ack] [--retries 0..62] "
-                 "[--data-rate auto|client|MCS7/20] [--aggregate] "
-                 "[--quick-submit]\n",
+                 "[--data-rate auto|client|MCS7/20] [--no-aggregate] "
+                 "[--no-quick-submit]\n",
                  argv[0]);
     return 2;
   }

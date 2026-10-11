@@ -12,15 +12,15 @@
 # at the AWDL daemon's 12 Mbit/s and goes faster while the peer acknowledges;
 # "client" stays there; a rate in devourer's notation, such as MCS7 or
 # VHT2SS_MCS7/80/SGI, is used for every such frame.
-# -Aggregate asks a peer to take data frames in aggregates. Experimental.
-# -QuickSubmit hands a frame to the card with one register access, not four,
-# so that the card has frames enough waiting to aggregate. Experimental.
+# -NoAggregate sends a peer every data frame on its own. -NoQuickSubmit hands
+# a frame to the card with four register accesses, not one, which leaves the
+# card too few frames waiting to build an aggregate from.
 param([ValidateSet(6, 44, 149)][int]$Channel = 44, [switch]$Detail, [switch]$Redact,
       [string]$Capture, [switch]$NoBlockAck, [ValidateSet(1, 2)][int]$Streams = 2,
       [switch]$LongGuard, [ValidateRange(0, 3000)][int]$Join = 400,
       [ValidateSet(0, 20, 40, 80)][int]$Width = 0,
       [ValidateRange(0, 62)][int]$Retries = 7, [string]$DataRate = 'auto',
-      [switch]$Aggregate, [switch]$QuickSubmit)
+      [switch]$NoAggregate, [switch]$NoQuickSubmit)
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path $PSScriptRoot -Parent
@@ -38,8 +38,8 @@ if ($Capture) {
   $radioArgs += '--capture', "`"$file`""
 }
 if ($NoBlockAck) { $radioArgs += '--no-block-ack' }
-if ($Aggregate) { $radioArgs += '--aggregate' }
-if ($QuickSubmit) { $radioArgs += '--quick-submit' }
+if ($NoAggregate) { $radioArgs += '--no-aggregate' }
+if ($NoQuickSubmit) { $radioArgs += '--no-quick-submit' }
 $radioProcess = Start-Process $radio -ArgumentList $radioArgs -PassThru -NoNewWindow
 
 $awdldArgs = @('-c', $Channel)
