@@ -3,10 +3,12 @@
 # -Redact keeps the addresses and names of nearby devices out of the log.
 # -Capture names a pcap file for the frames of the session; it stays local.
 # -NoBlockAck makes senders go back to one frame per transmission.
-# -Streams 2 and -ShortGuard announce faster reception. Experimental.
+# -Streams 2 and -ShortGuard announce faster reception. -HoldAcks sends one
+# TCP acknowledgement per aggregate received, once the radio has been quiet
+# that many microseconds. All three are experimental.
 param([ValidateSet(6, 44, 149)][int]$Channel = 44, [switch]$Detail, [switch]$Redact,
       [string]$Capture, [switch]$NoBlockAck, [ValidateSet(1, 2)][int]$Streams = 1,
-      [switch]$ShortGuard)
+      [switch]$ShortGuard, [ValidateRange(0, 4000)][int]$HoldAcks = 0)
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path $PSScriptRoot -Parent
@@ -30,6 +32,7 @@ if ($Detail) { $awdldArgs += '-v' }
 if ($Redact) { $awdldArgs += '-r' }
 if ($Streams -eq 2) { $awdldArgs += '-s', 2 }
 if ($ShortGuard) { $awdldArgs += '-g' }
+if ($HoldAcks) { $awdldArgs += '-a', $HoldAcks }
 & $awdld @awdldArgs
 
 if (-not $radioProcess.WaitForExit(5000)) { Stop-Process -Id $radioProcess.Id }
