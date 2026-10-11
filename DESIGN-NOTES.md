@@ -202,6 +202,37 @@ Wintun's DLL is loaded only from the daemon's own directory, because the
 daemon runs elevated. Creating the adapter installs Wintun's kernel driver on
 first use.
 
+### Channel and rate
+
+Measured 2026-10-11 from captures of one iPhone sending a file
+(`awdl-run.ps1 -Capture`):
+
+| | Channel 6 | Channel 44 |
+|---|---|---|
+| Slots of 16 the iPhone lists for the channel while it sends | 5 | 4 to 11 |
+| Data frames | HT MCS 7, 20 MHz | the same |
+| Throughput | 188 kB/s | 971 kB/s (30.5 MB in 31.4 s) |
+
+Idle, the iPhone lists its access point's channel, 149, 6 and 44 for one slot
+each. Once it sends, the slots it adds are on 44, so that is the daemon's
+default channel.
+
+Channel 44 needed two corrections first, made in `awdl/win/frame_fixup.c` as
+frames pass between OWL and the radio:
+
+- OWL announces 40 MHz reception in its HT capabilities, and the radio daemon
+  listens on 20 MHz. Of 838 data frames, 837 arrived only as a retry at
+  MCS 0, 5.2 ms apart, for 125 kB/s. With the 40 MHz bits cleared the first
+  tries arrive, at MCS 7 and 0.64 ms apart.
+- The iPhone ended its MIFs there with eight zero bytes. OWL refuses a frame
+  with one or two bytes left after the last TLV, so the peer never became
+  valid and the daemon never synchronised to it. Such leftover zero bytes are
+  now cut off.
+
+What still separates this from two Apple devices: frames arrive one per
+transmission, on 20 MHz and one spatial stream, in bursts that cover about
+30% of the time.
+
 ## The AirDrop layer
 
 `airdrop/` is the receiving half of omdrop, adapted for Windows. omdrop's
@@ -282,7 +313,7 @@ on the first attempt.
 | Radio daemon (`radio/winawdl_radio`) serving frames over a named pipe | Passed 2026-10-11: 827 frames transmitted for its client, none failed |
 | AWDL daemon (`awdl/`, OWL core on Windows) | Passed on air 2026-10-11 on channel 6: added the owner's iPhone as a peer, elected it sync master, received its action and data frames while transmitting 24 action frames per second |
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
-| AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s |
+| AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44 |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.

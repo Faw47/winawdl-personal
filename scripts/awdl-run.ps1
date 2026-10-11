@@ -2,7 +2,7 @@
 # it. Ctrl+C stops both: the radio daemon exits when its client leaves.
 # -Redact keeps the addresses and names of nearby devices out of the log.
 # -Capture names a pcap file for the frames of the session; it stays local.
-param([ValidateSet(6, 44, 149)][int]$Channel = 6, [switch]$Detail, [switch]$Redact,
+param([ValidateSet(6, 44, 149)][int]$Channel = 44, [switch]$Detail, [switch]$Redact,
       [string]$Capture)
 $ErrorActionPreference = 'Stop'
 

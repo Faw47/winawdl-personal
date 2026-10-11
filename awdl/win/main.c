@@ -16,7 +16,7 @@
 #include "win_internal.h"
 
 #define STATUS_PERIOD_S 2.0
-#define DEFAULT_CHANNEL 6
+#define DEFAULT_CHANNEL 44
 
 static int shown_level = LOG_INFO;
 static int redact_log;

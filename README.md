@@ -9,7 +9,7 @@ frames in monitor mode from an ordinary Windows program. On top of it the AWDL
 daemon joins the AWDL channel, finds nearby Apple devices, synchronises with
 them and carries IPv6 traffic to and from them. An AirDrop receiver on top of
 that has received photos, a 28 MB video and a Live Photo from an iPhone, at
-300 to 430 kB/s. All of it has run on one machine with one card. Read
+about 1 MB/s. All of it has run on one machine with one card. Read
 [DESIGN-NOTES.md](DESIGN-NOTES.md) for the design, the
 measurements, the open risks and the safety notes before installing anything.
 
@@ -104,7 +104,7 @@ Everything below needs an elevated prompt and the driver bound to the card.
 .\scripts\rx-test.ps1 -Channel 6              # monitor-mode receive, Ctrl+C to stop
 .\scripts\tx-test.ps1 -Channel 6              # 500 broadcast test frames
 .\build\radio\Release\awdl_sniff.exe 6 40     # list AWDL devices heard for 40 s
-.\scripts\awdl-run.ps1 -Channel 6             # radio daemon plus AWDL daemon
+.\scripts\awdl-run.ps1                        # radio daemon plus AWDL daemon, channel 44
 ```
 
 While `awdl-run.ps1` runs with Wintun present, Windows has a network adapter
