@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 #define RADIO_LINK_PIPE_NAME "\\\\.\\pipe\\winawdl-radio"
-#define RADIO_LINK_VERSION 2u
+#define RADIO_LINK_VERSION 3u
 #define RADIO_LINK_MAX_PAYLOAD 16384u
 
 enum radio_link_type {
@@ -33,5 +33,6 @@ struct radio_link_header {
 struct radio_link_hello {
   uint32_t version;
   uint8_t channel;
-  uint8_t reserved[3];
+  uint8_t width_mhz; /* what the radio receives: 20 or 40 */
+  uint8_t reserved[2];
 };

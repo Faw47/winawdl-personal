@@ -42,7 +42,7 @@ $daemon = Start-Process $awdld -ArgumentList $daemonArgs -PassThru -NoNewWindow 
             -RedirectStandardError $log -RedirectStandardOutput "$log.out"
 try {
   $pipe.WaitForConnection()
-  Send-Message $pipe $TypeHello ([byte[]](2, 0, 0, 0, 6, 0, 0, 0))
+  Send-Message $pipe $TypeHello ([byte[]](3, 0, 0, 0, 6, 20, 0, 0))
 
   $counts = @{}
   $echoed = $false

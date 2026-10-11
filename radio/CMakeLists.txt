@@ -56,6 +56,14 @@ if(MSVC)
     target_compile_options(block_ack_test PRIVATE /W4 /WX)
 endif()
 
+add_executable(channel_width_test tests/channel_width_test.cpp)
+target_compile_features(channel_width_test PRIVATE cxx_std_20)
+target_include_directories(channel_width_test PRIVATE
+    "${WINAWDL_ROOT}/upstream/devourer/src")
+if(MSVC)
+    target_compile_options(channel_width_test PRIVATE /W4 /WX)
+endif()
+
 add_executable(reorder_buffer_test tests/reorder_buffer_test.cpp reorder_buffer.h)
 target_compile_features(reorder_buffer_test PRIVATE cxx_std_20)
 target_include_directories(reorder_buffer_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

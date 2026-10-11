@@ -29,10 +29,12 @@ static const uint8_t awdl_action[] = {0x7F, 0x00, 0x17, 0xF2, 0x08};
 
 static int announce_two_streams;
 static int announce_short_gi;
+static int announce_40mhz;
 
-void frame_fixup_announce(int two_streams, int short_guard_interval) {
+void frame_fixup_announce(int two_streams, int short_guard_interval, int forty_mhz) {
 	announce_two_streams = two_streams;
 	announce_short_gi = short_guard_interval;
+	announce_40mhz = forty_mhz;
 }
 
 static unsigned read_le16(const uint8_t *bytes) {
@@ -105,7 +107,9 @@ void frame_fixup_sent(uint8_t *frame, int length) {
 	if (value_len < HT_CAPABILITIES_OFFSET + 2)
 		return;
 	uint8_t *caps = value + HT_CAPABILITIES_OFFSET;
-	unsigned announced = read_le16(caps) & ~HT_CAPABILITIES_40MHZ;
+	unsigned announced = read_le16(caps);
+	if (!announce_40mhz)
+		announced &= ~HT_CAPABILITIES_40MHZ;
 	if (announce_short_gi)
 		announced |= HT_CAPABILITIES_SHORT_GI_20MHZ;
 	caps[0] = (uint8_t) announced;

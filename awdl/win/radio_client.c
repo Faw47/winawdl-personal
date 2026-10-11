@@ -34,6 +34,7 @@ struct radio_client {
 	uint64_t dropped;
 	uint32_t version;
 	uint8_t channel;
+	uint8_t width_mhz;
 	volatile LONG closing;
 	void (*on_disconnect)(void);
 };
@@ -107,6 +108,7 @@ static DWORD WINAPI reader_main(void *arg) {
 			const struct radio_link_hello *hello = (const void *) payload;
 			client->version = hello->version;
 			client->channel = hello->channel;
+			client->width_mhz = hello->width_mhz;
 			SetEvent(client->hello_event);
 		}
 	}
@@ -195,6 +197,10 @@ void *radio_client_rx_event(const struct radio_client *client) {
 
 uint8_t radio_client_channel(const struct radio_client *client) {
 	return client->channel;
+}
+
+uint8_t radio_client_width_mhz(const struct radio_client *client) {
+	return client->width_mhz;
 }
 
 int radio_client_pop(struct radio_client *client, uint8_t *frame) {

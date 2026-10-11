@@ -10,11 +10,11 @@
  * those bytes. */
 int frame_fixup_received(uint8_t *frame, int length);
 
-/* OWL announces that it receives 40 MHz frames, which the radio daemon does
- * not: takes that out of the capabilities of an outgoing frame, and puts in
- * what frame_fixup_announce asked for. */
+/* OWL announces that it receives 40 MHz frames, whatever the radio daemon
+ * is tuned to: makes the capabilities of an outgoing frame say what
+ * frame_fixup_announce was told. */
 void frame_fixup_sent(uint8_t *frame, int length);
 
-/* What outgoing frames say this station can receive, beyond OWL's single
- * stream with the long guard interval. */
-void frame_fixup_announce(int two_streams, int short_guard_interval);
+/* What outgoing frames say this station can receive: OWL's single stream
+ * with the long guard interval on 20 MHz, and each of these on top. */
+void frame_fixup_announce(int two_streams, int short_guard_interval, int forty_mhz);

@@ -18,6 +18,8 @@ void radio_client_close(struct radio_client *client);
  * windows.h out of this header. */
 void *radio_client_rx_event(const struct radio_client *client);
 uint8_t radio_client_channel(const struct radio_client *client);
+/* How wide a channel the radio receives on, in MHz. */
+uint8_t radio_client_width_mhz(const struct radio_client *client);
 
 /* Copies the oldest queued frame into `frame` (RADIO_CLIENT_MAX_FRAME bytes)
  * and returns its length, or 0 when the queue is empty. */

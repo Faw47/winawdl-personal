@@ -126,7 +126,6 @@ int main(int argc, char *argv[]) {
 		}
 	}
 	log_set_level(log_level);
-	frame_fixup_announce(streams == 2, short_guard_interval);
 	shown_level = log_level;
 
 	struct awdl_chan chan;
@@ -146,6 +145,8 @@ int main(int argc, char *argv[]) {
 		awdl_free(&state);
 		return EXIT_FAILURE;
 	}
+	frame_fixup_announce(streams == 2, short_guard_interval,
+			     radio_client_width_mhz(winawdl_radio()) >= 40);
 	/* The radio's RSSI scale is not calibrated, so do not gate peers on it. */
 	state.awdl_state.filter_rssi = 0;
 	log_info("AWDL address %s on channel %d", ether_ntoa(&state.io.if_ether_addr), channel);

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Radio daemon: owns the Wi-Fi card through devourer and relays frames for one
  * client over the pipe in radio_link.h.
- * Usage: winawdl_radio <channel> [--capture file.pcap] [--no-block-ack] */
+ * Usage: winawdl_radio <channel> [--width 20|40] [--capture file.pcap]
+ *        [--no-block-ack] */
 
 #include <array>
 #include <atomic>
@@ -40,6 +41,7 @@ constexpr size_t kBssidOffset = 16;
 constexpr uint8_t kFrameTypeMask = 0x0C;
 constexpr uint8_t kFrameTypeData = 0x08;
 constexpr uint8_t kRetryFlag = 0x08;
+constexpr uint8_t kLast2GChannel = 14;
 constexpr size_t kSenderOffset = 10;
 constexpr size_t kSequenceOffset = 22;
 constexpr uint8_t kFrameControlQosData = 0x88;
@@ -207,6 +209,7 @@ struct Session {
   SharedMac bssid_filter; /* unset forwards every frame */
   SharedMac own;
   bool block_ack_enabled = false;
+  uint8_t width_mhz = 20;
   BlockAckInbox block_ack;
   SessionReorder reorder;
   /* Data frames addressed to the client and how many were retries. A high
@@ -336,7 +339,7 @@ void answer_block_ack(IRadio &radio, PipeServer &pipe, Session &session,
  * false for a client that sent nothing, such as a probe for the pipe. */
 bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
                   FrameCapture *capture, uint8_t channel, Logger_t logger) {
-  radio_link_hello hello{RADIO_LINK_VERSION, channel, {}};
+  radio_link_hello hello{RADIO_LINK_VERSION, channel, session.width_mhz, {}};
   pipe.send(RADIO_LINK_HELLO,
             {reinterpret_cast<const uint8_t *>(&hello), sizeof(hello)});
 
@@ -398,6 +401,7 @@ struct Options {
   uint8_t channel = 0;
   std::string capture_path;
   bool block_ack = true;
+  uint8_t width_mhz = 20;
 };
 
 std::optional<Options> parse_options(int argc, char **argv) {
@@ -410,9 +414,16 @@ std::optional<Options> parse_options(int argc, char **argv) {
       options.block_ack = false;
     else if (argument == "--capture" && i + 1 < argc)
       options.capture_path = argv[++i];
+    else if (argument == "--width" && i + 1 < argc)
+      options.width_mhz = static_cast<uint8_t>(std::atoi(argv[++i]));
     else
       return std::nullopt;
   }
+  /* 40 MHz pairs a 5 GHz channel with the one above it; 2.4 GHz stays narrow.
+   */
+  const bool wide_fits = options.channel > kLast2GChannel;
+  if (options.width_mhz != 20 && !(options.width_mhz == 40 && wide_fits))
+    return std::nullopt;
   return options;
 }
 
@@ -422,7 +433,8 @@ int main(int argc, char **argv) {
   const auto options = parse_options(argc, argv);
   if (!options) {
     std::fprintf(stderr,
-                 "usage: %s <channel> [--capture file.pcap] [--no-block-ack]\n",
+                 "usage: %s <channel> [--width 20|40] [--capture file.pcap] "
+                 "[--no-block-ack]\n",
                  argv[0]);
     return 2;
   }
@@ -457,7 +469,9 @@ int main(int argc, char **argv) {
   try {
     radio->InitWrite(SelectedChannel{.Channel = channel,
                                      .ChannelOffset = 0,
-                                     .ChannelWidth = CHANNEL_WIDTH_20,
+                                     .ChannelWidth = options->width_mhz == 40
+                                                         ? CHANNEL_WIDTH_40
+                                                         : CHANNEL_WIDTH_20,
                                      .Band = 0});
   } catch (const std::exception &error) {
     logger->error("radio: bring-up failed: {}", error.what());
@@ -466,6 +480,7 @@ int main(int argc, char **argv) {
 
   Session session;
   session.block_ack_enabled = options->block_ack;
+  session.width_mhz = options->width_mhz;
   std::thread receiver([&] {
     std::vector<uint8_t> message;
     radio->StartRxLoop([&](const Packet &packet) {
