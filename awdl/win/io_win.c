@@ -174,7 +174,7 @@ int wlan_send(const struct io_state *state, const uint8_t *buf, int len) {
 	if (!state || !state->wlan_handle || len < 0 || len > (int) sizeof(frame))
 		return -EINVAL;
 	memcpy(frame, buf, (size_t) len);
-	frame_fixup_sent(frame, len);
+	len = frame_fixup_sent(frame, len, sizeof(frame));
 	return radio_client_send(state->wlan_handle->radio, RADIO_LINK_TX, frame, (uint32_t) len);
 }
 

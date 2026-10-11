@@ -82,26 +82,49 @@ int main(void) {
 
 	int sent = add(frame, start_frame(frame, 0), ht_tlv, sizeof(ht_tlv));
 	int caps = sent - 6;
-	frame_fixup_sent(frame, sent);
+	expect(frame_fixup_sent(frame, sent, sizeof(frame)) == sent, "a frame keeps its length");
 	expect(frame[caps] == 0x8C && frame[caps + 1] == 0x01,
 	       "an outgoing frame no longer claims 40 MHz reception");
 	expect(frame[caps + 2] == 0x1B && frame[caps + 3] == 0xFF && frame[caps + 4] == 0,
 	       "the rest of its capabilities stay");
 
 	sent = add(frame, start_frame(frame, 0), ht_tlv, sizeof(ht_tlv));
-	frame_fixup_announce(1, 1, 0);
-	frame_fixup_sent(frame, sent);
+	frame_fixup_announce(1, 1, 20);
+	frame_fixup_sent(frame, sent, sizeof(frame));
 	expect(frame[caps] == 0xAC && frame[caps + 1] == 0x01,
 	       "the short guard interval at 20 MHz can be announced");
 	expect(frame[caps + 3] == 0xFF && frame[caps + 4] == 0xFF && frame[caps + 5] == 0,
 	       "and so can the rates of a second stream");
 
 	sent = add(frame, start_frame(frame, 0), ht_tlv, sizeof(ht_tlv));
-	frame_fixup_announce(0, 0, 1);
-	frame_fixup_sent(frame, sent);
-	expect(frame[caps] == 0xCE && frame[caps + 1] == 0x11,
+	frame_fixup_announce(0, 0, 40);
+	expect(frame_fixup_sent(frame, sent, sizeof(frame)) == sent && frame[caps] == 0xCE &&
+		       frame[caps + 1] == 0x11,
 	       "a radio tuned to 40 MHz keeps OWL's 40 MHz capabilities");
-	frame_fixup_announce(0, 0, 0);
+
+	static const uint8_t vht_two_streams[] = {17,	14,   0, 191, 12,   0x20, 0x00, 0x80, 0x03,
+						  0xFA, 0xFF, 0, 0,   0xFA, 0xFF, 0,	0};
+	sent = add(frame, start_frame(frame, 0), ht_tlv, sizeof(ht_tlv));
+	frame_fixup_announce(1, 1, 80);
+	int grown = frame_fixup_sent(frame, sent, sizeof(frame));
+	expect(grown == sent + (int) sizeof(vht_two_streams) &&
+		       memcmp(frame + sent, vht_two_streams, sizeof(vht_two_streams)) == 0,
+	       "at 80 MHz the frame gains VHT capabilities for two streams");
+	expect(frame[caps] == 0xEE && frame[caps + 1] == 0x11, "and keeps the 40 MHz ones");
+
+	sent = add(frame, start_frame(frame, 0), ht_tlv, sizeof(ht_tlv));
+	frame_fixup_announce(0, 0, 80);
+	grown = frame_fixup_sent(frame, sent, sizeof(frame));
+	expect(grown == sent + 17 && frame[sent + 5] == 0x00 && frame[sent + 9] == 0xFE &&
+		       frame[sent + 13] == 0xFE,
+	       "one stream and the long guard interval are announced as such");
+	sent = add(frame, start_frame(frame, 0), ht_tlv, sizeof(ht_tlv));
+	expect(frame_fixup_sent(frame, sent, sent + 16) == sent,
+	       "a frame with no room left is sent as it is");
+	sent = start_frame(frame, 0);
+	expect(frame_fixup_sent(frame, sent, sizeof(frame)) == sent,
+	       "a frame without HT capabilities gains none for VHT");
+	frame_fixup_announce(0, 0, 20);
 
 	return failures ? 1 : 0;
 }

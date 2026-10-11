@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Radio daemon: owns the Wi-Fi card through devourer and relays frames for one
  * client over the pipe in radio_link.h.
- * Usage: winawdl_radio <channel> [--width 20|40] [--capture file.pcap]
+ * Usage: winawdl_radio <channel> [--width 20|40|80] [--capture file.pcap]
  *        [--no-block-ack] */
 
 #include <array>
@@ -397,6 +397,12 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
   return messages > 0;
 }
 
+ChannelWidth_t channel_width(uint8_t width_mhz) {
+  return width_mhz == 80   ? CHANNEL_WIDTH_80
+         : width_mhz == 40 ? CHANNEL_WIDTH_40
+                           : CHANNEL_WIDTH_20;
+}
+
 struct Options {
   uint8_t channel = 0;
   std::string capture_path;
@@ -419,12 +425,12 @@ std::optional<Options> parse_options(int argc, char **argv) {
     else
       return std::nullopt;
   }
-  /* 40 MHz pairs a 5 GHz channel with the one above it; 2.4 GHz stays narrow.
-   */
+  /* 40 MHz pairs a 5 GHz channel with the one above it, 80 MHz takes its
+   * block of four; 2.4 GHz stays narrow. */
   const bool wide_fits = options.channel > kLast2GChannel;
   if (options.width_mhz == 0) options.width_mhz = wide_fits ? 40 : 20;
-  if (options.width_mhz != 20 && !(options.width_mhz == 40 && wide_fits))
-    return std::nullopt;
+  const bool wide = options.width_mhz == 40 || options.width_mhz == 80;
+  if (options.width_mhz != 20 && !(wide && wide_fits)) return std::nullopt;
   return options;
 }
 
@@ -434,7 +440,7 @@ int main(int argc, char **argv) {
   const auto options = parse_options(argc, argv);
   if (!options) {
     std::fprintf(stderr,
-                 "usage: %s <channel> [--width 20|40] [--capture file.pcap] "
+                 "usage: %s <channel> [--width 20|40|80] [--capture file.pcap] "
                  "[--no-block-ack]\n",
                  argv[0]);
     return 2;
@@ -468,12 +474,11 @@ int main(int argc, char **argv) {
   if (!radio) return 1;
 
   try {
-    radio->InitWrite(SelectedChannel{.Channel = channel,
-                                     .ChannelOffset = 0,
-                                     .ChannelWidth = options->width_mhz == 40
-                                                         ? CHANNEL_WIDTH_40
-                                                         : CHANNEL_WIDTH_20,
-                                     .Band = 0});
+    radio->InitWrite(
+        SelectedChannel{.Channel = channel,
+                        .ChannelOffset = 0,
+                        .ChannelWidth = channel_width(options->width_mhz),
+                        .Band = 0});
   } catch (const std::exception &error) {
     logger->error("radio: bring-up failed: {}", error.what());
     return 1;
