@@ -64,6 +64,14 @@ if(MSVC)
     target_compile_options(channel_width_test PRIVATE /W4 /WX)
 endif()
 
+add_executable(outgoing_session_test tests/outgoing_session_test.cpp
+    outgoing_session.h block_ack.h)
+target_compile_features(outgoing_session_test PRIVATE cxx_std_20)
+target_include_directories(outgoing_session_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(outgoing_session_test PRIVATE /W4 /WX)
+endif()
+
 add_executable(rate_ladder_test tests/rate_ladder_test.cpp rate_ladder.h)
 target_compile_features(rate_ladder_test PRIVATE cxx_std_20)
 target_include_directories(rate_ladder_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* The frame side of receiving under a block-ack agreement: reading the
- * request a sender makes and writing the answer. The card does the rest. */
+/* The frame side of a block-ack agreement. Receiving: reading the request a
+ * sender makes and writing the answer. Sending: writing the request and
+ * reading the answer. The card does the rest. */
 #pragma once
 
 #include <algorithm>
@@ -27,19 +28,43 @@ struct Request {
   uint16_t start_sequence;
 };
 
+/* What a station answered to a request of ours. */
+struct Answer {
+  Mac peer;
+  uint8_t dialog_token;
+  uint8_t tid;
+  bool accepted;
+  uint16_t buffer_frames;
+};
+
+/* A session a station ended, and which side of it that station is. */
+struct Ended {
+  Mac peer;
+  uint8_t tid;
+  bool by_sender;
+};
+
 namespace detail {
 constexpr size_t kHeaderBytes = 24;
 constexpr size_t kReceiverOffset = 4;
 constexpr size_t kSenderOffset = 10;
 constexpr size_t kBssidOffset = 16;
 constexpr uint8_t kFrameControlAction = 0xD0;
+constexpr uint8_t kFrameControlBlockAckRequest = 0x84;
+/* In a block-ack request: the compressed form, which the answer then has. */
+constexpr uint16_t kBarCompressed = 1u << 2;
+constexpr uint8_t kBarTidShift = 12;
 constexpr uint8_t kCategoryBlockAck = 3;
 constexpr uint8_t kActionAddbaRequest = 0;
 constexpr uint8_t kActionAddbaResponse = 1;
 constexpr uint8_t kActionDelba = 2;
 /* Category, action, token, parameters, timeout, starting sequence. */
 constexpr size_t kAddbaRequestBytes = 9;
+/* Category, action, token, status, parameters, timeout. */
+constexpr size_t kAddbaResponseBytes = 9;
 constexpr size_t kDelbaBytes = 6;
+/* In a DELBA: set by the side that sends the data. */
+constexpr uint16_t kDelbaInitiator = 1u << 11;
 constexpr uint16_t kParamImmediate = 1u << 1;
 constexpr uint8_t kParamTidShift = 2;
 constexpr uint8_t kParamBufferShift = 6;
@@ -90,14 +115,32 @@ inline std::optional<Request> parse_request(std::span<const uint8_t> frame,
                  .start_sequence = static_cast<uint16_t>(read16(body, 7) >> 4)};
 }
 
-/* The sender and TID of a DELBA addressed to `own`. */
-inline std::optional<std::pair<Mac, uint8_t>>
-parse_delba(std::span<const uint8_t> frame, const Mac &own) {
+/* Reads `frame` as a DELBA addressed to `own`. */
+inline std::optional<Ended> parse_delba(std::span<const uint8_t> frame,
+                                        const Mac &own) {
   using namespace detail;
   const auto body = body_for(frame, own, kActionDelba, kDelbaBytes);
   if (body.empty()) return std::nullopt;
-  return std::pair{sender_of(frame),
-                   static_cast<uint8_t>(read16(body, 2) >> kDelbaTidShift)};
+  const uint16_t params = read16(body, 2);
+  return Ended{.peer = sender_of(frame),
+               .tid = static_cast<uint8_t>(params >> kDelbaTidShift),
+               .by_sender = (params & kDelbaInitiator) != 0};
+}
+
+/* Reads `frame` as an ADDBA response addressed to `own`. */
+inline std::optional<Answer> parse_response(std::span<const uint8_t> frame,
+                                            const Mac &own) {
+  using namespace detail;
+  const auto body =
+      body_for(frame, own, kActionAddbaResponse, kAddbaResponseBytes);
+  if (body.empty()) return std::nullopt;
+  const uint16_t params = read16(body, 5);
+  return Answer{.peer = sender_of(frame),
+                .dialog_token = body[2],
+                .tid = static_cast<uint8_t>((params >> kParamTidShift) & 0xF),
+                .accepted = read16(body, 3) == 0,
+                .buffer_frames =
+                    static_cast<uint16_t>(params >> kParamBufferShift)};
 }
 
 /* How many frames of window to grant for a request. */
@@ -143,6 +186,50 @@ inline std::vector<uint8_t> response(const Request &request, const Mac &own,
                           0,
                           0 /* no timeout */};
   return action_to(request.peer, own, bssid, body);
+}
+
+/* A radiotap header and the ADDBA request that asks `peer` to take
+ * aggregates of `tid`: immediate block ack, no A-MSDU, the widest window,
+ * the first frame numbered `start_sequence`. */
+inline std::vector<uint8_t> request(const Mac &peer, const Mac &own,
+                                    const Mac &bssid, uint8_t tid,
+                                    uint8_t dialog_token,
+                                    uint16_t start_sequence) {
+  using namespace detail;
+  const uint16_t params =
+      static_cast<uint16_t>(kParamImmediate | (tid << kParamTidShift) |
+                            (kMaxBufferFrames << kParamBufferShift));
+  const uint16_t start = static_cast<uint16_t>(start_sequence << 4);
+  const uint8_t body[] = {kCategoryBlockAck,
+                          kActionAddbaRequest,
+                          dialog_token,
+                          static_cast<uint8_t>(params),
+                          static_cast<uint8_t>(params >> 8),
+                          0,
+                          0, /* no timeout */
+                          static_cast<uint8_t>(start),
+                          static_cast<uint8_t>(start >> 8)};
+  return action_to(peer, own, bssid, body);
+}
+
+/* A radiotap header and the block-ack request that tells `peer` to stop
+ * waiting for frames of `tid` numbered before `start_sequence`: the sender
+ * has given up on those it did not get. */
+inline std::vector<uint8_t> window_start(const Mac &peer, const Mac &own,
+                                         uint8_t tid, uint16_t start_sequence) {
+  using namespace detail;
+  const uint16_t control =
+      static_cast<uint16_t>(kBarCompressed | (tid << kBarTidShift));
+  const uint16_t start = static_cast<uint16_t>(start_sequence << 4);
+  std::vector<uint8_t> message(std::begin(kRadiotap), std::end(kRadiotap));
+  message.insert(message.end(), {kFrameControlBlockAckRequest, 0, 0, 0});
+  message.insert(message.end(), peer.begin(), peer.end());
+  message.insert(message.end(), own.begin(), own.end());
+  message.insert(message.end(), {static_cast<uint8_t>(control),
+                                 static_cast<uint8_t>(control >> 8),
+                                 static_cast<uint8_t>(start),
+                                 static_cast<uint8_t>(start >> 8)});
+  return message;
 }
 
 /* A radiotap header and the DELBA by which the receiving side ends the

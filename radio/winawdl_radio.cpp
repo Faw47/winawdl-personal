@@ -3,7 +3,7 @@
  * client over the pipe in radio_link.h.
  * Usage: winawdl_radio <channel> [--width 20|40|80] [--capture file.pcap]
  *        [--no-block-ack] [--retries 0..62]
- *        [--data-rate auto|client|MCS7/20] */
+ *        [--data-rate auto|client|MCS7/20] [--aggregate] */
 
 #include <array>
 #include <atomic>
@@ -30,6 +30,7 @@
 #include "block_ack.h"
 #include "frame_capture.h"
 #include "logger.h"
+#include "outgoing_session.h"
 #include "pipe_server.h"
 #include "radio_link.h"
 #include "rate_ladder.h"
@@ -63,6 +64,10 @@ constexpr size_t kBarBytes = 20;
 constexpr uint8_t kGroupAddressBit = 0x01;
 constexpr uint8_t kFrameControlAck = 0xD4;
 constexpr size_t kAckBytes = 10;
+constexpr uint8_t kFrameControlBlockAck = 0x94;
+/* The spacing asked between the frames of an aggregate: the widest, 16 us,
+ * which a full-sized frame at these rates exceeds anyway. */
+constexpr uint8_t kAggregateDensity = 7;
 /* A station counts as there for this long after it was last heard. */
 constexpr std::chrono::milliseconds kStationHeardRecently{20};
 /* More frames than the card holds at once: a longer queue has lost count. */
@@ -107,13 +112,15 @@ private:
  * only that one talks to the card. */
 class BlockAckInbox {
 public:
-  using Ended = std::pair<Mac, uint8_t>;
-
   void asked(const block_ack::Request &request) {
     const std::lock_guard<std::mutex> lock(_mutex);
     _request = request;
   }
-  void ended(const Ended &session) {
+  void answered(const block_ack::Answer &answer) {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    _answer = answer;
+  }
+  void ended(const block_ack::Ended &session) {
     const std::lock_guard<std::mutex> lock(_mutex);
     _ended = session;
   }
@@ -121,7 +128,11 @@ public:
     const std::lock_guard<std::mutex> lock(_mutex);
     return std::exchange(_request, std::nullopt);
   }
-  std::optional<Ended> take_ended() {
+  std::optional<block_ack::Answer> take_answer() {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    return std::exchange(_answer, std::nullopt);
+  }
+  std::optional<block_ack::Ended> take_ended() {
     const std::lock_guard<std::mutex> lock(_mutex);
     return std::exchange(_ended, std::nullopt);
   }
@@ -129,7 +140,8 @@ public:
 private:
   std::mutex _mutex;
   std::optional<block_ack::Request> _request;
-  std::optional<Ended> _ended;
+  std::optional<block_ack::Answer> _answer;
+  std::optional<block_ack::Ended> _ended;
 };
 
 /* Another sender gets the one block-ack session only once it has been open
@@ -224,6 +236,7 @@ private:
 struct DataRate {
   std::string name;
   std::vector<uint8_t> radiotap;
+  bool aggregates = false; /* an HT or VHT rate: only those carry A-MPDUs */
 };
 
 int64_t micros(RateLadder::Clock::time_point time) {
@@ -242,6 +255,13 @@ struct Session {
    * the pipe thread, which has to judge the frames the card gave up on. */
   SharedMac data_station;
   std::atomic<int64_t> station_heard_us{0};
+  /* Whether stations are asked to take aggregates, and the block acks that
+   * came back for them. */
+  bool aggregate = false;
+  std::atomic<uint64_t> block_acks_heard{0};
+  /* When the latest of them came and where its window started. */
+  std::atomic<int64_t> block_ack_us{0};
+  std::atomic<uint16_t> block_ack_start{0};
   bool block_ack_enabled = false;
   uint8_t width_mhz = 20;
   BlockAckInbox block_ack;
@@ -255,9 +275,15 @@ struct Session {
 /* Notes that the station data frames go to is there: a frame from it, or
  * an acknowledgement of one of ours, which names no sender. */
 void note_station(std::span<const uint8_t> frame, Session &session) {
-  const bool acknowledged = frame.size() >= kAckBytes &&
-                            frame[0] == kFrameControlAck &&
-                            session.own.equals(frame.data() + kReceiverOffset);
+  const bool to_us = frame.size() >= kAckBytes &&
+                     session.own.equals(frame.data() + kReceiverOffset);
+  const bool acknowledged = to_us && frame[0] == kFrameControlAck;
+  if (to_us && frame[0] == kFrameControlBlockAck && frame.size() >= kBarBytes) {
+    session.block_acks_heard++;
+    session.block_ack_start = static_cast<uint16_t>(
+        (frame[kBarSequenceOffset] | frame[kBarSequenceOffset + 1] << 8) >> 4);
+    session.block_ack_us = micros(RateLadder::Clock::now());
+  }
   const bool from_station =
       frame.size() >= kSenderOffset + sizeof(Mac) &&
       session.data_station.is_set() &&
@@ -281,12 +307,16 @@ void forward_received(const Packet &packet, PipeServer &pipe, Session &session,
   if (packet.RxAtrib.crc_err) return;
   note_station(frame, session);
   if (frame.size() < kMacHeaderBytes) return;
-  if (session.block_ack_enabled && session.own.is_set()) {
+  if (session.own.is_set()) {
     const Mac own = session.own.get();
     if (const auto request = block_ack::parse_request(frame, own))
       session.block_ack.asked(*request);
+    else if (const auto answer = block_ack::parse_response(frame, own))
+      session.block_ack.answered(*answer);
     else if (const auto ended = block_ack::parse_delba(frame, own))
       session.block_ack.ended(*ended);
+  }
+  if (session.block_ack_enabled && session.own.is_set()) {
     session.reorder.window_moved(frame, pipe);
     session.reorder.expire(pipe);
   }
@@ -329,6 +359,13 @@ size_t station_data_offset(std::span<const uint8_t> message) {
   return (message[radiotap] & kFrameTypeMask) == kFrameTypeData ? radiotap : 0;
 }
 
+Mac station_of(std::span<const uint8_t> message, size_t frame) {
+  Mac station;
+  std::copy_n(message.begin() + frame + kReceiverOffset, station.size(),
+              station.begin());
+  return station;
+}
+
 /* Chooses the rate of each data frame to a station and follows what the card
  * reports became of the frames. Only the pipe thread uses it. */
 class RateControl {
@@ -343,38 +380,79 @@ public:
   const RateLadder &ladder() const { return _ladder; }
 
   /* The frame to send for `message`: under the radiotap header of the rate
-   * in use if it is a data frame to one station, in `rated`; else as it is. */
+   * in use if it is a data frame to one station, in `rated`; else as it is.
+   * At a rate that carries aggregates the frame also gets the number
+   * `outgoing` has for it, if a session with its station is open. */
   const std::vector<uint8_t> &prepare(const std::vector<uint8_t> &message,
-                                      std::vector<uint8_t> &rated) {
+                                      std::vector<uint8_t> &rated,
+                                      OutgoingSession &outgoing) {
     collect();
     const size_t frame = station_data_offset(message);
-    _next = {.rated = frame != 0, .level = 0};
+    _next = {.data = is_data(message), .rated = frame != 0};
     if (!frame) return message;
-    Mac station;
-    std::copy_n(message.begin() + frame + kReceiverOffset, station.size(),
-                station.begin());
+    const Mac station = station_of(message, frame);
     _session.data_station.set(station);
     _next.level = _ladder.next(RateLadder::Clock::now());
-    const auto &radiotap = _session.data_rates[_next.level].radiotap;
-    if (radiotap.empty()) return message;
-    rated.assign(radiotap.begin(), radiotap.end());
-    rated.insert(rated.end(), message.begin() + frame, message.end());
+    const DataRate &rate = _session.data_rates[_next.level];
+    if (rate.radiotap.empty()) return message;
+    rated.assign(rate.radiotap.begin(), rate.radiotap.end());
+    const std::span<const uint8_t> plain{message.data() + frame,
+                                         message.size() - frame};
+    std::vector<uint8_t> numbered;
+    if (rate.aggregates && outgoing.open_with(station))
+      numbered = as_qos_data(plain, OutgoingSession::kTid, 0);
+    if (numbered.empty()) {
+      rated.insert(rated.end(), plain.begin(), plain.end());
+      return rated;
+    }
+    const uint16_t sequence = *outgoing.number(station);
+    _next.sequence = sequence;
+    numbered[kSequenceOffset] = static_cast<uint8_t>(sequence << 4);
+    numbered[kSequenceOffset + 1] = static_cast<uint8_t>(sequence >> 4);
+    rated.insert(rated.end(), numbered.begin(), numbered.end());
     return rated;
   }
 
   void not_sent() { _next = {}; }
 
-  /* The card took the frame last prepared, or one that was not prepared. */
+  /* The card took the frame last prepared, or one that was not prepared.
+   * Data frames wait their turn in one queue; anything else has its own and
+   * is out at once. */
   void sent() {
+    const InFlight frame = std::exchange(_next, {});
+    if (!frame.data) {
+      _others_in_flight++;
+      return;
+    }
     if (_in_flight.size() >= kMostInFlight) _in_flight.clear();
-    _in_flight.push_back(std::exchange(_next, {}));
+    _in_flight.push_back(frame);
+  }
+
+  /* Whether the card gave up on a numbered frame since this was last
+   * asked: the station is then waiting for a frame that will not come. */
+  bool take_gap() { return std::exchange(_gap, false); }
+
+  /* The number of the oldest numbered frame the card still holds. */
+  std::optional<uint16_t> oldest_numbered() const {
+    for (const InFlight &frame : _in_flight)
+      if (frame.sequence) return frame.sequence;
+    return std::nullopt;
   }
 
 private:
   struct InFlight {
+    bool data = false;
     bool rated = false;
     size_t level = 0;
+    std::optional<uint16_t> sequence; /* of a frame under an agreement */
   };
+
+  static bool is_data(std::span<const uint8_t> message) {
+    if (message.size() < 4) return false;
+    const size_t radiotap = message[2] | static_cast<size_t>(message[3]) << 8;
+    return message.size() > radiotap &&
+           (message[radiotap] & kFrameTypeMask) == kFrameTypeData;
+  }
 
   /* Takes the card's reports since the last call. It reports frames in the
    * order it finished them and says how many it gave up on, not which. */
@@ -388,12 +466,16 @@ private:
     const bool station_present =
         micros(now) - _session.station_heard_us <=
         std::chrono::microseconds(kStationHeardRecently).count();
+    const uint64_t others = std::min(finished, _others_in_flight);
+    _others_in_flight -= others;
+    finished -= others;
     for (; finished && !_in_flight.empty(); finished--) {
       const InFlight frame = _in_flight.front();
       _in_flight.pop_front();
       if (!frame.rated) continue;
       const bool lost = given_up > 0;
       given_up -= lost;
+      _gap |= lost && frame.sequence.has_value();
       _ladder.finished(frame.level, lost, station_present, now);
     }
   }
@@ -403,6 +485,8 @@ private:
   RateLadder _ladder;
   std::deque<InFlight> _in_flight;
   InFlight _next;
+  uint64_t _others_in_flight = 0;
+  bool _gap = false;
   uint64_t _reported = 0, _given_up = 0;
 };
 
@@ -440,6 +524,7 @@ bool send_frame(IRadio &radio, FrameCapture *capture, RateControl &rates,
  * aggregate. */
 void answer_block_ack(IRadio &radio, PipeServer &pipe, Session &session,
                       FrameCapture *capture, RateControl &rates,
+                      const std::optional<block_ack::Ended> &ended,
                       std::optional<OpenBlockAck> &open, uint64_t &agreements) {
   session.reorder.expire(pipe);
   const auto close = [&] {
@@ -447,9 +532,8 @@ void answer_block_ack(IRadio &radio, PipeServer &pipe, Session &session,
     session.reorder.stop(pipe);
     open.reset();
   };
-  const auto ended = session.block_ack.take_ended();
-  if (ended && open && ended->first == open->request.peer &&
-      ended->second == open->request.tid)
+  if (ended && ended->by_sender && open && ended->peer == open->request.peer &&
+      ended->tid == open->request.tid)
     close();
   const auto request = session.block_ack.take_request();
   if (!request || !session.bssid_filter.is_set()) return;
@@ -476,6 +560,71 @@ void answer_block_ack(IRadio &radio, PipeServer &pipe, Session &session,
   agreements++;
 }
 
+/* Follows the agreement by which a station takes aggregates from us: what
+ * it answered, and whether it ended it. The card aggregates once told. */
+void tend_outgoing(IRadio &radio, Session &session, OutgoingSession &outgoing,
+                   const std::optional<block_ack::Ended> &ended,
+                   Logger_t logger) {
+  if (ended && outgoing.ended(*ended)) radio.ClearAmpduMode();
+  const auto answer = session.block_ack.take_answer();
+  if (!answer) return;
+  const auto frames = outgoing.answered(*answer);
+  if (!frames) return;
+  devourer::AmpduMode mode;
+  mode.enabled = true;
+  mode.tid = OutgoingSession::kTid;
+  mode.max_num = static_cast<uint8_t>(*frames);
+  mode.density = kAggregateDensity;
+  mode.no_ack = false;
+  if (!radio.SetAmpduMode(mode)) {
+    outgoing.close();
+    return;
+  }
+  logger->warn("radio: a station takes aggregates of up to {} frames", *frames);
+}
+
+/* A station holds back what follows a frame it misses, so it has to be told
+ * when that frame is not coming, and told again if it was away. */
+void tell_window(IRadio &radio, FrameCapture *capture, RateControl &rates,
+                 const Session &session, const OutgoingSession &outgoing,
+                 WindowNotice &notice) {
+  const auto at = [](int64_t us) {
+    return WindowNotice::Clock::time_point(std::chrono::microseconds(us));
+  };
+  const WindowNotice::Heard heard{at(session.station_heard_us),
+                                  at(session.block_ack_us),
+                                  session.block_ack_start};
+  const auto now = WindowNotice::Clock::now();
+  if (!notice.due(heard, now)) return;
+  const auto window = outgoing.window_start(rates.oldest_numbered());
+  if (!window) {
+    notice.clear();
+    return;
+  }
+  send_frame(radio, capture, rates,
+             block_ack::window_start(window->first, session.own.get(),
+                                     OutgoingSession::kTid, window->second));
+  notice.told(window->second, now);
+}
+
+/* Asks the station a data frame is going to for such an agreement, when the
+ * session says it is time. */
+void ask_for_aggregates(IRadio &radio, FrameCapture *capture,
+                        RateControl &rates, const Session &session,
+                        OutgoingSession &outgoing,
+                        const std::vector<uint8_t> &message) {
+  const size_t frame = station_data_offset(message);
+  if (!frame || !session.bssid_filter.is_set()) return;
+  const auto ask = outgoing.before_frame(station_of(message, frame),
+                                         OutgoingSession::Clock::now());
+  if (!ask) return;
+  send_frame(radio, capture, rates,
+             block_ack::request(ask->station, session.own.get(),
+                                session.bssid_filter.get(),
+                                OutgoingSession::kTid, ask->dialog_token,
+                                ask->start_sequence));
+}
+
 /* Serves client messages until the client leaves or the daemon stops. Returns
  * false for a client that sent nothing, such as a probe for the pipe. */
 bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
@@ -486,6 +635,8 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
 
   std::vector<uint8_t> payload, rated;
   RateControl rates(radio, session);
+  OutgoingSession outgoing;
+  WindowNotice notice;
   uint64_t messages = 0, sent = 0, failed = 0, to_one = 0, agreements = 0;
   std::optional<OpenBlockAck> open_block_ack;
   radio_link_header header{};
@@ -501,7 +652,10 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
 
     const bool is_address = payload.size() == sizeof(Mac);
     if (header.type == RADIO_LINK_TX) {
-      const auto &frame = rates.prepare(payload, rated);
+      if (session.aggregate)
+        ask_for_aggregates(radio, capture, rates, session, outgoing, payload);
+      const auto &frame = rates.prepare(payload, rated, outgoing);
+      if (rates.take_gap()) notice.needed(OutgoingSession::Clock::now());
       send_frame(radio, capture, rates, frame) ? sent++ : failed++;
       to_one += is_for_one_station(payload);
     } else if (header.type == RADIO_LINK_SET_BSSID_FILTER && is_address) {
@@ -520,10 +674,14 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
       logger->warn("radio: staying on channel {}, change to {} ignored",
                    channel, payload[0]);
     }
+    const auto ended = session.block_ack.take_ended();
+    tend_outgoing(radio, session, outgoing, ended, logger);
+    tell_window(radio, capture, rates, session, outgoing, notice);
     if (session.block_ack_enabled)
-      answer_block_ack(radio, pipe, session, capture, rates, open_block_ack,
-                       agreements);
+      answer_block_ack(radio, pipe, session, capture, rates, ended,
+                       open_block_ack, agreements);
   }
+  radio.ClearAmpduMode();
   radio.EndBlockAck();
   session.reorder.stop(pipe);
   if (messages) {
@@ -543,6 +701,12 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
     logger->warn("radio: data frames a station acknowledged: {}; the rate "
                  "went up {} times and back down {} times",
                  by_rate, rates.ladder().climbs(), rates.ladder().falls());
+    if (session.aggregate)
+      logger->warn("radio: asked {} times for aggregates, sent {} frames as "
+                   "part of an agreement, heard {} block acks, moved the "
+                   "station's window {} times",
+                   outgoing.asks(), outgoing.numbered(),
+                   session.block_acks_heard.load(), notice.tellings());
   }
   return messages > 0;
 }
@@ -562,6 +726,7 @@ struct Options {
   /* "auto", "client" for the rate the client gives each frame, or one rate
    * in devourer's notation. */
   std::string data_rate = "auto";
+  bool aggregate = false;
 };
 
 /* The rate `spec` names, or nothing if it names none or asks for a wider
@@ -573,14 +738,15 @@ std::optional<DataRate> data_rate(const std::string &spec, uint8_t width_mhz) {
                         spec.rfind("6", 0) != 0 &&
                         mode.legacy_rate_500kbps == 12;
   if (fallback || mode.bw_mhz > width_mhz) return std::nullopt;
-  return DataRate{spec, devourer::build_stream_radiotap(mode, false)};
+  return DataRate{spec, devourer::build_stream_radiotap(mode, false),
+                  mode.mode != devourer::TxMode::Mode::Legacy};
 }
 
 /* The rates to choose from, slowest first. "auto" climbs from the client's
  * own rate through the ones an iPhone was measured to receive. */
 std::optional<std::vector<DataRate>> data_rates(const std::string &spec,
                                                 uint8_t width_mhz) {
-  const DataRate as_given{"the client's rate", {}};
+  const DataRate as_given{"the client's rate", {}, false};
   if (spec == "client") return std::vector{as_given};
   if (spec != "auto") {
     const auto fixed = data_rate(spec, width_mhz);
@@ -601,6 +767,8 @@ std::optional<Options> parse_options(int argc, char **argv) {
     const std::string_view argument = argv[i];
     if (argument == "--no-block-ack")
       options.block_ack = false;
+    else if (argument == "--aggregate")
+      options.aggregate = true;
     else if (argument == "--capture" && i + 1 < argc)
       options.capture_path = argv[++i];
     else if (argument == "--width" && i + 1 < argc)
@@ -632,7 +800,7 @@ int main(int argc, char **argv) {
     std::fprintf(stderr,
                  "usage: %s <channel> [--width 20|40|80] [--capture file.pcap] "
                  "[--no-block-ack] [--retries 0..62] "
-                 "[--data-rate auto|client|MCS7/20]\n",
+                 "[--data-rate auto|client|MCS7/20] [--aggregate]\n",
                  argv[0]);
     return 2;
   }
@@ -680,6 +848,7 @@ int main(int argc, char **argv) {
   session.block_ack_enabled = options->block_ack;
   session.width_mhz = options->width_mhz;
   session.data_rates = *data_rates(options->data_rate, options->width_mhz);
+  session.aggregate = options->aggregate;
   std::thread receiver([&] {
     std::vector<uint8_t> message;
     radio->StartRxLoop([&](const Packet &packet) {

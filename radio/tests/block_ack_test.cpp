@@ -92,13 +92,14 @@ int main() {
          "our DELBA ends that TID as its recipient");
   const auto echoed =
       block_ack::parse_delba(std::span(goodbye).subspan(frame), kPeer);
-  expect(echoed && echoed->first == kOwn && echoed->second == 5,
-         "and reads back as a DELBA from us");
+  expect(echoed && echoed->peer == kOwn && echoed->tid == 5 &&
+             !echoed->by_sender,
+         "and reads back as a DELBA from us, the receiving side");
 
   const auto ended = action_frame({0x03, 0x02, 0x00, 0x58, 0x01, 0x00});
   const auto delba = block_ack::parse_delba(ended, kOwn);
-  expect(delba && delba->first == kPeer && delba->second == 5,
-         "a DELBA names its sender and its TID");
+  expect(delba && delba->peer == kPeer && delba->tid == 5 && delba->by_sender,
+         "a DELBA names its sender, its TID and the side that ends");
   expect(!block_ack::parse_delba(asked, kOwn), "a request is not a DELBA");
 
   return failures ? 1 : 0;
