@@ -1,17 +1,58 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* AWDL daemon for Windows: OWL's protocol core, driven by the radio daemon.
- * Usage: awdld [-c 6|44|149] [-n] [-v] [-v], -n meaning no host adapter. */
+ * Usage: awdld [-c 6|44|149] [-n] [-r] [-v] [-v]. -n: no host adapter.
+ * -r: no device identities in the log. */
 #include <getopt.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <windows.h>
 
 #include "core.h"
 #include "host_if.h"
 #include "log.h"
 #include "radio_client.h"
+#include "redact.h"
 #include "win_internal.h"
 
 #define STATUS_PERIOD_S 2.0
 #define DEFAULT_CHANNEL 6
+
+static int shown_level = LOG_INFO;
+static int redact_log;
+static struct redactor redactor;
+/* The radio client's reader thread logs too. */
+static SRWLOCK redactor_lock = SRWLOCK_INIT;
+
+int __real_log_log(int level, const char *file, int line, const char *fmt, ...);
+
+/* The linker sends every log_log call here, OWL's included (--wrap), so that
+ * -r also covers the lines OWL formats itself. */
+int __wrap_log_log(int level, const char *file, int line, const char *fmt, ...) {
+	if (level > shown_level)
+		return 0;
+	va_list args, measured;
+	va_start(args, fmt);
+	va_copy(measured, args);
+	int length = vsnprintf(NULL, 0, fmt, measured);
+	va_end(measured);
+	if (length < 0) {
+		va_end(args);
+		return 0;
+	}
+	char text[length + 1];
+	vsnprintf(text, sizeof(text), fmt, args);
+	va_end(args);
+	if (!redact_log)
+		return __real_log_log(level, file, line, "%s", text);
+
+	/* Redacting never doubles a line's length. */
+	char shown[2 * sizeof(text)];
+	AcquireSRWLockExclusive(&redactor_lock);
+	redact_line(&redactor, text, shown, sizeof(shown));
+	ReleaseSRWLockExclusive(&redactor_lock);
+	return __real_log_log(level, file, line, "%s", shown);
+}
 
 static int channel_from_number(int number, struct awdl_chan *chan) {
 	switch (number) {
@@ -47,20 +88,23 @@ int main(int argc, char *argv[]) {
 	int log_level = LOG_INFO;
 	const char *host_name = HOST_IF_NAME;
 	int option;
-	while ((option = getopt(argc, argv, "c:nv")) != -1) {
+	while ((option = getopt(argc, argv, "c:nrv")) != -1) {
 		if (option == 'c') {
 			channel = atoi(optarg);
 		} else if (option == 'n') {
 			host_name = "";
+		} else if (option == 'r') {
+			redact_log = 1;
 		} else if (option == 'v') {
 			if (log_level < LOG_TRACE)
 				log_level++;
 		} else {
-			fprintf(stderr, "usage: %s [-c 6|44|149] [-n] [-v] [-v]\n", argv[0]);
+			fprintf(stderr, "usage: %s [-c 6|44|149] [-n] [-r] [-v] [-v]\n", argv[0]);
 			return EXIT_FAILURE;
 		}
 	}
 	log_set_level(log_level);
+	shown_level = log_level;
 
 	struct awdl_chan chan;
 	if (channel_from_number(channel, &chan) < 0) {

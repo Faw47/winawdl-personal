@@ -36,7 +36,7 @@ class ReceiverTest(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.settings = argparse.Namespace(
             name='Test PC', model='MacBookPro18,3', dest=self.temp.name,
-            max_receive_percent=30, interface_index=LOOPBACK_SCOPE)
+            max_receive_percent=30, interface_index=LOOPBACK_SCOPE, redact=False)
         self.server = receiver.Receiver(0, self.settings)
         self.server.socket = self.context.wrap_socket(
             self.server.socket, server_side=True, do_handshake_on_connect=False)
@@ -131,6 +131,18 @@ class ReceiverTest(unittest.TestCase):
                'Items': ['https://example.org/page', 'file:///C:/Windows/win.ini']}
         self.assertEqual(self.post_plist(self.connect(), '/Ask', ask)[0], 200)
         self.assertEqual(os.listdir(self.temp.name), ['example.org-page.url'])
+
+    def test_redacting_keeps_the_sender_and_its_folders_out_of_the_log(self):
+        self.settings.redact = True
+        ask = {'SenderComputerName': 'Ada phone', 'SenderModelName': 'iPhone',
+               'Files': [{'FileName': 'C:\\Users\\ada\\trip/a.txt', 'FileSize': 3}]}
+        with self.assertLogs(level='INFO') as logs:
+            self.assertEqual(self.post_plist(self.connect(), '/Ask', ask)[0], 200)
+        asked = next(line for line in logs.output if 'ask from' in line)
+        self.assertIn('ask from a sender (iPhone)', asked)
+        self.assertIn(' a.txt ', asked)
+        self.assertNotIn('Ada', asked)
+        self.assertNotIn('trip', asked)
 
     def test_an_upload_of_another_type_is_refused(self):
         connection = self.connect()

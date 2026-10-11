@@ -1,6 +1,7 @@
 # Runs awdld against a stand-in for the radio daemon, with no hardware: it must
-# connect, transmit on schedule, and accept a peer played back to it.
-param([int]$Seconds = 4)
+# connect, transmit on schedule, and accept a peer played back to it. -Redact
+# runs it with -r, to read what the log then shows of that peer.
+param([int]$Seconds = 4, [switch]$Redact)
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -35,7 +36,9 @@ function Read-Exact($pipe, [int]$count, [datetime]$deadline) {
 
 $pipe = [IO.Pipes.NamedPipeServerStream]::new('winawdl-radio', 'InOut', 1, 'Byte', 'Asynchronous')
 $log = Join-Path $env:TEMP 'awdld-fake-radio.log'
-$daemon = Start-Process $awdld -ArgumentList '-c', '6', '-n', '-v' -PassThru -NoNewWindow `
+$daemonArgs = @('-c', '6', '-n', '-v')
+if ($Redact) { $daemonArgs += '-r' }
+$daemon = Start-Process $awdld -ArgumentList $daemonArgs -PassThru -NoNewWindow `
             -RedirectStandardError $log -RedirectStandardOutput "$log.out"
 try {
   $pipe.WaitForConnection()

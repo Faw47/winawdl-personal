@@ -1,6 +1,7 @@
 # Starts the radio daemon on one AWDL channel, then the AWDL daemon on top of
 # it. Ctrl+C stops both: the radio daemon exits when its client leaves.
-param([ValidateSet(6, 44, 149)][int]$Channel = 6, [switch]$Detail)
+# -Redact keeps the addresses and names of nearby devices out of the log.
+param([ValidateSet(6, 44, 149)][int]$Channel = 6, [switch]$Detail, [switch]$Redact)
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path $PSScriptRoot -Parent
@@ -15,6 +16,7 @@ $radioProcess = Start-Process $radio -ArgumentList $Channel -PassThru -NoNewWind
 
 $awdldArgs = @('-c', $Channel)
 if ($Detail) { $awdldArgs += '-v' }
+if ($Redact) { $awdldArgs += '-r' }
 & $awdld @awdldArgs
 
 if (-not $radioProcess.WaitForExit(5000)) { Stop-Process -Id $radioProcess.Id }

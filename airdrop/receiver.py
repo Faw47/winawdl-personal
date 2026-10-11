@@ -21,6 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import identity
 import mdns
 import netif
+import redact
 import transfer
 
 SERVICE_TYPE = '_airdrop._tcp.local'
@@ -33,6 +34,7 @@ DEFAULT_MODEL = 'MacBookPro18,3'
 DEFAULT_MAX_RECEIVE_PERCENT = 30
 MODEL_RE = re.compile(r'^[A-Za-z]+[0-9]+,[0-9]+$')
 MAX_NAME_CHARS = 63
+PATH_SEPARATOR = re.compile(r'[\\/]')
 INTERFACE_WAIT_SECONDS = 20
 BIND_ATTEMPTS = 5
 BIND_PAUSE_SECONDS = 2
@@ -174,11 +176,17 @@ class Handler(BaseHTTPRequestHandler):
         files = ask.get('Files') or []
         items = ask.get('Items') or []
         kinds = ask.get('TransferType') or {}
+        sender = ask.get('SenderComputerName')
+        names = [str(f.get('FileName')) for f in files]
+        if self.server.settings.redact:
+            # A sender may give a whole path as a file's name.
+            sender = 'a sender'
+            names = [PATH_SEPARATOR.split(name)[-1] for name in names]
         logging.info('ask from %s (%s): type %s, %d item(s): %s',
-                     ask.get('SenderComputerName'), ask.get('SenderModelName'),
+                     sender, ask.get('SenderModelName'),
                      ','.join(kinds) or '?', len(files),
-                     '; '.join(f"{f.get('FileName')} {f.get('FileType')} {f.get('FileSize')}B"
-                               for f in files) or '-')
+                     '; '.join(f"{name} {f.get('FileType')} {f.get('FileSize')}B"
+                               for name, f in zip(names, files, strict=True)) or '-')
         if len(items) > transfer.MAX_ARCHIVE_MEMBERS:
             self.reject(413, f'Ask exceeds {transfer.MAX_ARCHIVE_MEMBERS}-item limit')
             return
@@ -326,6 +334,9 @@ def parse_args(argv):
                         help='receiver capability bits to advertise')
     parser.add_argument('--keys', default=identity.default_keys_dir(),
                         help='directory holding the TLS certificate and key')
+    parser.add_argument('--redact', action='store_true',
+                        help='print no names, addresses or account folders, for a '
+                             'recording or a shared screen')
     args = parser.parse_args(argv)
     try:
         args.dest = valid_dir(args.dest)
@@ -373,6 +384,11 @@ def tls_context(keys_dir):
 
 def main(argv=None):
     settings = parse_args(argv)
+    redactor = redact.Redactor(redact.local_words())
+    if settings.redact:
+        # Both streams, so that an error report is covered as well as the log.
+        sys.stdout = redact.Stream(sys.stdout, redactor.hide)
+        sys.stderr = redact.Stream(sys.stderr, redactor.hide)
     logging.basicConfig(level=logging.INFO, stream=sys.stdout,
                         format='%(asctime)s %(levelname)s %(message)s')
     try:
@@ -380,6 +396,7 @@ def main(argv=None):
     except identity.IdentityError as error:
         raise SystemExit(str(error)) from None
     settings.interface_index, address = wait_for_interface(settings.iface)
+    redactor.name(address, 'own-address')
 
     server = bind_receiver(settings.port, settings)
     server.socket = context.wrap_socket(server.socket, server_side=True,

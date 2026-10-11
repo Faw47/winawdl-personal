@@ -119,6 +119,12 @@ To receive files over AirDrop, keep `awdl-run.ps1` running and then:
 .\scripts\airdrop-receive.ps1    # no elevation; Ctrl+C to stop
 ```
 
+For a recording or a shared screen, start them as `awdl-run.ps1 -Redact` and
+`airdrop-receive.ps1 --redact`. The logs then number devices instead of
+printing their addresses, and leave out the names of peers and senders, the
+computer's name and the account's folder. File names still appear, and so
+does the name senders see, which `--name` sets.
+
 The receiver accepts files from everyone in range, as described under
 [Before you run it](#before-you-run-it), and marks each one as downloaded from
 the Internet. Contacts Only and sending are not implemented.

@@ -41,15 +41,21 @@ target_link_libraries(host_if PRIVATE iphlpapi)
 
 set(WIN_SOURCES
     win/main.c win/ev_win.c win/io_win.c win/netutils_win.c win/radio_client.c
-    compat/ether.c)
+    win/redact.c compat/ether.c)
 add_executable(awdld "${OWL}/daemon/core.c" ${WIN_SOURCES})
 set_source_files_properties(${WIN_SOURCES} PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Werror")
 target_link_libraries(awdld PRIVATE awdl host_if bcrypt)
 # Static, so the daemon does not need the MinGW runtime DLLs beside it.
-target_link_options(awdld PRIVATE -static)
+# The wrap routes OWL's log calls through main.c, which can redact them.
+target_link_options(awdld PRIVATE -static -Wl,--wrap=log_log)
 
 add_executable(host_frame_test tests/host_frame_test.c)
 target_compile_options(host_frame_test PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(host_frame_test PRIVATE host_if)
 target_link_options(host_frame_test PRIVATE -static)
+
+add_executable(redact_test tests/redact_test.c win/redact.c)
+target_include_directories(redact_test PRIVATE win)
+target_compile_options(redact_test PRIVATE -Wall -Wextra -Werror)
+target_link_options(redact_test PRIVATE -static)
