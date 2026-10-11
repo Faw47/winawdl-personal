@@ -9,7 +9,8 @@ frames in monitor mode from an ordinary Windows program. On top of it the AWDL
 daemon joins the AWDL channel, finds nearby Apple devices, synchronises with
 them and carries IPv6 traffic to and from them. An AirDrop receiver on top of
 that has received photos, a 28 MB video and a Live Photo from an iPhone, at
-about 1 MB/s. All of it has run on one machine with one card. Read
+about 1 MB/s, or 1.7 MB/s with an experimental switch. All of it has run on
+one machine with one card. Read
 [DESIGN-NOTES.md](DESIGN-NOTES.md) for the design, the
 measurements, the open risks and the safety notes before installing anything.
 
@@ -118,6 +119,10 @@ To receive files over AirDrop, keep `awdl-run.ps1` running and then:
 .\scripts\airdrop-firewall.ps1   # elevated, once: two inbound rules, link-local only
 .\scripts\airdrop-receive.ps1    # no elevation; Ctrl+C to stop
 ```
+
+`awdl-run.ps1 -BlockAck` lets a sender aggregate its frames, which measured
+1.7 MB/s against 1 MB/s. It has run for one transfer so far and serves one
+sender at a time.
 
 For a recording or a shared screen, start them as `awdl-run.ps1 -Redact` and
 `airdrop-receive.ps1 --redact`. The logs then number devices instead of

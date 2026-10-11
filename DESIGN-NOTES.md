@@ -229,9 +229,31 @@ frames pass between OWL and the radio:
   valid and the daemon never synchronised to it. Such leftover zero bytes are
   now cut off.
 
-What still separates this from two Apple devices: frames arrive one per
-transmission, on 20 MHz and one spatial stream, in bursts that cover about
-30% of the time.
+### Block ack
+
+While it sends, the iPhone asks about once a second for a block-ack agreement
+on TID 0 with a window of 64 frames, which lets it aggregate. With
+`awdl-run.ps1 -BlockAck` the radio daemon answers. It first has the card open
+a BA CAM entry for that sender (rtw89's `rtw89_fw_h2c_ba_cam`, the sender
+named as the peer in the address CAM entry of macid 0), then sends the ADDBA
+response, without A-MSDU.
+
+Measured 2026-10-11 on channel 44, one transfer of 30.5 MB:
+
+| | Without | With |
+|---|---|---|
+| Block-ack requests from the iPhone | 49, unanswered | 1, answered within 1 ms |
+| Frames per transmission | 1 | 9.4 on average, 30 at most, each aggregate behind an RTS |
+| Frames with the retry flag | 904 of 20,410 | 47 of 20,414 |
+| Throughput | 971 kB/s | 1,710 kB/s |
+
+No frame arrived twice, and 9 arrived behind a later sequence number, so
+nothing puts frames back in order. One sender is served at a time. The switch
+stays off by default until more than one transfer has run with it.
+
+What still separates this from two Apple devices: the aggregates are short,
+frames are on 20 MHz and one spatial stream, and the bursts cover about 40%
+of the time.
 
 ## The AirDrop layer
 
@@ -313,7 +335,7 @@ on the first attempt.
 | Radio daemon (`radio/winawdl_radio`) serving frames over a named pipe | Passed 2026-10-11: 827 frames transmitted for its client, none failed |
 | AWDL daemon (`awdl/`, OWL core on Windows) | Passed on air 2026-10-11 on channel 6: added the owner's iPhone as a peer, elected it sync master, received its action and data frames while transmitting 24 action frames per second |
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
-| AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44 |
+| AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44, or 1,710 kB/s with block ack |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.
