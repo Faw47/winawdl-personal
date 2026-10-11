@@ -56,6 +56,13 @@ if(MSVC)
     target_compile_options(block_ack_test PRIVATE /W4 /WX)
 endif()
 
+add_executable(reorder_buffer_test tests/reorder_buffer_test.cpp reorder_buffer.h)
+target_compile_features(reorder_buffer_test PRIVATE cxx_std_20)
+target_include_directories(reorder_buffer_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(reorder_buffer_test PRIVATE /W4 /WX)
+endif()
+
 add_executable(frame_capture_test tests/frame_capture_test.cpp frame_capture.h)
 target_compile_features(frame_capture_test PRIVATE cxx_std_20)
 target_include_directories(frame_capture_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

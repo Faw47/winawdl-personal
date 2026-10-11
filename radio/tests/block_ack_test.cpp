@@ -85,6 +85,16 @@ int main() {
   expect(narrowed[body + 5] == 0x16 && narrowed[body + 6] == 0x10,
          "a wider request is granted 64 frames on its own TID");
 
+  const auto goodbye = block_ack::delba(wide, kOwn, kBssid);
+  expect(goodbye.size() == frame + 24 + 6 && goodbye[body] == 3 &&
+             goodbye[body + 1] == 2 && goodbye[body + 2] == 0 &&
+             goodbye[body + 3] == 0x50 && goodbye[body + 4] == 37,
+         "our DELBA ends that TID as its recipient");
+  const auto echoed =
+      block_ack::parse_delba(std::span(goodbye).subspan(frame), kPeer);
+  expect(echoed && echoed->first == kOwn && echoed->second == 5,
+         "and reads back as a DELBA from us");
+
   const auto ended = action_frame({0x03, 0x02, 0x00, 0x58, 0x01, 0x00});
   const auto delba = block_ack::parse_delba(ended, kOwn);
   expect(delba && delba->first == kPeer && delba->second == 5,

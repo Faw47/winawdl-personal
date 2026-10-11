@@ -28,6 +28,7 @@
 #include "logger.h"
 #include "pipe_server.h"
 #include "radio_link.h"
+#include "reorder_buffer.h"
 
 namespace {
 
@@ -39,6 +40,16 @@ constexpr size_t kBssidOffset = 16;
 constexpr uint8_t kFrameTypeMask = 0x0C;
 constexpr uint8_t kFrameTypeData = 0x08;
 constexpr uint8_t kRetryFlag = 0x08;
+constexpr size_t kSenderOffset = 10;
+constexpr size_t kSequenceOffset = 22;
+constexpr uint8_t kFrameControlQosData = 0x88;
+constexpr size_t kQosControlOffset = 24;
+constexpr uint8_t kFrameControlBlockAckRequest = 0x84;
+/* In a block-ack request: its control field, then the sequence number the
+ * sender's window now starts at. */
+constexpr size_t kBarControlOffset = 16;
+constexpr size_t kBarSequenceOffset = 18;
+constexpr size_t kBarBytes = 20;
 constexpr uint8_t kGroupAddressBit = 0x01;
 
 /* Radiotap header put on received frames: FLAGS and DBM_ANTSIGNAL only. */
@@ -105,11 +116,99 @@ private:
   std::optional<Ended> _ended;
 };
 
+/* Another sender gets the one block-ack session only once it has been open
+ * this long and its holder has sent fewer than kBusyFrames since that sender
+ * last asked. */
+constexpr std::chrono::seconds kSessionSettle{1};
+constexpr uint64_t kBusyFrames = 16;
+
+/* The reorder buffer of the open block-ack session. The receive thread fills
+ * it; the pipe thread starts, stops and expires it. Frames leave for the
+ * client under its lock, so in the order it decided. */
+class SessionReorder {
+public:
+  void start(const Mac &peer, uint8_t tid, uint16_t first_sequence,
+             PipeServer &pipe) {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    _peer = peer;
+    _tid = tid;
+    _recent = 0;
+    _buffer.start(first_sequence, _out);
+    send(pipe);
+  }
+  /* Frames the session's sender delivered since this was last asked. */
+  uint64_t take_recent() {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    return std::exchange(_recent, 0);
+  }
+  void stop(PipeServer &pipe) {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    _buffer.stop(_out);
+    send(pipe);
+  }
+  void expire(PipeServer &pipe) {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    if (!_buffer.active()) return;
+    _buffer.expire(ReorderBuffer::Clock::now(), _out);
+    send(pipe);
+  }
+  /* Takes `message`, a data frame ready for the client, if `frame` belongs
+   * to the session. Otherwise the caller sends it. */
+  bool take(std::span<const uint8_t> frame, const std::vector<uint8_t> &message,
+            PipeServer &pipe) {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    if (!_buffer.active() || frame.size() < kQosControlOffset + 2 ||
+        frame[0] != kFrameControlQosData || !from_peer(frame) ||
+        (frame[kQosControlOffset] & 0x0F) != _tid)
+      return false;
+    _recent++;
+    _buffer.push(sequence_at(frame, kSequenceOffset), message,
+                 ReorderBuffer::Clock::now(), _out);
+    send(pipe);
+    return true;
+  }
+  /* A block-ack request from the session's sender moves its window. */
+  void window_moved(std::span<const uint8_t> frame, PipeServer &pipe) {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    if (!_buffer.active() || frame.size() < kBarBytes ||
+        frame[0] != kFrameControlBlockAckRequest || !from_peer(frame) ||
+        (frame[kBarControlOffset + 1] >> 4) != _tid)
+      return;
+    _buffer.advance_to(sequence_at(frame, kBarSequenceOffset), _out);
+    send(pipe);
+  }
+  uint64_t waited() {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    return _buffer.waited();
+  }
+
+private:
+  bool from_peer(std::span<const uint8_t> frame) const {
+    return std::memcmp(frame.data() + kSenderOffset, _peer.data(),
+                       _peer.size()) == 0;
+  }
+  static uint16_t sequence_at(std::span<const uint8_t> frame, size_t offset) {
+    return static_cast<uint16_t>((frame[offset] | frame[offset + 1] << 8) >> 4);
+  }
+  void send(PipeServer &pipe) {
+    for (const auto &message : _out) pipe.send(RADIO_LINK_RX, message);
+    _out.clear();
+  }
+
+  std::mutex _mutex;
+  ReorderBuffer _buffer;
+  std::vector<ReorderBuffer::Message> _out;
+  Mac _peer{};
+  uint8_t _tid = 0;
+  uint64_t _recent = 0;
+};
+
 struct Session {
   SharedMac bssid_filter; /* unset forwards every frame */
   SharedMac own;
   bool block_ack_enabled = false;
   BlockAckInbox block_ack;
+  SessionReorder reorder;
   /* Data frames addressed to the client and how many were retries. A high
    * share means the card is not acknowledging for the client's address. */
   std::atomic<uint64_t> for_us{0};
@@ -135,6 +234,8 @@ void forward_received(const Packet &packet, PipeServer &pipe, Session &session,
       session.block_ack.asked(*request);
     else if (const auto ended = block_ack::parse_delba(frame, own))
       session.block_ack.ended(*ended);
+    session.reorder.window_moved(frame, pipe);
+    session.reorder.expire(pipe);
   }
   if ((frame[0] & kFrameTypeMask) == kFrameTypeData &&
       session.own.equals(frame.data() + kReceiverOffset)) {
@@ -151,7 +252,8 @@ void forward_received(const Packet &packet, PipeServer &pipe, Session &session,
   message[8] = packet.RxAtrib.fcs_present ? kRadiotapFlagFcsAtEnd : 0;
   message[9] = static_cast<uint8_t>(static_cast<int8_t>(dbm));
   message.insert(message.end(), frame.begin(), frame.end());
-  if (message.size() <= RADIO_LINK_MAX_PAYLOAD)
+  if (message.size() > RADIO_LINK_MAX_PAYLOAD) return;
+  if (!session.reorder.take(frame, message, pipe))
     pipe.send(RADIO_LINK_RX, message);
 }
 
@@ -176,31 +278,57 @@ void adopt_identity(IRadio &radio, const Session &session, Logger_t logger) {
                  "peers will repeat everything they send it");
 }
 
+/* The block-ack session the card is set up for, and when it was opened. */
+struct OpenBlockAck {
+  block_ack::Request request;
+  ReorderBuffer::Clock::time_point since;
+};
+
+void send_frame(IRadio &radio, FrameCapture *capture,
+                const std::vector<uint8_t> &message) {
+  if (radio.send_packet(message.data(), message.size()) && capture)
+    capture->transmitted(message);
+}
+
 /* Answers a sender that asks to aggregate its frames, for one sender and
- * TID at a time. The card is set up before the answer goes out, so that it
- * is ready for the first aggregate. */
-void answer_block_ack(IRadio &radio, Session &session, FrameCapture *capture,
-                      std::optional<block_ack::Request> &open,
+ * TID at a time: a nearby device with next to nothing to send asks too, and
+ * must not keep the session from the one that is sending a file. The card is
+ * set up before the answer goes out, so that it is ready for the first
+ * aggregate. */
+void answer_block_ack(IRadio &radio, PipeServer &pipe, Session &session,
+                      FrameCapture *capture, std::optional<OpenBlockAck> &open,
                       uint64_t &agreements) {
-  const auto ended = session.block_ack.take_ended();
-  if (ended && open && ended->first == open->peer &&
-      ended->second == open->tid) {
+  session.reorder.expire(pipe);
+  const auto close = [&] {
     radio.EndBlockAck();
+    session.reorder.stop(pipe);
     open.reset();
-  }
+  };
+  const auto ended = session.block_ack.take_ended();
+  if (ended && open && ended->first == open->request.peer &&
+      ended->second == open->request.tid)
+    close();
   const auto request = session.block_ack.take_request();
   if (!request || !session.bssid_filter.is_set()) return;
-  if (open && (open->peer != request->peer || open->tid != request->tid))
+  const Mac own = session.own.get(), bssid = session.bssid_filter.get();
+  const auto now = ReorderBuffer::Clock::now();
+  if (open && open->request.peer != request->peer) {
+    const bool holder_is_quiet = session.reorder.take_recent() < kBusyFrames;
+    if (now - open->since < kSessionSettle || !holder_is_quiet) return;
+    send_frame(radio, capture, block_ack::delba(open->request, own, bssid));
+    close();
+  } else if (open && open->request.tid != request->tid) {
     return;
+  }
   if (!radio.AcceptBlockAck({request->peer}, request->tid,
                             request->start_sequence,
                             block_ack::granted_frames(*request)))
     return;
-  const auto answer = block_ack::response(*request, session.own.get(),
-                                          session.bssid_filter.get());
-  if (!radio.send_packet(answer.data(), answer.size())) return;
-  if (capture) capture->transmitted(answer);
-  open = request;
+  session.reorder.start(request->peer, request->tid, request->start_sequence,
+                        pipe);
+  send_frame(radio, capture, block_ack::response(*request, own, bssid));
+  if (!open) open = OpenBlockAck{*request, now};
+  open->request = *request;
   agreements++;
 }
 
@@ -214,7 +342,7 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
 
   std::vector<uint8_t> payload;
   uint64_t messages = 0, sent = 0, failed = 0, to_one = 0, agreements = 0;
-  std::optional<block_ack::Request> open_block_ack;
+  std::optional<OpenBlockAck> open_block_ack;
   radio_link_header header{};
   while (!stopping() && pipe.read_exact(&header, sizeof(header))) {
     messages++;
@@ -248,16 +376,20 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
                    channel, payload[0]);
     }
     if (session.block_ack_enabled)
-      answer_block_ack(radio, session, capture, open_block_ack, agreements);
+      answer_block_ack(radio, pipe, session, capture, open_block_ack,
+                       agreements);
   }
   radio.EndBlockAck();
+  session.reorder.stop(pipe);
   if (messages) {
     const uint64_t for_us = session.for_us, retried = session.for_us_retried;
     logger->warn("radio: client gone; sent {} frames ({} to a single station), "
                  "{} failed; received {} data frames for it, {}% of them "
-                 "repeats; answered {} block-ack requests",
+                 "repeats; answered {} block-ack requests, {} frames waited "
+                 "for an earlier one",
                  sent, to_one, failed, for_us,
-                 for_us ? retried * 100 / for_us : 0, agreements);
+                 for_us ? retried * 100 / for_us : 0, agreements,
+                 session.reorder.waited());
   }
   return messages > 0;
 }

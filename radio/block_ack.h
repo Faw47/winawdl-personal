@@ -44,6 +44,9 @@ constexpr uint16_t kParamImmediate = 1u << 1;
 constexpr uint8_t kParamTidShift = 2;
 constexpr uint8_t kParamBufferShift = 6;
 constexpr uint8_t kDelbaTidShift = 12;
+/* "The station is not using the mechanism", as Linux says when it ends the
+ * receiving side of a session. */
+constexpr uint8_t kReasonNotUsed = 37;
 /* Radiotap with a rate field only: 12 Mbit/s, as the client's frames use. */
 constexpr uint8_t kRadiotap[] = {0, 0, 9, 0, 0x04, 0, 0, 0, 24};
 
@@ -104,19 +107,29 @@ inline uint16_t granted_frames(const Request &request) {
              : std::min(request.buffer_frames, kMaxBufferFrames);
 }
 
+namespace detail {
+/* A radiotap header and an action frame from `own` to `peer` with this body. */
+inline std::vector<uint8_t> action_to(const Mac &peer, const Mac &own,
+                                      const Mac &bssid,
+                                      std::span<const uint8_t> body) {
+  std::vector<uint8_t> message(std::begin(kRadiotap), std::end(kRadiotap));
+  const size_t frame = message.size();
+  message.resize(frame + kHeaderBytes, 0);
+  message[frame] = kFrameControlAction;
+  std::copy(peer.begin(), peer.end(),
+            message.begin() + frame + kReceiverOffset);
+  std::copy(own.begin(), own.end(), message.begin() + frame + kSenderOffset);
+  std::copy(bssid.begin(), bssid.end(), message.begin() + frame + kBssidOffset);
+  message.insert(message.end(), body.begin(), body.end());
+  return message;
+}
+} // namespace detail
+
 /* A radiotap header and the ADDBA response that accepts `request`: immediate
  * block ack, no A-MSDU inside an aggregate. */
 inline std::vector<uint8_t> response(const Request &request, const Mac &own,
                                      const Mac &bssid) {
   using namespace detail;
-  std::vector<uint8_t> message(std::begin(kRadiotap), std::end(kRadiotap));
-  const size_t frame = message.size();
-  message.resize(frame + kHeaderBytes, 0);
-  message[frame] = kFrameControlAction;
-  std::copy(request.peer.begin(), request.peer.end(),
-            message.begin() + frame + kReceiverOffset);
-  std::copy(own.begin(), own.end(), message.begin() + frame + kSenderOffset);
-  std::copy(bssid.begin(), bssid.end(), message.begin() + frame + kBssidOffset);
   const uint16_t params =
       static_cast<uint16_t>(kParamImmediate | (request.tid << kParamTidShift) |
                             (granted_frames(request) << kParamBufferShift));
@@ -129,8 +142,21 @@ inline std::vector<uint8_t> response(const Request &request, const Mac &own,
                           static_cast<uint8_t>(params >> 8),
                           0,
                           0 /* no timeout */};
-  message.insert(message.end(), std::begin(body), std::end(body));
-  return message;
+  return action_to(request.peer, own, bssid, body);
+}
+
+/* A radiotap header and the DELBA by which the receiving side ends the
+ * session `request` opened. */
+inline std::vector<uint8_t> delba(const Request &request, const Mac &own,
+                                  const Mac &bssid) {
+  using namespace detail;
+  const uint8_t body[] = {kCategoryBlockAck,
+                          kActionDelba,
+                          0,
+                          static_cast<uint8_t>(request.tid << 4),
+                          kReasonNotUsed,
+                          0};
+  return action_to(request.peer, own, bssid, body);
 }
 
 } // namespace block_ack
