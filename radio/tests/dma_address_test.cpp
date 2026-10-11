@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "PcieDmaAxDesc.h"
+#include "PcieDmaPlane.h"
 #include "PhysicalBlocks.h"
 
 namespace {
@@ -32,6 +33,29 @@ void expect(bool condition, const char *what) {
 template <size_t N>
 bool same_bytes(const uint8_t *actual, const uint8_t (&expected)[N]) {
   return std::memcmp(actual, expected, N) == 0;
+}
+
+void check_slab_addresses() {
+  devourer::DmaSlab slab;
+  slab.chunk_bytes = 0x200000;
+  slab.chunk_iova = {0x4'0000'0000, 0x5'0000'0000};
+  expect(slab.iova(0x1234) == 0x4'0000'1234 &&
+             slab.iova(0x200010) == 0x5'0000'0010,
+         "an offset resolves inside the block it falls in");
+
+  slab.head_bytes = 0x2000;
+  slab.head_chunk_bytes = 0x1000;
+  slab.head_iova = {0x7000, 0x3000};
+  expect(slab.iova(0x10) == 0x7010 && slab.iova(0x1FFF) == 0x3FFF,
+         "the head resolves page by page");
+  expect(slab.iova(0x2000) == 0x4'0000'0000 &&
+             slab.iova(0x2000 + 0x200010) == 0x5'0000'0010,
+         "the blocks start after the head");
+
+  std::vector<uintptr_t> pages = {0x180000, 0x9, 0x100005, 0x7, 0xFFFFF};
+  const auto low = take_lowest_blocks(pages, 3, 1, kFrameAt4GiB);
+  expect(low == std::vector<uintptr_t>{0x7, 0x9, 0xFFFFF} && pages.size() == 2,
+         "single pages below 4 GiB are picked like blocks of one frame");
 }
 
 void check_block_choice() {
@@ -98,6 +122,7 @@ void check_address_entry() {
 } /* namespace */
 
 int main() {
+  check_slab_addresses();
   check_block_choice();
   check_buffer_descriptor();
   check_address_entry();
