@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Radio daemon: owns the Wi-Fi card through devourer and relays frames for one
  * client over the pipe in radio_link.h.
- * Usage: winawdl_radio <channel> [--capture file.pcap] [--block-ack] */
+ * Usage: winawdl_radio <channel> [--capture file.pcap] [--no-block-ack] */
 
 #include <array>
 #include <atomic>
@@ -265,7 +265,7 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
 struct Options {
   uint8_t channel = 0;
   std::string capture_path;
-  bool block_ack = false;
+  bool block_ack = true;
 };
 
 std::optional<Options> parse_options(int argc, char **argv) {
@@ -274,8 +274,8 @@ std::optional<Options> parse_options(int argc, char **argv) {
   options.channel = static_cast<uint8_t>(std::atoi(argv[1]));
   for (int i = 2; i < argc; i++) {
     const std::string_view argument = argv[i];
-    if (argument == "--block-ack")
-      options.block_ack = true;
+    if (argument == "--no-block-ack")
+      options.block_ack = false;
     else if (argument == "--capture" && i + 1 < argc)
       options.capture_path = argv[++i];
     else
@@ -290,7 +290,7 @@ int main(int argc, char **argv) {
   const auto options = parse_options(argc, argv);
   if (!options) {
     std::fprintf(stderr,
-                 "usage: %s <channel> [--capture file.pcap] [--block-ack]\n",
+                 "usage: %s <channel> [--capture file.pcap] [--no-block-ack]\n",
                  argv[0]);
     return 2;
   }

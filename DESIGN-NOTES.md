@@ -232,8 +232,8 @@ frames pass between OWL and the radio:
 ### Block ack
 
 While it sends, the iPhone asks about once a second for a block-ack agreement
-on TID 0 with a window of 64 frames, which lets it aggregate. With
-`awdl-run.ps1 -BlockAck` the radio daemon answers. It first has the card open
+on TID 0 with a window of 64 frames, which lets it aggregate. The radio
+daemon answers unless started with `-NoBlockAck`. It first has the card open
 a BA CAM entry for that sender (rtw89's `rtw89_fw_h2c_ba_cam`, the sender
 named as the peer in the address CAM entry of macid 0), then sends the ADDBA
 response, without A-MSDU.
@@ -248,8 +248,8 @@ Measured 2026-10-11 on channel 44, one transfer of 30.5 MB:
 | Throughput | 971 kB/s | 1,710 kB/s |
 
 No frame arrived twice, and 9 arrived behind a later sequence number, so
-nothing puts frames back in order. One sender is served at a time. The switch
-stays off by default until more than one transfer has run with it.
+nothing puts frames back in order. One sender is served at a time. Four or
+five more files were received with it the same day.
 
 What still separates this from two Apple devices: the aggregates are short,
 frames are on 20 MHz and one spatial stream, and the bursts cover about 40%
