@@ -2,6 +2,9 @@
 """Finds the AWDL adapter that awdld creates on Windows."""
 import ctypes
 import socket
+import time
+
+POLL_SECONDS = 0.5
 
 
 def interface_index(alias):
@@ -15,6 +18,20 @@ def interface_index(alias):
     if iphlpapi.ConvertInterfaceLuidToIndex(ctypes.byref(luid), ctypes.byref(index)):
         return None
     return index.value
+
+
+def wait_for_interface(alias, seconds):
+    """Index and address of the adapter once it has both, or None if that
+    takes longer than `seconds`. It gets its address a moment after it appears."""
+    deadline = time.monotonic() + seconds
+    while True:
+        index = interface_index(alias)
+        address = link_local_address(index) if index else None
+        if address:
+            return index, address
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(POLL_SECONDS)
 
 
 def link_local_address(index):

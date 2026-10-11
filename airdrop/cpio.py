@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Reads the cpio archives AirDrop senders upload: the portable ASCII format
-(magic 070707) and the two "new ASCII" formats (070701, 070702)."""
+(magic 070707) and the two "new ASCII" formats (070701, 070702). Writes the
+portable one."""
 import stat
 
 TRAILER = 'TRAILER!!!'
@@ -9,6 +10,11 @@ BLOCK_BYTES = 64 * 1024
 MAGIC_BYTES = 6
 # Archives are padded with zeros to a multiple of this after the trailer.
 RECORD_BYTES = 512
+PORTABLE_MAGIC = b'070707'
+# The portable format gives a member's size eleven octal digits.
+MAX_PORTABLE_BYTES = 8 ** 11 - 1
+FILE_MODE = stat.S_IFREG | 0o644
+DIRECTORY_MODE = stat.S_IFDIR | 0o755
 
 
 class CpioError(ValueError):
@@ -103,6 +109,36 @@ def read_entries(source):
         for _ in entry.blocks():
             pass
         _read_exact(source, layout.padding(size))
+
+
+def _portable_header(name, number, mode, size, mtime):
+    raw = name.encode('utf-8') + b'\0'
+    _check_name_bytes(len(raw))
+    if size > MAX_PORTABLE_BYTES:
+        raise CpioError(f'{name} is too large for a cpio archive')
+    # Device, inode, mode, owner, group, links, device type, time, sizes.
+    fields = (0, number, mode, 0, 0, 1, 0)
+    head = b''.join(b'%06o' % field for field in fields)
+    return PORTABLE_MAGIC + head + b'%011o%06o%011o' % (mtime, len(raw), size) + raw
+
+
+def write_archive(members):
+    """Yield a portable archive piece by piece. Each member is its name in
+    the archive, its mode, its size, its modification time and its data in
+    blocks."""
+    written = 0
+    for number, (name, mode, size, mtime, blocks) in enumerate(members, start=1):
+        header = _portable_header(name, number, mode, size, int(mtime))
+        written += len(header) + size
+        yield header
+        left = size
+        for block in blocks:
+            left -= len(block)
+            yield block
+        if left:
+            raise CpioError(f'{name} changed size while it was read')
+    trailer = _portable_header(TRAILER, 0, 0, 0, 0)
+    yield trailer + b'\0' * (-(written + len(trailer)) % RECORD_BYTES)
 
 
 class TrailerScanner:

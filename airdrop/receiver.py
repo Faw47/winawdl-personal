@@ -31,6 +31,9 @@ DEFAULT_PORT = 8771
 # pipelining (0x04) nor mixed types (0x08).
 DEFAULT_FLAGS = 0x3fb
 DEFAULT_MODEL = 'MacBookPro18,3'
+# What current Apple senders upload, and the gzip archive older ones and
+# OpenDrop do. The body says which framing it has.
+UPLOAD_TYPES = ('application/x-dvzip', 'application/x-cpio')
 DEFAULT_MAX_RECEIVE_PERCENT = 30
 MODEL_RE = re.compile(r'^[A-Za-z]+[0-9]+,[0-9]+$')
 MAX_NAME_CHARS = 63
@@ -140,6 +143,7 @@ class Handler(BaseHTTPRequestHandler):
         self.answer(b'\n')
 
     def do_POST(self):
+        logging.debug('%s %s headers: %s', self.command, self.path, dict(self.headers.items()))
         if self.path == '/Upload':
             self.handle_upload()
             return
@@ -173,6 +177,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             logging.error('ask: undecodable %d-byte body: %r', len(body), error)
             ask = {}
+        logging.debug('ask: %s', transfer.outline(ask))
         files = ask.get('Files') or []
         items = ask.get('Items') or []
         kinds = ask.get('TransferType') or {}
@@ -233,7 +238,7 @@ class Handler(BaseHTTPRequestHandler):
     def handle_upload(self):
         settings = self.server.settings
         ctype = self.headers.get('Content-Type', '').split(';')[0].strip().lower()
-        if ctype != 'application/x-dvzip':
+        if ctype not in UPLOAD_TYPES:
             self.reject(415, f'unsupported Content-Type {ctype!r}')
             return
         if not transfer.UPLOAD_SLOTS.acquire(blocking=False):
@@ -334,6 +339,9 @@ def parse_args(argv):
                         help='receiver capability bits to advertise')
     parser.add_argument('--keys', default=identity.default_keys_dir(),
                         help='directory holding the TLS certificate and key')
+    parser.add_argument('--trace', action='store_true',
+                        help='also print each request\'s headers, what a sender asks '
+                             'and the members of its archive')
     parser.add_argument('--redact', action='store_true',
                         help='print no names, addresses or account folders, for a '
                              'recording or a shared screen')
@@ -348,15 +356,10 @@ def parse_args(argv):
 def wait_for_interface(alias):
     """Index and address of the AWDL adapter, which exists only while awdld
     runs and gets its address a moment after it appears."""
-    deadline = time.monotonic() + INTERFACE_WAIT_SECONDS
-    while True:
-        index = netif.interface_index(alias)
-        address = netif.link_local_address(index) if index else None
-        if address:
-            return index, address
-        if time.monotonic() >= deadline:
-            raise SystemExit(f'interface {alias} is not up: start scripts\\awdl-run.ps1 first')
-        time.sleep(0.5)
+    found = netif.wait_for_interface(alias, INTERFACE_WAIT_SECONDS)
+    if not found:
+        raise SystemExit(f'interface {alias} is not up: start scripts\\awdl-run.ps1 first')
+    return found
 
 
 def bind_receiver(port, settings):
@@ -389,7 +392,8 @@ def main(argv=None):
         # Both streams, so that an error report is covered as well as the log.
         sys.stdout = redact.Stream(sys.stdout, redactor.hide)
         sys.stderr = redact.Stream(sys.stderr, redactor.hide)
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout,
+    logging.basicConfig(level=logging.DEBUG if settings.trace else logging.INFO,
+                        stream=sys.stdout,
                         format='%(asctime)s %(levelname)s %(message)s')
     try:
         context = tls_context(settings.keys)

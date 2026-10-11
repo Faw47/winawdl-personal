@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """Announces one DNS-SD service over multicast DNS on one interface, with the
-records OpenDrop and omdrop publish for AirDrop."""
+records OpenDrop and omdrop publish for AirDrop, and looks for the instances
+others announce."""
 import ipaddress
 import logging
 import socket
@@ -30,6 +31,10 @@ POINTER_MASK = 0xC0
 MAX_NAME_STEPS = 128
 # NSEC type bitmap, window 0, with bits 28 (AAAA) and 47 (NSEC) set.
 HOST_TYPES = bytes([0, 6, 0, 0, 0, 0x08, 0, 0x01])
+# A browser asks again this often, for the same reason.
+QUERY_PERIOD_S = 0.5
+RECORD_FIXED_BYTES = 10
+HEADER_BYTES = 12
 
 
 def encode_name(name):
@@ -78,6 +83,130 @@ def question_names(packet):
         return names
     except (IndexError, struct.error, ValueError):
         return set()
+
+
+def query(questions):
+    """One query for (name, type) pairs, answers wanted by multicast."""
+    asked = b''.join(encode_name(name) + struct.pack('!HH', rtype, CLASS_IN)
+                     for name, rtype in questions)
+    return struct.pack('!HHHHHH', 0, 0, len(questions), 0, 0, 0) + asked
+
+
+def _record_value(packet, rtype, start, end):
+    if rtype == TYPE_PTR:
+        return decode_name(packet, start)[0].lower()
+    if rtype == TYPE_SRV:
+        port = struct.unpack_from('!H', packet, start + 4)[0]
+        return decode_name(packet, start + 6)[0].lower(), port
+    if rtype == TYPE_AAAA and end - start == 16:
+        return str(ipaddress.IPv6Address(packet[start:end]))
+    if rtype == TYPE_TXT:
+        return packet[start:end]
+    return None
+
+
+def response_records(packet):
+    """(name, type, lifetime, value) for the records of a response that this
+    module reads; empty for queries and for anything malformed."""
+    found = []
+    try:
+        _, flags, questions, answers, authority, additional = struct.unpack_from(
+            '!HHHHHH', packet)
+        if not flags & FLAG_RESPONSE:
+            return []
+        offset = HEADER_BYTES
+        for _ in range(questions):
+            offset = decode_name(packet, offset)[1] + 4
+        for _ in range(answers + authority + additional):
+            name, offset = decode_name(packet, offset)
+            rtype, _, ttl, length = struct.unpack_from('!HHIH', packet, offset)
+            offset += RECORD_FIXED_BYTES
+            if offset + length > len(packet):
+                return []
+            value = _record_value(packet, rtype, offset, offset + length)
+            if value is not None:
+                found.append((name.lower(), rtype, ttl, value))
+            offset += length
+    except (IndexError, struct.error, ValueError):
+        return []
+    return found
+
+
+class Instances:
+    """What responses have said about the instances of one service type."""
+
+    def __init__(self, service_type):
+        self.type_name = service_type.lower()
+        self._names = set()
+        self._services = {}
+        self._addresses = {}
+
+    def feed(self, packet, source):
+        """Take in one packet from `source`, the address it came from."""
+        for name, rtype, ttl, value in response_records(packet):
+            if rtype == TYPE_PTR and name == self.type_name:
+                if ttl:
+                    self._names.add(value)
+                else:
+                    self._names.discard(value)
+            elif rtype == TYPE_SRV and name.endswith('.' + self.type_name):
+                # A responder that leaves its address out is still at the
+                # address its answer came from.
+                self._services[name] = (*value, source)
+            elif rtype == TYPE_AAAA and value.startswith('fe80:'):
+                self._addresses[name] = value
+
+    def questions(self):
+        """What is still worth asking: the type, and each instance that has
+        been named without saying where it is."""
+        missing = sorted(self._names - self._services.keys())
+        return [(self.type_name, TYPE_PTR)] + [(name, TYPE_SRV) for name in missing]
+
+    def located(self):
+        """{instance name: (address, port)} for those that can be reached."""
+        out = {}
+        for name in self._names & self._services.keys():
+            host, port, source = self._services[name]
+            out[name] = (self._addresses.get(host, source), port)
+        return out
+
+
+class Browser:
+    """Asks one interface for a service type and keeps what answers."""
+
+    def __init__(self, service_type, interface_index):
+        self.instances = Instances(service_type)
+        self.interface_index = interface_index
+        self.sock = open_socket(interface_index)
+        self.sock.settimeout(QUERY_PERIOD_S)
+        self._last_asked = 0.0
+        self.heard = 0  # responses that came in on the interface
+
+    def close(self):
+        self.sock.close()
+
+    def poll(self):
+        """Ask if it is time to, wait for one packet, and return what can be
+        reached so far."""
+        if time.monotonic() - self._last_asked >= QUERY_PERIOD_S:
+            self._last_asked = time.monotonic()
+            try:
+                self.sock.sendto(query(self.instances.questions()),
+                                 (GROUP, PORT, 0, self.interface_index))
+            except OSError as error:
+                logging.warning('mdns: query failed: %s', error)
+        try:
+            packet, sender = self.sock.recvfrom(MAX_PACKET)
+        except TimeoutError:
+            return self.instances.located()
+        except OSError as error:
+            logging.warning('mdns: receive failed: %s', error)
+            time.sleep(MIN_REPLY_GAP_S)
+            return self.instances.located()
+        if sender[3] == self.interface_index:
+            self.heard += bool(response_records(packet))
+            self.instances.feed(packet, sender[0].split('%')[0])
+        return self.instances.located()
 
 
 def _record(name, rtype, rclass, ttl, rdata):

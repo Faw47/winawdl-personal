@@ -2,8 +2,9 @@
 
 Status: 2026-10-11. All of this has run on one machine with one card: the
 driver binds to the card, the card receives and transmits, AWDL carries IPv6
-to an iPhone, and the AirDrop receiver has stored photos, a video and a Live
-Photo. The Progress table gives the dates and numbers.
+to an iPhone, the AirDrop receiver has stored photos, a video and a Live
+Photo, and the sender has delivered a photo. The Progress table gives the
+dates and numbers.
 
 ## Goal
 
@@ -384,6 +385,42 @@ and a metadata file. The still and the video are stored under one name,
 numbered together when an earlier file has it; the metadata file, which only
 pairs the two for Photos, is left out.
 
+### Sending
+
+`airdrop/sender.py` sends files to a receiver that is visible to everyone.
+Three things had to be found out, each from an attempt that failed on
+2026-10-11.
+
+- An iPhone that is not sharing does not announce AirDrop. It starts when it
+  hears the Bluetooth advertisement an Apple device sends before an AirDrop:
+  Apple's manufacturer data, type 5, with four two-byte hashes of the
+  sender's contact details, which a receiver visible to everyone does not
+  check. `scripts/airdrop-beacon.ps1` sends it with random hashes through
+  Windows' own Bluetooth API. In four attempts the iPhone was announcing 3,
+  9, 13 and 50 s after the beacon started.
+- The iPhone does not announce in multicast DNS packets. Its records travel
+  inside its AWDL action frames, in service response TLVs with their own
+  shortening of names, and OWL does not read those.
+  `awdl/win/service_bridge.c` turns the AirDrop records of each such frame
+  into the multicast DNS response the iPhone would have sent and hands it to
+  `awdl0`. A frame has no address record, so the bridge adds the link-local
+  address the sender derives from its MAC. The other services in those
+  frames are not passed on.
+- The iPhone accepted the request and then closed the connection 14 ms into
+  an upload shaped like OpenDrop's, a gzip archive sent as
+  `application/x-cpio`. What it sends itself was read from our own receiver
+  (`--trace`) and differs in four ways, all copied now: a transfer
+  identifier in the request and again in the upload's headers,
+  `application/x-dvzip` blocks, an archive that starts with its folder, and
+  each file's size in the request. Which of the four it insists on was not
+  separated. Left out are its Apple identity record, its pseudonym and push
+  token, and the preview picture.
+
+With those, one 1.0 MB photo reached Photos on the iPhone: 2.2 s for the
+upload, 21 s after the command was started. Nothing has been done for speed
+in this direction. The receiver now also takes the classic upload form; only
+the loopback test has sent it one.
+
 ## Fallback: a small kernel driver
 
 A KMDF driver of a few hundred lines would do all five services properly,
@@ -418,6 +455,7 @@ on the first attempt.
 | AWDL daemon (`awdl/`, OWL core on Windows) | Passed on air 2026-10-11 on channel 6: added the owner's iPhone as a peer, elected it sync master, received its action and data frames while transmitting 24 action frames per second |
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
 | AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44, 1,710 kB/s with block ack, and 6.7 MB/s with joined segments and two streams |
+| AirDrop sender (`airdrop/sender.py`) | First file sent 2026-10-11: a 1.0 MB photo reached the owner's iPhone's Photos, after two attempts that failed at different steps |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.

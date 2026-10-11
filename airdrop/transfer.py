@@ -33,6 +33,12 @@ MAX_ARCHIVE_MEMBERS = 512
 MIN_FREE_BYTES = 1 * GIB
 DISK_CHECK_INTERVAL = 16 * MIB
 IO_CHUNK_BYTES = 64 * KIB
+# What this side cuts an upload into. A receiver has to take whatever size a
+# sender chose, so a small one is the safe one.
+DVZIP_BLOCK_BYTES = 16 * KIB
+DVZIP_STORED = 0x80000000
+# Photos and videos do not shrink, so a higher level only costs time.
+DVZIP_LEVEL = 1
 MAX_CHUNK_LINE_BYTES = 128
 MAX_TRAILER_BYTES = 8 * KIB
 MAX_CONCURRENT_UPLOADS = 2
@@ -280,6 +286,37 @@ def _decode_compressed_block(source, size, writer):
         raise ValueError('truncated compressed block')
 
 
+def outline(value):
+    """A plist value with each run of bytes replaced by its length."""
+    if isinstance(value, bytes):
+        return f'<{len(value)} bytes>'
+    if isinstance(value, dict):
+        return {key: outline(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [outline(item) for item in value]
+    return value
+
+
+def _dvzip_block(data):
+    packed = zlib.compress(data, DVZIP_LEVEL)
+    if len(packed) < len(data):
+        return len(packed).to_bytes(4, 'big') + packed
+    return (len(data) | DVZIP_STORED).to_bytes(4, 'big') + data
+
+
+def encode_dvzip(pieces):
+    """Yield the stream in `pieces` as DVZip blocks, each compressed only if
+    that makes it smaller."""
+    held = bytearray()
+    for piece in pieces:
+        held += piece
+        while len(held) >= DVZIP_BLOCK_BYTES:
+            yield _dvzip_block(bytes(held[:DVZIP_BLOCK_BYTES]))
+            del held[:DVZIP_BLOCK_BYTES]
+    if held:
+        yield _dvzip_block(bytes(held))
+
+
 def decode_dvzip(source, target, byte_limit, disk):
     """Stream a gzip or block-framed DVZip body into a bounded CPIO stream."""
     writer = LimitedWriter(target, byte_limit, 'decompressed archive', disk=disk)
@@ -498,6 +535,8 @@ def _extract(archive, dest, budget, created):
     live_photo_numbers = {}
     for entry in cpio.read_entries(archive):
         budget.count_member()
+        logging.debug('archive member %r, %d bytes, %s', entry.pathname, entry.size,
+                      'a file' if entry.isfile else 'not a file')
         # Archive paths are split on "/" alone: a name may itself hold
         # backslashes. AppleDouble companions ("._name") carry Finder metadata
         # only, and a Live Photo's metadata only pairs its two files for Photos.
@@ -533,6 +572,8 @@ def store_upload(raw, dest, tid, receive_budget):
     created = []
     try:
         with tempfile.TemporaryFile(dir=dest) as archive:
+            raw.seek(0)
+            logging.debug('upload %s: body starts with %s', tid, raw.read(8).hex())
             decoded = decode_dvzip(raw, archive, receive_budget.byte_limit, dest)
             # The wire copy is no longer needed. Release its blocks before the
             # extracted files begin consuming space.

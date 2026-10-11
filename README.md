@@ -1,15 +1,16 @@
 # winawdl
 
-Apple's AWDL radio protocol and an AirDrop receiver running natively on
-Windows, on the built-in Realtek RTL8852CE, with no USB adapter and no Linux
-VM.
+Apple's AWDL radio protocol and AirDrop, receiving and sending, running
+natively on Windows, on the built-in Realtek RTL8852CE, with no USB adapter
+and no Linux VM.
 
 This is research code. The radio works: the card receives and transmits Wi-Fi
 frames in monitor mode from an ordinary Windows program. On top of it the AWDL
 daemon joins the AWDL channel, finds nearby Apple devices, synchronises with
 them and carries IPv6 traffic to and from them. An AirDrop receiver on top of
 that has received photos, a 28 MB video and a Live Photo from an iPhone, at
-about 16 MB/s. All of it has run on one machine with one card. Read
+about 16 MB/s, and a sender has put a photo into the iPhone's Photos. All of
+it has run on one machine with one card. Read
 [DESIGN-NOTES.md](DESIGN-NOTES.md) for the design, the
 measurements, the open risks and the safety notes before installing anything.
 
@@ -25,6 +26,9 @@ measurements, the open risks and the safety notes before installing anything.
   asked. The receiver opens nothing it stores.
 - The card answers frames without waiting for Bluetooth, which shares its
   radio. Bluetooth devices may lose an occasional packet meanwhile.
+- While the sender looks for a receiver it advertises over Bluetooth as an
+  Apple device does before an AirDrop. Apple devices in range that are
+  visible to everyone turn AWDL on for it.
 - This is an independent project, not affiliated with or endorsed by Apple.
   AirDrop is a trademark of Apple Inc.
 
@@ -37,7 +41,7 @@ measurements, the open risks and the safety notes before installing anything.
 | `radio` | Programs built on that devourer, including the radio daemon `winawdl_radio` |
 | `upstream/owl` | Submodule: [OWL](https://github.com/seemoo-lab/owl), unmodified |
 | `awdl` | The AWDL daemon `awdld`: OWL's protocol core with a Windows I/O layer |
-| `airdrop` | The AirDrop receiver, adapted from [omdrop](https://github.com/brentkearney/omdrop-plugin): service announcement and the HTTPS endpoints senders talk to |
+| `airdrop` | The AirDrop receiver, adapted from [omdrop](https://github.com/brentkearney/omdrop-plugin): service announcement and the HTTPS endpoints senders talk to. And a sender, which finds receivers and uploads to one |
 | `tools`, `probes` | Small clients of the driver and one-off measurements |
 | `scripts` | Build, packaging, install and test helpers |
 | `deps` | Pinned vcpkg manifest for devourer's dependencies, and Wintun once fetched |
@@ -68,9 +72,9 @@ daemon (the build script expects the one in `C:\Strawberry\c\bin`).
 All four only compile. `awdl\tests\fake-radio.ps1` then exercises the AWDL
 daemon against a stand-in radio, with no hardware.
 
-The AirDrop receiver is Python 3.10 or newer with no packages to install. It
-needs OpenSSL once, to create its certificate, and finds the one in Git for
-Windows by itself. Its tests run without hardware:
+The AirDrop receiver and sender are Python 3.10 or newer with no packages to
+install. They need OpenSSL once, to create their certificate, and find the
+one in Git for Windows by themselves. Their tests run without hardware:
 
 ```powershell
 py -m unittest discover -s airdrop\tests
@@ -135,8 +139,18 @@ does the name senders see, which `--name` sets.
 
 The receiver accepts files from everyone in range, as described under
 [Before you run it](#before-you-run-it), and marks each one as downloaded from
-the Internet. Contacts Only and sending are not implemented.
-`.\scripts\airdrop-firewall.ps1 -Remove` deletes the rules.
+the Internet. `.\scripts\airdrop-firewall.ps1 -Remove` deletes the rules.
+
+To send, set the iPhone's AirDrop to "Everyone for 10 Minutes", keep it
+unlocked, and with `awdl-run.ps1` running:
+
+```powershell
+.\scripts\airdrop-send.ps1 photo.jpg clip.mp4   # add --to "part of a name" if several answer
+```
+
+It needs the computer's Bluetooth to wake the receiver, and the firewall
+rules above. Sending is slow so far, about 0.5 MB/s. Contacts Only is not
+implemented in either direction.
 
 ## Licensing
 
