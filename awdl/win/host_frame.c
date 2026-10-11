@@ -5,6 +5,7 @@
 
 #define MAC_LEN 6
 #define IP6_HEADER_LEN 40
+#define IP6_PAYLOAD_LEN_OFFSET 4
 #define IP6_DST_OFFSET 24
 #define IP6_VERSION 6
 
@@ -42,9 +43,15 @@ int host_frame_from_ip6(const uint8_t *packet, int packet_len, const uint8_t sel
 }
 
 const uint8_t *host_frame_ip6(const uint8_t *frame, int frame_len, int *packet_len) {
-	if (frame_len <= HOST_FRAME_HEADER_LEN ||
+	if (frame_len < HOST_FRAME_HEADER_LEN + IP6_HEADER_LEN ||
 	    memcmp(frame + 2 * MAC_LEN, ethertype_ip6, sizeof(ethertype_ip6)) != 0)
 		return NULL;
-	*packet_len = frame_len - HOST_FRAME_HEADER_LEN;
-	return frame + HOST_FRAME_HEADER_LEN;
+	const uint8_t *packet = frame + HOST_FRAME_HEADER_LEN;
+	/* OWL hands over its whole buffer, whatever the packet's length. */
+	int length = IP6_HEADER_LEN +
+		     (packet[IP6_PAYLOAD_LEN_OFFSET] << 8 | packet[IP6_PAYLOAD_LEN_OFFSET + 1]);
+	if (length > frame_len - HOST_FRAME_HEADER_LEN)
+		return NULL;
+	*packet_len = length;
+	return packet;
 }

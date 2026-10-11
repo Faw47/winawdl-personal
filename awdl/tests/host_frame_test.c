@@ -28,6 +28,8 @@ static void expect(int condition, const char *what) {
 
 static int frame_to(const uint8_t destination[16], int packet_len, uint8_t *frame, int frame_cap) {
 	uint8_t packet[FRAME_CAP] = {0x60};
+	packet[4] = (uint8_t) ((packet_len - IP6_HEADER_LEN) >> 8);
+	packet[5] = (uint8_t) (packet_len - IP6_HEADER_LEN);
 	for (int i = IP6_HEADER_LEN; i < packet_len; i++)
 		packet[i] = (uint8_t) i;
 	memcpy(packet + IP6_DST_OFFSET, destination, 16);
@@ -66,6 +68,10 @@ int main(void) {
 	const uint8_t *packet = host_frame_ip6(frame, length, &packet_len);
 	expect(packet == frame + HOST_FRAME_HEADER_LEN && packet_len == 60,
 	       "the packet comes back out of its frame");
+	expect(host_frame_ip6(frame, length + 68, &packet_len) && packet_len == 60,
+	       "bytes after the packet are left out");
+	expect(!host_frame_ip6(frame, length - 1, &packet_len),
+	       "a frame that ends before its packet yields none");
 	expect(!host_frame_ip6(frame, HOST_FRAME_HEADER_LEN, &packet_len),
 	       "a bare header yields no packet");
 	frame[12] = 0x08;

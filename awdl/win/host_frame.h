@@ -11,6 +11,7 @@
 int host_frame_from_ip6(const uint8_t *packet, int packet_len, const uint8_t self[6],
 			uint8_t *frame, int frame_cap);
 
-/* Returns the IPv6 packet inside an Ethernet frame, or NULL when the frame
- * carries another protocol. */
+/* Returns the IPv6 packet inside an Ethernet frame, as long as its own header
+ * says and without what follows it. NULL when the frame carries another
+ * protocol or less than that. */
 const uint8_t *host_frame_ip6(const uint8_t *frame, int frame_len, int *packet_len);
