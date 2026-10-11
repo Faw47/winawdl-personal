@@ -49,6 +49,14 @@ if(MSVC)
     target_compile_options(pipe_server_test PRIVATE /W4 /WX)
 endif()
 
+add_executable(frame_capture_test tests/frame_capture_test.cpp frame_capture.h)
+target_compile_features(frame_capture_test PRIVATE cxx_std_20)
+target_include_directories(frame_capture_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(frame_capture_test PRIVATE /W4 /WX)
+    target_compile_definitions(frame_capture_test PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
+
 # Checks devourer's address handling for the Windows backend, also without a
 # radio: only its two header-only pieces are compiled.
 add_executable(dma_address_test tests/dma_address_test.cpp)

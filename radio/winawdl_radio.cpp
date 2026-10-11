@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Radio daemon: owns the Wi-Fi card through devourer and relays frames for one
- * client over the pipe in radio_link.h. Usage: winawdl_radio <channel> */
+ * client over the pipe in radio_link.h.
+ * Usage: winawdl_radio <channel> [capture.pcap] */
 
 #include <array>
 #include <atomic>
@@ -8,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <span>
 #include <thread>
 #include <vector>
@@ -17,6 +19,7 @@
 #include "SelectedChannel.h"
 #include "SignalStop.h"
 #include "WiFiDriver.h"
+#include "frame_capture.h"
 #include "logger.h"
 #include "pipe_server.h"
 #include "radio_link.h"
@@ -78,11 +81,18 @@ struct Session {
 };
 
 void forward_received(const Packet &packet, PipeServer &pipe, Session &session,
-                      std::vector<uint8_t> &message) {
+                      FrameCapture *capture, std::vector<uint8_t> &message) {
   const std::span<const uint8_t> frame{packet.Data.data(), packet.Data.size()};
-  if (!pipe.connected() || packet.RxAtrib.crc_err ||
-      frame.size() < kMacHeaderBytes)
-    return;
+  if (!pipe.connected()) return;
+  const int dbm = kRssiFloorDbm + packet.RxAtrib.rssi[0];
+  if (capture)
+    capture->received(frame, {.rate = packet.RxAtrib.data_rate,
+                              .bandwidth = packet.RxAtrib.bw,
+                              .ppdu_type = packet.RxAtrib.ppdu_type,
+                              .dbm = static_cast<int8_t>(dbm),
+                              .fcs_at_end = packet.RxAtrib.fcs_present,
+                              .bad_fcs = packet.RxAtrib.crc_err});
+  if (packet.RxAtrib.crc_err || frame.size() < kMacHeaderBytes) return;
   if ((frame[0] & kFrameTypeMask) == kFrameTypeData &&
       session.own.equals(frame.data() + kReceiverOffset)) {
     session.for_us++;
@@ -92,7 +102,6 @@ void forward_received(const Packet &packet, PipeServer &pipe, Session &session,
       !session.bssid_filter.equals(frame.data() + kBssidOffset))
     return;
 
-  const int dbm = kRssiFloorDbm + packet.RxAtrib.rssi[0];
   message.assign(kRadiotapBytes, 0);
   message[2] = kRadiotapBytes;
   std::memcpy(&message[4], &kRadiotapPresent, sizeof(kRadiotapPresent));
@@ -127,7 +136,7 @@ void adopt_identity(IRadio &radio, const Session &session, Logger_t logger) {
 /* Serves client messages until the client leaves or the daemon stops. Returns
  * false for a client that sent nothing, such as a probe for the pipe. */
 bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
-                  uint8_t channel, Logger_t logger) {
+                  FrameCapture *capture, uint8_t channel, Logger_t logger) {
   radio_link_hello hello{RADIO_LINK_VERSION, channel, {}};
   pipe.send(RADIO_LINK_HELLO,
             {reinterpret_cast<const uint8_t *>(&hello), sizeof(hello)});
@@ -149,6 +158,7 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
     if (header.type == RADIO_LINK_TX) {
       radio.send_packet(payload.data(), payload.size()) ? sent++ : failed++;
       to_one += is_for_one_station(payload);
+      if (capture) capture->transmitted(payload);
     } else if (header.type == RADIO_LINK_SET_BSSID_FILTER && is_address) {
       Mac bssid;
       std::copy(payload.begin(), payload.end(), bssid.begin());
@@ -180,13 +190,21 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
 } /* namespace */
 
 int main(int argc, char **argv) {
-  if (argc != 2) {
-    std::fprintf(stderr, "usage: %s <channel>\n", argv[0]);
+  if (argc != 2 && argc != 3) {
+    std::fprintf(stderr, "usage: %s <channel> [capture.pcap]\n", argv[0]);
     return 2;
   }
   const auto channel = static_cast<uint8_t>(std::atoi(argv[1]));
 
   auto logger = std::make_shared<Logger>();
+  std::unique_ptr<FrameCapture> capture;
+  if (argc == 3) {
+    capture = std::make_unique<FrameCapture>(argv[2]);
+    if (!capture->is_open()) {
+      logger->error("radio: cannot write the capture file {}", argv[2]);
+      return 1;
+    }
+  }
   install_devourer_signal_handlers();
 
   PipeServer pipe(RADIO_LINK_PIPE_NAME, stopping);
@@ -217,7 +235,7 @@ int main(int argc, char **argv) {
   std::thread receiver([&] {
     std::vector<uint8_t> message;
     radio->StartRxLoop([&](const Packet &packet) {
-      forward_received(packet, pipe, session, message);
+      forward_received(packet, pipe, session, capture.get(), message);
     });
   });
 
@@ -227,7 +245,8 @@ int main(int argc, char **argv) {
   logger->set_level(Logger::Level::Warn);
   bool served = false;
   while (!stopping() && !served && pipe.wait_for_client()) {
-    served = serve_client(pipe, *radio, session, channel, logger);
+    served =
+        serve_client(pipe, *radio, session, capture.get(), channel, logger);
     pipe.drop_client();
   }
   logger->set_level(Logger::Level::Info);
