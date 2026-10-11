@@ -49,6 +49,13 @@ if(MSVC)
     target_compile_options(pipe_server_test PRIVATE /W4 /WX)
 endif()
 
+add_executable(block_ack_test tests/block_ack_test.cpp block_ack.h)
+target_compile_features(block_ack_test PRIVATE cxx_std_20)
+target_include_directories(block_ack_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(block_ack_test PRIVATE /W4 /WX)
+endif()
+
 add_executable(frame_capture_test tests/frame_capture_test.cpp frame_capture.h)
 target_compile_features(frame_capture_test PRIVATE cxx_std_20)
 target_include_directories(frame_capture_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -2,8 +2,9 @@
 # it. Ctrl+C stops both: the radio daemon exits when its client leaves.
 # -Redact keeps the addresses and names of nearby devices out of the log.
 # -Capture names a pcap file for the frames of the session; it stays local.
+# -BlockAck lets senders aggregate their frames. Experimental.
 param([ValidateSet(6, 44, 149)][int]$Channel = 44, [switch]$Detail, [switch]$Redact,
-      [string]$Capture)
+      [string]$Capture, [switch]$BlockAck)
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path $PSScriptRoot -Parent
@@ -17,8 +18,9 @@ if (-not (Test-Path $awdld)) { throw 'Run scripts\build-awdl.ps1 first.' }
 $radioArgs = @("$Channel")
 if ($Capture) {
   $file = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Capture)
-  $radioArgs += "`"$file`""
+  $radioArgs += '--capture', "`"$file`""
 }
+if ($BlockAck) { $radioArgs += '--block-ack' }
 $radioProcess = Start-Process $radio -ArgumentList $radioArgs -PassThru -NoNewWindow
 
 $awdldArgs = @('-c', $Channel)

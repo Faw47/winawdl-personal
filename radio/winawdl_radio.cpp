@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /* Radio daemon: owns the Wi-Fi card through devourer and relays frames for one
  * client over the pipe in radio_link.h.
- * Usage: winawdl_radio <channel> [capture.pcap] */
+ * Usage: winawdl_radio <channel> [--capture file.pcap] [--block-ack] */
 
 #include <array>
 #include <atomic>
@@ -10,7 +10,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -19,6 +23,7 @@
 #include "SelectedChannel.h"
 #include "SignalStop.h"
 #include "WiFiDriver.h"
+#include "block_ack.h"
 #include "frame_capture.h"
 #include "logger.h"
 #include "pipe_server.h"
@@ -71,9 +76,40 @@ private:
   std::atomic<uint64_t> _packed{0};
 };
 
+/* What the receive thread saw of block ack, for the pipe thread to act on:
+ * only that one talks to the card. */
+class BlockAckInbox {
+public:
+  using Ended = std::pair<Mac, uint8_t>;
+
+  void asked(const block_ack::Request &request) {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    _request = request;
+  }
+  void ended(const Ended &session) {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    _ended = session;
+  }
+  std::optional<block_ack::Request> take_request() {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    return std::exchange(_request, std::nullopt);
+  }
+  std::optional<Ended> take_ended() {
+    const std::lock_guard<std::mutex> lock(_mutex);
+    return std::exchange(_ended, std::nullopt);
+  }
+
+private:
+  std::mutex _mutex;
+  std::optional<block_ack::Request> _request;
+  std::optional<Ended> _ended;
+};
+
 struct Session {
   SharedMac bssid_filter; /* unset forwards every frame */
   SharedMac own;
+  bool block_ack_enabled = false;
+  BlockAckInbox block_ack;
   /* Data frames addressed to the client and how many were retries. A high
    * share means the card is not acknowledging for the client's address. */
   std::atomic<uint64_t> for_us{0};
@@ -93,6 +129,13 @@ void forward_received(const Packet &packet, PipeServer &pipe, Session &session,
                               .fcs_at_end = packet.RxAtrib.fcs_present,
                               .bad_fcs = packet.RxAtrib.crc_err});
   if (packet.RxAtrib.crc_err || frame.size() < kMacHeaderBytes) return;
+  if (session.block_ack_enabled && session.own.is_set()) {
+    const Mac own = session.own.get();
+    if (const auto request = block_ack::parse_request(frame, own))
+      session.block_ack.asked(*request);
+    else if (const auto ended = block_ack::parse_delba(frame, own))
+      session.block_ack.ended(*ended);
+  }
   if ((frame[0] & kFrameTypeMask) == kFrameTypeData &&
       session.own.equals(frame.data() + kReceiverOffset)) {
     session.for_us++;
@@ -133,6 +176,34 @@ void adopt_identity(IRadio &radio, const Session &session, Logger_t logger) {
                  "peers will repeat everything they send it");
 }
 
+/* Answers a sender that asks to aggregate its frames, for one sender and
+ * TID at a time. The card is set up before the answer goes out, so that it
+ * is ready for the first aggregate. */
+void answer_block_ack(IRadio &radio, Session &session, FrameCapture *capture,
+                      std::optional<block_ack::Request> &open,
+                      uint64_t &agreements) {
+  const auto ended = session.block_ack.take_ended();
+  if (ended && open && ended->first == open->peer &&
+      ended->second == open->tid) {
+    radio.EndBlockAck();
+    open.reset();
+  }
+  const auto request = session.block_ack.take_request();
+  if (!request || !session.bssid_filter.is_set()) return;
+  if (open && (open->peer != request->peer || open->tid != request->tid))
+    return;
+  if (!radio.AcceptBlockAck({request->peer}, request->tid,
+                            request->start_sequence,
+                            block_ack::granted_frames(*request)))
+    return;
+  const auto answer = block_ack::response(*request, session.own.get(),
+                                          session.bssid_filter.get());
+  if (!radio.send_packet(answer.data(), answer.size())) return;
+  if (capture) capture->transmitted(answer);
+  open = request;
+  agreements++;
+}
+
 /* Serves client messages until the client leaves or the daemon stops. Returns
  * false for a client that sent nothing, such as a probe for the pipe. */
 bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
@@ -142,7 +213,8 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
             {reinterpret_cast<const uint8_t *>(&hello), sizeof(hello)});
 
   std::vector<uint8_t> payload;
-  uint64_t messages = 0, sent = 0, failed = 0, to_one = 0;
+  uint64_t messages = 0, sent = 0, failed = 0, to_one = 0, agreements = 0;
+  std::optional<block_ack::Request> open_block_ack;
   radio_link_header header{};
   while (!stopping() && pipe.read_exact(&header, sizeof(header))) {
     messages++;
@@ -175,33 +247,62 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
       logger->warn("radio: staying on channel {}, change to {} ignored",
                    channel, payload[0]);
     }
+    if (session.block_ack_enabled)
+      answer_block_ack(radio, session, capture, open_block_ack, agreements);
   }
+  radio.EndBlockAck();
   if (messages) {
     const uint64_t for_us = session.for_us, retried = session.for_us_retried;
     logger->warn("radio: client gone; sent {} frames ({} to a single station), "
                  "{} failed; received {} data frames for it, {}% of them "
-                 "repeats",
+                 "repeats; answered {} block-ack requests",
                  sent, to_one, failed, for_us,
-                 for_us ? retried * 100 / for_us : 0);
+                 for_us ? retried * 100 / for_us : 0, agreements);
   }
   return messages > 0;
+}
+
+struct Options {
+  uint8_t channel = 0;
+  std::string capture_path;
+  bool block_ack = false;
+};
+
+std::optional<Options> parse_options(int argc, char **argv) {
+  if (argc < 2) return std::nullopt;
+  Options options;
+  options.channel = static_cast<uint8_t>(std::atoi(argv[1]));
+  for (int i = 2; i < argc; i++) {
+    const std::string_view argument = argv[i];
+    if (argument == "--block-ack")
+      options.block_ack = true;
+    else if (argument == "--capture" && i + 1 < argc)
+      options.capture_path = argv[++i];
+    else
+      return std::nullopt;
+  }
+  return options;
 }
 
 } /* namespace */
 
 int main(int argc, char **argv) {
-  if (argc != 2 && argc != 3) {
-    std::fprintf(stderr, "usage: %s <channel> [capture.pcap]\n", argv[0]);
+  const auto options = parse_options(argc, argv);
+  if (!options) {
+    std::fprintf(stderr,
+                 "usage: %s <channel> [--capture file.pcap] [--block-ack]\n",
+                 argv[0]);
     return 2;
   }
-  const auto channel = static_cast<uint8_t>(std::atoi(argv[1]));
+  const uint8_t channel = options->channel;
 
   auto logger = std::make_shared<Logger>();
   std::unique_ptr<FrameCapture> capture;
-  if (argc == 3) {
-    capture = std::make_unique<FrameCapture>(argv[2]);
+  if (!options->capture_path.empty()) {
+    capture = std::make_unique<FrameCapture>(options->capture_path);
     if (!capture->is_open()) {
-      logger->error("radio: cannot write the capture file {}", argv[2]);
+      logger->error("radio: cannot write the capture file {}",
+                    options->capture_path);
       return 1;
     }
   }
@@ -232,6 +333,7 @@ int main(int argc, char **argv) {
   }
 
   Session session;
+  session.block_ack_enabled = options->block_ack;
   std::thread receiver([&] {
     std::vector<uint8_t> message;
     radio->StartRxLoop([&](const Packet &packet) {
