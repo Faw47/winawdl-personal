@@ -342,7 +342,9 @@ falls back to the idle timeout.
 The upload's `TotalBytes` header is the sum of the file sizes, which for a
 Live Photo is the only place the size appears: its request to send declares
 0 bytes, because the item is a folder (`.pvt`) holding the still, the video
-and a metadata file. Those three are stored side by side for now.
+and a metadata file. The still and the video are stored under one name,
+numbered together when an earlier file has it; the metadata file, which only
+pairs the two for Photos, is left out.
 
 ## Fallback: a small kernel driver
 

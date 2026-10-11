@@ -38,6 +38,9 @@ MAX_TRAILER_BYTES = 8 * KIB
 MAX_CONCURRENT_UPLOADS = 2
 UPLOAD_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_UPLOADS)
 MAX_NAME_UNITS = 255
+MAX_NAME_ATTEMPTS = 10000
+LIVE_PHOTO_FOLDER_SUFFIX = '.pvt'
+LIVE_PHOTO_METADATA = 'metadata.plist'
 
 # Separators, what Windows forbids (a colon selects an alternate data stream),
 # control characters, and bidi overrides: "gpj.<U+202E>exe" shows as "exe.jpg".
@@ -416,10 +419,9 @@ def safe_name(name, fallback):
 
 def open_new(dest, name):
     """Create dest/name atomically without clobbering an existing file."""
-    stem, ext = os.path.splitext(name)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_BINARY', 0)
-    for i in range(10000):
-        cand = name if i == 0 else f'{stem}-{i}{ext}'
+    for i in range(MAX_NAME_ATTEMPTS):
+        cand = numbered(name, i)
         try:
             fd = os.open(os.path.join(dest, cand), flags, 0o644)
         except FileExistsError:
@@ -467,18 +469,55 @@ class ExtractedFileWriter(LimitedWriter):
         return written
 
 
+def live_photo_folder(pathname):
+    """The folder a Live Photo's member sits in, or None for any other file:
+    a Live Photo arrives as a folder named *.pvt."""
+    for part in pathname.split('/')[:-1]:
+        if part.lower().endswith(LIVE_PHOTO_FOLDER_SUFFIX):
+            return part
+    return None
+
+
+def free_number(dest, stem):
+    """The first number under which no file in dest has this stem, whatever
+    its extension; 0 stands for the bare stem."""
+    taken = {os.path.splitext(name)[0].casefold() for name in os.listdir(dest)}
+    for number in range(MAX_NAME_ATTEMPTS):
+        if numbered(stem, number).casefold() not in taken:
+            return number
+    raise FileExistsError(stem)
+
+
+def numbered(name, number):
+    stem, ext = os.path.splitext(name)
+    return name if number == 0 else f'{stem}-{number}{ext}'
+
+
 def _extract(archive, dest, budget, created):
     written = []
+    live_photo_numbers = {}
     for entry in cpio.read_entries(archive):
         budget.count_member()
-        # AppleDouble companions ("._name") carry Finder metadata only. Archive
-        # paths are split on "/" alone: a name may itself hold backslashes.
-        if not entry.isfile or entry.pathname.rsplit('/', 1)[-1].startswith('._'):
+        # Archive paths are split on "/" alone: a name may itself hold
+        # backslashes. AppleDouble companions ("._name") carry Finder metadata
+        # only, and a Live Photo's metadata only pairs its two files for Photos.
+        leaf = entry.pathname.rsplit('/', 1)[-1]
+        live_photo = live_photo_folder(entry.pathname)
+        if (not entry.isfile or leaf.startswith('._')
+                or (live_photo and leaf == LIVE_PHOTO_METADATA)):
             continue
         if budget.output_bytes + entry.size > budget.byte_limit:
             raise UploadLimitError(
                 f'archive declares more than {budget.byte_limit} output bytes')
-        name, output = open_new(dest, safe_name(entry.pathname, 'file'))
+        wanted = safe_name(entry.pathname, 'file')
+        if live_photo:
+            # The still and the video share a stem, and keep sharing it when
+            # an earlier file has taken the name of one of them.
+            if live_photo not in live_photo_numbers:
+                live_photo_numbers[live_photo] = free_number(
+                    dest, os.path.splitext(wanted)[0])
+            wanted = numbered(wanted, live_photo_numbers[live_photo])
+        name, output = open_new(dest, wanted)
         created.append(name)
         with output:
             sink = ExtractedFileWriter(output, budget, name, dest)

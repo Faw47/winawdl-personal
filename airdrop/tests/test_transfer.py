@@ -194,6 +194,29 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.store(body), ['note.txt'])
         self.assertEqual(self.read('note.txt'), b'line one\r\nline two\n')
 
+    def live_photo(self, stem):
+        return gzip.compress(archive(
+            portable_member('.', mode=DIRECTORY),
+            portable_member(f'./{stem}.pvt', mode=DIRECTORY),
+            portable_member(f'./{stem}.pvt/{stem}.MOV', b'video'),
+            portable_member(f'./{stem}.pvt/{stem}.jpg', b'still'),
+            portable_member(f'./{stem}.pvt/metadata.plist', b'<plist/>')))
+
+    def test_a_live_photo_is_stored_as_its_still_and_its_video(self):
+        self.assertEqual(self.store(self.live_photo('IMG_1')), ['IMG_1.MOV', 'IMG_1.jpg'])
+        self.assertEqual(sorted(os.listdir(self.dest)), ['IMG_1.MOV', 'IMG_1.jpg'])
+
+    def test_a_live_photo_keeps_one_name_for_both_files(self):
+        with open(os.path.join(self.dest, 'img_1.JPG'), 'wb') as earlier:
+            earlier.write(b'the plain photo sent before')
+        self.assertEqual(self.store(self.live_photo('IMG_1')), ['IMG_1-1.MOV', 'IMG_1-1.jpg'])
+        self.assertEqual(self.store(self.live_photo('IMG_1')), ['IMG_1-2.MOV', 'IMG_1-2.jpg'])
+        self.assertEqual(self.read('IMG_1-2.jpg'), b'still')
+
+    def test_a_metadata_file_outside_a_live_photo_is_kept(self):
+        raw = archive(portable_member('./metadata.plist', b'ordinary'))
+        self.assertEqual(self.store(gzip.compress(raw)), ['metadata.plist'])
+
     def test_an_existing_file_is_never_overwritten(self):
         with open(os.path.join(self.dest, 'a.txt'), 'wb') as existing:
             existing.write(b'mine')
