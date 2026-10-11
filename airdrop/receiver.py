@@ -1,11 +1,7 @@
 # SPDX-License-Identifier: MIT
 # Adapted from bin/airdrop-serve.py in omdrop, Copyright (c) 2026 Brent Kearney.
 """AirDrop receiver for Windows: announces this computer on the AWDL adapter
-and serves AirDrop's HTTPS endpoints (/Discover, /Ask, /Upload) there.
-
-While it runs, any Apple device in range that is set to send to everyone can
-put files into the download folder. Nothing received is ever opened.
-"""
+and serves /Discover, /Ask and /Upload there. Nothing received is opened."""
 import argparse
 import errno
 import json
@@ -78,9 +74,8 @@ class Receiver(ThreadingHTTPServer):
         super().shutdown_request(request)
 
     def reset_sessions(self):
-        """Close what senders left open with a reset. A phone that has left
-        the link never acknowledges a normal close, which would keep the port
-        held for minutes."""
+        """Reset what senders left open: a phone that has left the link never
+        acknowledges a normal close, and the port would stay held for minutes."""
         for sock in list(self.live):
             try:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, LINGER_RESET)
@@ -97,9 +92,8 @@ class Receiver(ThreadingHTTPServer):
 
 
 class Handler(BaseHTTPRequestHandler):
-    """/Discover and /Ask arrive chunked with no Content-Length, and /Upload
-    as application/x-dvzip. Ask and Upload share one TLS connection, so each
-    body is read from rfile exactly once and in place."""
+    """/Discover and /Ask arrive chunked, /Upload as application/x-dvzip. Ask and
+    Upload share one connection, so each body is read once and in place."""
 
     protocol_version = 'HTTP/1.1'
 
@@ -152,7 +146,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             body = transfer.read_small_body(self.rfile, self.headers)
-        except socket.timeout:
+        except TimeoutError:
             self.reject(408, 'request body read timed out')
             return
         except transfer.RequestBodyError as error:
@@ -200,14 +194,8 @@ class Handler(BaseHTTPRequestHandler):
         self.answer(self.identity_plist())
 
     def receive_archive(self, raw, budget, plan, deadline, tid):
-        """Read the upload into `raw` and store its files. Returns their
-        names and whether the body ended properly.
-
-        An iPhone sending a video or a Live Photo sends every chunk and then
-        waits, without the zero-length chunk that ends the body. So once the
-        archive is seen to be complete the wait for that chunk is cut short,
-        and when the body stalls between two chunks, what arrived is accepted
-        if it is a complete archive, down to its trailer."""
+        """Store the upload's files; returns their names and whether the body
+        ended. An iPhone never ends the body of a video or a Live Photo."""
         dest = self.server.settings.dest
 
         def expect_little_more():
@@ -219,7 +207,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.rfile, self.headers,
                 transfer.EndWatchingFile(raw, expect_little_more),
                 budget.byte_limit, disk=dest, plan=plan, deadline=deadline)
-        except socket.timeout as stall:
+        except TimeoutError as stall:
             if not deadline.between_chunks:
                 raise
             try:
@@ -260,7 +248,7 @@ class Handler(BaseHTTPRequestHandler):
                 written, ended = self.receive_archive(raw, budget, plan,
                                                       deadline, tid)
             logging.info('upload %s: stored %s', tid, ', '.join(written))
-        except socket.timeout as error:
+        except TimeoutError as error:
             expected = plan[1] if plan else None
             self.reject(408, f'upload {tid}: {deadline.stall_report(error, expected)}')
             return
@@ -320,7 +308,7 @@ def valid_dir(path):
 
 
 def parse_args(argv):
-    parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--name', type=valid_name,
                         default=socket.gethostname().split('.')[0],
                         help='the name senders see (default: the computer name)')
@@ -390,7 +378,7 @@ def main(argv=None):
     try:
         context = tls_context(settings.keys)
     except identity.IdentityError as error:
-        raise SystemExit(str(error))
+        raise SystemExit(str(error)) from None
     settings.interface_index, address = wait_for_interface(settings.iface)
 
     server = bind_receiver(settings.port, settings)

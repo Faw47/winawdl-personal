@@ -1,6 +1,5 @@
-# Configures and builds the radio-side programs in radio\, together with the
-# patched devourer they link. Output lands in build\radio.
-# devourer_demos builds devourer's rxdemo, txdemo and pcieprobe.
+# Builds the radio-side programs and the patched devourer into build\radio.
+# The devourer_demos target is devourer's rxdemo, txdemo and pcieprobe.
 param([string[]]$Targets = @('winawdl_radio', 'awdl_sniff', 'pipe_server_test', 'dma_address_test', 'devourer_demos'))
 $ErrorActionPreference = 'Stop'
 

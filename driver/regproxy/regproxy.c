@@ -6,9 +6,9 @@
 #define WIN32_NO_STATUS
 #include <windows.h>
 #undef WIN32_NO_STATUS
+#include "regproxy_ioctl.h"
 #include <ntstatus.h>
 #include <wdf.h>
-#include "regproxy_ioctl.h"
 
 /* The 8852CE register window (BAR2) is 1 MiB; smaller resources are not it. */
 #define MIN_BAR_LEN 0x10000u
@@ -31,7 +31,8 @@ EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL RpEvtIoDeviceControl;
 EVT_WDF_DEVICE_FILE_CREATE RpEvtFileCreate;
 EVT_WDF_FILE_CLEANUP RpEvtFileCleanup;
 
-NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath) {
+NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject,
+                     PUNICODE_STRING RegistryPath) {
   WDF_DRIVER_CONFIG cfg;
   WDF_DRIVER_CONFIG_INIT(&cfg, RpEvtDeviceAdd);
   return WdfDriverCreate(DriverObject, RegistryPath, WDF_NO_OBJECT_ATTRIBUTES,
@@ -84,9 +85,9 @@ NTSTATUS RpEvtPrepareHardware(WDFDEVICE Device, WDFCMRESLIST Raw,
     if (!res || res->Type != CmResourceTypeMemory) continue;
     if (res->u.Memory.Length < MIN_BAR_LEN) continue;
 
-    NTSTATUS st = WdfDeviceMapIoSpace(Device, res->u.Memory.Start,
-                                      res->u.Memory.Length, MmNonCached,
-                                      &ctx->bar);
+    NTSTATUS st =
+        WdfDeviceMapIoSpace(Device, res->u.Memory.Start, res->u.Memory.Length,
+                            MmNonCached, &ctx->bar);
     if (!NT_SUCCESS(st)) return st;
     ctx->bar_len = res->u.Memory.Length;
     ctx->bar_phys = res->u.Memory.Start;

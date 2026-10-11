@@ -2,10 +2,10 @@
 /* Measures whether a user-mode process can get locked physical memory that a
  * 32-bit-DMA device could use. Allocates, reports, then frees everything. */
 #define WIN32_LEAN_AND_MEAN
-#include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <windows.h>
 
 #ifndef MEM_EXTENDED_PARAMETER_NONPAGED_LARGE
 #define MEM_EXTENDED_PARAMETER_NONPAGED_LARGE 0x00000008
@@ -58,7 +58,8 @@ static BOOL enable_lock_memory_privilege(void) {
 
 /* Ordinary locked pages: how fragmented are they, and how many are low? */
 static void probe_small_pages(void) {
-  ULONG_PTR count = (ULONG_PTR)(SMALL_PAGE_SAMPLE_MIB * 1024 * 1024 / PAGE_BYTES);
+  ULONG_PTR count =
+      (ULONG_PTR)(SMALL_PAGE_SAMPLE_MIB * 1024 * 1024 / PAGE_BYTES);
   ULONG_PTR *frames = malloc(count * sizeof(*frames));
   if (!frames) return;
 

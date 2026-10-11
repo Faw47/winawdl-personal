@@ -1,7 +1,6 @@
 ; SPDX-License-Identifier: MIT
-; User-mode register proxy for the Realtek RTL8852CE.
-; Matches only the generic device ID, which ranks below the specific ID in
-; the vendor INF, so adding this package does not take over the card.
+; User-mode register proxy for the Realtek RTL8852CE. Matches only the generic
+; device ID, which ranks below the vendor's, so adding it takes over nothing.
 
 [Version]
 Signature   = "$Windows NT$"

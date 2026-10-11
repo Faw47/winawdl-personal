@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Radio daemon: owns the Wi-Fi card through devourer and serves one client
- * over a named pipe, forwarding received frames and transmitting the frames
- * it is handed. The protocol is in radio_link.h.
- * Usage: winawdl_radio <channel> */
+/* Radio daemon: owns the Wi-Fi card through devourer and relays frames for one
+ * client over the pipe in radio_link.h. Usage: winawdl_radio <channel> */
 
 #include <array>
 #include <atomic>
@@ -73,9 +71,8 @@ private:
 struct Session {
   SharedMac bssid_filter; /* unset forwards every frame */
   SharedMac own;
-  /* Data frames addressed to the client, and how many of them carried the
-   * retry flag. A peer repeats a frame that was not acknowledged, so a high
-   * share means the card is not answering for the client's address. */
+  /* Data frames addressed to the client and how many were retries. A high
+   * share means the card is not acknowledging for the client's address. */
   std::atomic<uint64_t> for_us{0};
   std::atomic<uint64_t> for_us_retried{0};
 };
@@ -89,8 +86,7 @@ void forward_received(const Packet &packet, PipeServer &pipe, Session &session,
   if ((frame[0] & kFrameTypeMask) == kFrameTypeData &&
       session.own.equals(frame.data() + kReceiverOffset)) {
     session.for_us++;
-    if (frame[1] & kRetryFlag)
-      session.for_us_retried++;
+    if (frame[1] & kRetryFlag) session.for_us_retried++;
   }
   if (session.bssid_filter.is_set() &&
       !session.bssid_filter.equals(frame.data() + kBssidOffset))
@@ -110,10 +106,10 @@ void forward_received(const Packet &packet, PipeServer &pipe, Session &session,
 /* Whether a frame to transmit, radiotap header first, names one receiver. */
 bool is_for_one_station(std::span<const uint8_t> message) {
   constexpr size_t kRadiotapLengthOffset = 2;
-  if (message.size() < kRadiotapLengthOffset + 2)
-    return false;
-  const size_t radiotap = message[kRadiotapLengthOffset] |
-                          static_cast<size_t>(message[kRadiotapLengthOffset + 1]) << 8;
+  if (message.size() < kRadiotapLengthOffset + 2) return false;
+  const size_t radiotap =
+      message[kRadiotapLengthOffset] |
+      static_cast<size_t>(message[kRadiotapLengthOffset + 1]) << 8;
   return message.size() > radiotap + kReceiverOffset &&
          !(message[radiotap + kReceiverOffset] & kGroupAddressBit);
 }
@@ -121,17 +117,15 @@ bool is_for_one_station(std::span<const uint8_t> message) {
 /* Makes the card acknowledge frames sent to the client, once both of the
  * addresses that takes are known. */
 void adopt_identity(IRadio &radio, const Session &session, Logger_t logger) {
-  if (!session.own.is_set() || !session.bssid_filter.is_set())
-    return;
+  if (!session.own.is_set() || !session.bssid_filter.is_set()) return;
   if (!radio.SetStationIdentity({session.own.get()},
                                 {session.bssid_filter.get()}))
     logger->warn("radio: the card will not acknowledge frames for the client; "
                  "peers will repeat everything they send it");
 }
 
-/* Serves client messages until the client leaves or the daemon is stopped.
- * Returns false for a client that never sent anything, such as a tool that
- * only probed whether the pipe exists. */
+/* Serves client messages until the client leaves or the daemon stops. Returns
+ * false for a client that sent nothing, such as a probe for the pipe. */
 bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
                   uint8_t channel, Logger_t logger) {
   radio_link_hello hello{RADIO_LINK_VERSION, channel, {}};
@@ -149,8 +143,7 @@ bool serve_client(PipeServer &pipe, IRadio &radio, Session &session,
       break;
     }
     payload.resize(header.length);
-    if (header.length && !pipe.read_exact(payload.data(), header.length))
-      break;
+    if (header.length && !pipe.read_exact(payload.data(), header.length)) break;
 
     const bool is_address = payload.size() == sizeof(Mac);
     if (header.type == RADIO_LINK_TX) {
@@ -204,13 +197,11 @@ int main(int argc, char **argv) {
   }
 
   auto transport = devourer::PcieTransport::Open("win", logger);
-  if (!transport)
-    return 1;
+  if (!transport) return 1;
   WiFiDriver driver(logger);
   auto radio =
       driver.CreateRadioPcie(std::move(transport), devourer::DeviceConfig{});
-  if (!radio)
-    return 1;
+  if (!radio) return 1;
 
   try {
     radio->InitWrite(SelectedChannel{.Channel = channel,

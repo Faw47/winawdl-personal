@@ -42,7 +42,7 @@ static void on_radio_disconnect(void) {
  * for AWDL. */
 static int random_ether_addr(struct ether_addr *addr) {
 	if (BCryptGenRandom(NULL, addr->ether_addr_octet, ETHER_ADDR_LEN,
-	                    BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
+			    BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0)
 		return -EIO;
 	addr->ether_addr_octet[0] = (uint8_t) ((addr->ether_addr_octet[0] | 0x02) & 0xFE);
 	return 0;
@@ -62,8 +62,8 @@ static void open_host_interface(struct io_state *state) {
 	strncpy(state->host_ifname, HOST_IF_NAME, sizeof(state->host_ifname) - 1);
 }
 
-int io_state_init(struct io_state *state, const char *wlan_name,
-                  const char *host_name, const struct ether_addr *bssid_filter) {
+int io_state_init(struct io_state *state, const char *wlan_name, const char *host_name,
+		  const struct ether_addr *bssid_filter) {
 	memset(state, 0, sizeof(*state));
 
 	wlan.radio = radio_client_open(on_radio_disconnect);
@@ -75,12 +75,11 @@ int io_state_init(struct io_state *state, const char *wlan_name,
 	strncpy(state->wlan_ifname, wlan_name, sizeof(state->wlan_ifname) - 1);
 
 	if (radio_client_send(wlan.radio, RADIO_LINK_SET_BSSID_FILTER,
-	                      bssid_filter->ether_addr_octet, ETHER_ADDR_LEN) < 0)
+			      bssid_filter->ether_addr_octet, ETHER_ADDR_LEN) < 0)
 		return -EIO;
 	if (random_ether_addr(&state->if_ether_addr) < 0 ||
 	    radio_client_send(wlan.radio, RADIO_LINK_SET_ADDRESS,
-	                      state->if_ether_addr.ether_addr_octet,
-	                      ETHER_ADDR_LEN) < 0)
+			      state->if_ether_addr.ether_addr_octet, ETHER_ADDR_LEN) < 0)
 		return -EIO;
 	if (host_name[0])
 		open_host_interface(state);
@@ -95,15 +94,13 @@ void io_state_free(struct io_state *state) {
 	state->wlan_handle = NULL;
 }
 
-int pcap_dispatch(pcap_t *handle, int count, pcap_handler callback,
-                  unsigned char *user) {
+int pcap_dispatch(pcap_t *handle, int count, pcap_handler callback, unsigned char *user) {
 	(void) count;
 	static uint8_t frame[RADIO_CLIENT_MAX_FRAME];
 	int length = radio_client_pop(handle->radio, frame);
 	if (length == 0)
 		return 0;
-	struct pcap_pkthdr header = {.caplen = (uint32_t) length,
-	                             .len = (uint32_t) length};
+	struct pcap_pkthdr header = {.caplen = (uint32_t) length, .len = (uint32_t) length};
 	callback(user, &header, frame);
 	return 1;
 }
@@ -111,8 +108,7 @@ int pcap_dispatch(pcap_t *handle, int count, pcap_handler callback,
 int wlan_send(const struct io_state *state, const uint8_t *buf, int len) {
 	if (!state || !state->wlan_handle)
 		return -EINVAL;
-	return radio_client_send(state->wlan_handle->radio, RADIO_LINK_TX, buf,
-	                         (uint32_t) len);
+	return radio_client_send(state->wlan_handle->radio, RADIO_LINK_TX, buf, (uint32_t) len);
 }
 
 int host_send(const struct io_state *state, const uint8_t *buf, int len) {
@@ -135,8 +131,7 @@ int host_recv(const struct io_state *state, uint8_t *buf, int *len) {
 		if (packet_len == 0)
 			return -EWOULDBLOCK;
 		int frame_len = host_frame_from_ip6(
-		        packet, packet_len, state->if_ether_addr.ether_addr_octet, buf,
-		        *len);
+			packet, packet_len, state->if_ether_addr.ether_addr_octet, buf, *len);
 		if (frame_len > 0) {
 			*len = frame_len;
 			return 0;

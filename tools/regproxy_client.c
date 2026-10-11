@@ -17,7 +17,8 @@ HANDLE regproxy_open(void) {
     SP_DEVICE_INTERFACE_DETAIL_DATA_W *detail = malloc(size);
     if (detail) {
       detail->cbSize = sizeof(*detail);
-      if (SetupDiGetDeviceInterfaceDetailW(set, &data, detail, size, NULL, NULL))
+      if (SetupDiGetDeviceInterfaceDetailW(set, &data, detail, size, NULL,
+                                           NULL))
         proxy = CreateFileW(detail->DevicePath, GENERIC_READ | GENERIC_WRITE, 0,
                             NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
       free(detail);
@@ -49,9 +50,7 @@ BOOL regproxy_read(HANDLE proxy, unsigned offset, unsigned char width,
 
 BOOL regproxy_write(HANDLE proxy, unsigned offset, unsigned char width,
                     unsigned value) {
-  REGPROXY_OP op = {.offset = offset,
-                    .value = value,
-                    .width = width,
-                    .kind = REGPROXY_WRITE};
+  REGPROXY_OP op = {
+      .offset = offset, .value = value, .width = width, .kind = REGPROXY_WRITE};
   return regproxy_batch(proxy, &op, 1);
 }

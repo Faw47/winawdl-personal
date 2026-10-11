@@ -1,7 +1,5 @@
-# Downloads Wintun, the virtual network adapter awdld uses to hand AWDL traffic
-# to Windows, and puts wintun.dll where the build picks it up. The archive is
-# checked against the hash published on wintun.net and the DLL against its
-# WireGuard LLC signature before anything is kept.
+# Downloads Wintun, the virtual adapter awdld hands AWDL traffic to Windows
+# through. Its published hash and WireGuard LLC signature are checked first.
 $ErrorActionPreference = 'Stop'
 
 $Version = '0.14.1'

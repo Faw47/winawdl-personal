@@ -249,7 +249,7 @@ class BodyTest(unittest.TestCase):
             def read1(self, size=-1):
                 data = super().read1(size)
                 if not data:
-                    raise socket.timeout()
+                    raise TimeoutError()
                 return data
 
         deadline = transfer.ReadDeadline()

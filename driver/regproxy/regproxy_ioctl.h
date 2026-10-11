@@ -11,15 +11,13 @@ DEFINE_GUID(GUID_DEVINTERFACE_WINAWDL_REGPROXY, 0xb6ac5fd6, 0x9648, 0x4794,
 #define REGPROXY_MAX_OPS 4096u
 #define REGPROXY_MAX_CLOSE_OPS 32u
 
-#define IOCTL_REGPROXY_GET_INFO \
+#define IOCTL_REGPROXY_GET_INFO                                                \
   CTL_CODE(FILE_DEVICE_UNKNOWN, 0x800, METHOD_BUFFERED, FILE_ANY_ACCESS)
-#define IOCTL_REGPROXY_BATCH \
+#define IOCTL_REGPROXY_BATCH                                                   \
   CTL_CODE(FILE_DEVICE_UNKNOWN, 0x801, METHOD_BUFFERED, FILE_ANY_ACCESS)
-/* Stores register writes the driver replays when the handle closes, however
- * the client dies. A client that enables DMA into its own memory must register
- * the writes that stop it, or the chip keeps writing to pages Windows reuses.
- * An empty input clears the list. */
-#define IOCTL_REGPROXY_SET_CLOSE_OPS \
+/* Stores register writes the driver replays when the handle closes, so DMA a
+ * client enabled is stopped however it dies. An empty input clears the list. */
+#define IOCTL_REGPROXY_SET_CLOSE_OPS                                           \
   CTL_CODE(FILE_DEVICE_UNKNOWN, 0x802, METHOD_BUFFERED, FILE_ANY_ACCESS)
 
 enum {

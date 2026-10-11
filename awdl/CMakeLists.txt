@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# AWDL daemon: OWL's protocol library and event core, unmodified from
-# upstream/owl, plus Windows replacements for its I/O layer. OWL is GPL-3.0 and
-# GNU C, hence a MinGW build kept apart from the GPL-2.0 radio side.
+# AWDL daemon: OWL's library and event core, unmodified, on a Windows I/O layer.
+# OWL is GNU C, hence a MinGW build apart from the MSVC radio side.
 cmake_minimum_required(VERSION 3.15)
 project(winawdl_awdl C)
 
@@ -11,9 +10,8 @@ set(OWL "${WINAWDL_ROOT}/upstream/owl")
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
 
-# compat/ comes first so <ev.h>, <pcap/pcap.h>, <endian.h> and the BSD network
-# headers resolve to the shims. -mno-ms-bitfields keeps packed structs laid out
-# as GCC lays them out on Linux, where the on-air formats were written.
+# compat/ comes first so OWL's Unix includes resolve to the shims.
+# -mno-ms-bitfields lays packed structs out as GCC does on Linux.
 add_library(owl_build INTERFACE)
 target_include_directories(owl_build INTERFACE
     compat "${OWL}/src" "${OWL}/radiotap" "${OWL}/daemon" win

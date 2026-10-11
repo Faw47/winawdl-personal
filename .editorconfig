@@ -9,3 +9,10 @@ indent_size = 2
 
 [*.{inf,ps1}]
 end_of_line = crlf
+
+[*.py]
+indent_size = 4
+
+[awdl/**.{c,h}]
+indent_style = tab
+indent_size = 8

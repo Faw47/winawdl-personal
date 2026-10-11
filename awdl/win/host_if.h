@@ -11,11 +11,9 @@
 
 struct host_if;
 
-/* Creates the adapter with `address` as its only link-local address. Needs
- * wintun.dll beside the executable and Administrator rights. On failure
- * returns NULL and puts the reason in `error`. */
-struct host_if *host_if_open(const uint8_t address[16], char *error,
-                             size_t error_len);
+/* Creates the adapter with `address` as its only link-local address. On
+ * failure returns NULL with the reason in `error`. */
+struct host_if *host_if_open(const uint8_t address[16], char *error, size_t error_len);
 /* Removes the adapter again. */
 void host_if_close(struct host_if *host);
 

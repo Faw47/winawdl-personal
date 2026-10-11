@@ -18,16 +18,14 @@ int failures = 0;
 
 void expect(bool condition, const char *what) {
   std::printf("%s  %s\n", condition ? "ok  " : "FAIL", what);
-  if (!condition)
-    failures++;
+  if (!condition) failures++;
 }
 
 HANDLE connect_client() {
   for (int attempt = 0; attempt < kRetries; attempt++) {
     HANDLE pipe = CreateFileA(kPipeName, GENERIC_READ | GENERIC_WRITE, 0,
                               nullptr, OPEN_EXISTING, 0, nullptr);
-    if (pipe != INVALID_HANDLE_VALUE)
-      return pipe;
+    if (pipe != INVALID_HANDLE_VALUE) return pipe;
     Sleep(kRetryMs);
   }
   return INVALID_HANDLE_VALUE;
@@ -36,8 +34,7 @@ HANDLE connect_client() {
 /* Sends one TX message, then reads back the hello the server answers with. */
 void real_client(bool &got_hello) {
   HANDLE pipe = connect_client();
-  if (pipe == INVALID_HANDLE_VALUE)
-    return;
+  if (pipe == INVALID_HANDLE_VALUE) return;
   const radio_link_header header{RADIO_LINK_TX, 0, sizeof(kPayload)};
   DWORD done = 0;
   WriteFile(pipe, &header, sizeof(header), &done, nullptr);
@@ -77,9 +74,10 @@ int main() {
              std::memcmp(payload, kPayload, sizeof(payload)) == 0,
          "its payload arrives intact");
   const radio_link_hello hello{RADIO_LINK_VERSION, 6, {}};
-  expect(server.send(RADIO_LINK_HELLO,
-                     {reinterpret_cast<const uint8_t *>(&hello), sizeof(hello)}),
-         "the server can answer");
+  expect(
+      server.send(RADIO_LINK_HELLO,
+                  {reinterpret_cast<const uint8_t *>(&hello), sizeof(hello)}),
+      "the server can answer");
   client.join();
   expect(got_hello, "the client reads the answer");
 

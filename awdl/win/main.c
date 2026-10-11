@@ -1,8 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* AWDL daemon for Windows: OWL's protocol core, driven by the radio daemon
- * instead of a monitor-mode network interface.
- * Usage: awdld [-c 6|44|149] [-n] [-v] [-v]
- * -n runs without the host network adapter, for tests. */
+/* AWDL daemon for Windows: OWL's protocol core, driven by the radio daemon.
+ * Usage: awdld [-c 6|44|149] [-n] [-v] [-v], -n meaning no host adapter. */
 #include <getopt.h>
 #include <stdlib.h>
 
@@ -39,9 +37,9 @@ static void print_status(struct ev_loop *loop, ev_timer *timer, int revents) {
 	char tree[256] = "";
 	awdl_election_tree_print(&state->awdl_state.election, tree, sizeof(tree));
 	log_info("peers %d | rx action %llu, data %llu | tx action %llu, data %llu | "
-	         "sync tree %s",
-	         awdl_peers_length(state->awdl_state.peers.peers), stats->rx_action,
-	         stats->rx_data, stats->tx_action, stats->tx_data, tree);
+		 "sync tree %s",
+		 awdl_peers_length(state->awdl_state.peers.peers), stats->rx_action, stats->rx_data,
+		 stats->tx_action, stats->tx_data, tree);
 }
 
 int main(int argc, char *argv[]) {
@@ -77,17 +75,16 @@ int main(int argc, char *argv[]) {
 	}
 	if (radio_client_channel(winawdl_radio()) != channel) {
 		log_error("the radio daemon is on channel %d, not %d",
-		          radio_client_channel(winawdl_radio()), channel);
+			  radio_client_channel(winawdl_radio()), channel);
 		awdl_free(&state);
 		return EXIT_FAILURE;
 	}
 	/* The radio's RSSI scale is not calibrated, so do not gate peers on it. */
 	state.awdl_state.filter_rssi = 0;
-	log_info("AWDL address %s on channel %d",
-	         ether_ntoa(&state.io.if_ether_addr), channel);
+	log_info("AWDL address %s on channel %d", ether_ntoa(&state.io.if_ether_addr), channel);
 	if (state.io.host_ifindex)
 		log_info("host interface %s, index %d", state.io.host_ifname,
-		         state.io.host_ifindex);
+			 state.io.host_ifindex);
 
 	struct ev_loop *loop = EV_DEFAULT;
 	awdl_schedule(loop, &state);

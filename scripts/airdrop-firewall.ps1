@@ -1,8 +1,6 @@
 #Requires -RunAsAdministrator
-# Lets AirDrop senders reach the receiver through Windows Firewall: the HTTPS
-# port and multicast DNS, both from link-local addresses only. The receiver
-# itself ignores anything that does not arrive on the AWDL adapter.
-#   -Remove   deletes the rules again.
+# Lets AirDrop senders through Windows Firewall: the HTTPS port and multicast
+# DNS, from link-local addresses only. -Remove deletes the rules again.
 param([switch]$Remove, [int]$Port = 8771)
 $ErrorActionPreference = 'Stop'
 

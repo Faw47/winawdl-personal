@@ -1,8 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* The libev subset from compat/ev.h. One thread, a handful of watchers: the
- * loop waits on the I/O handles plus one high-resolution timer armed for the
- * earliest deadline, because AWDL slots are 16 ms and an ordinary Windows
- * wait can overshoot by that much. */
+/* The libev subset from compat/ev.h. Its waits use a high-resolution timer:
+ * AWDL slots are 16 ms and an ordinary Windows wait can overshoot by that. */
 #include <ev.h>
 
 #define WIN32_LEAN_AND_MEAN
@@ -41,7 +39,7 @@ static uint64_t now_us(const struct ev_loop *loop) {
 	QueryPerformanceCounter(&ticks);
 	return (uint64_t) (ticks.QuadPart / loop->frequency.QuadPart) * 1000000u +
 	       (uint64_t) (ticks.QuadPart % loop->frequency.QuadPart) * 1000000u /
-	               (uint64_t) loop->frequency.QuadPart;
+		       (uint64_t) loop->frequency.QuadPart;
 }
 
 static uint64_t seconds_to_us(double seconds) {
@@ -60,7 +58,7 @@ struct ev_loop *ev_default_loop(void) {
 		QueryPerformanceFrequency(&loop->frequency);
 		loop->stop_event = CreateEventA(NULL, TRUE, FALSE, NULL);
 		loop->wake_timer = CreateWaitableTimerExA(
-		        NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+			NULL, NULL, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
 		SetConsoleCtrlHandler(on_console_ctrl, TRUE);
 	}
 	return loop;
@@ -86,8 +84,7 @@ static HANDLE handle_for_fd(const struct ev_loop *loop, int fd) {
 
 void ev_feed_event(struct ev_loop *loop, void *watcher, int revents) {
 	if (loop->pending_count < MAX_PENDING)
-		loop->pending[loop->pending_count++] =
-		        (struct pending_event){watcher, revents};
+		loop->pending[loop->pending_count++] = (struct pending_event) {watcher, revents};
 }
 
 void ev_timer_start(struct ev_loop *loop, ev_timer *timer) {

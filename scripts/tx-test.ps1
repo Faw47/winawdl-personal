@@ -1,8 +1,5 @@
-# Sends a bounded burst of devourer's broadcast test frames from the built-in
-# card, with the receive loop running so the chip's per-frame TX reports are
-# counted. The demo stops by itself once the burst is sent.
-# -PowerDbm lowers the transmit power from the default 20 dBm, for a test
-# whose frames nobody needs to hear.
+# Sends a burst of devourer's broadcast test frames, with the receive loop
+# running so the chip's TX reports are counted. -PowerDbm lowers the power.
 param([int]$Channel = 6, [int]$Frames = 500, [ValidateRange(0, 23)][int]$PowerDbm)
 
 $txdemo = "$PSScriptRoot\..\build\radio\devourer\Release\txdemo.exe"

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Server end of the radio link: one overlapped named pipe instance, one client
- * at a time. Reads happen on one thread and writes on another, which a
- * non-overlapped handle would serialize against each other. */
+/* Server end of the radio link: one named pipe instance, one client at a time.
+ * Overlapped, because one thread reads while another writes. */
 #pragma once
 
 #define WIN32_LEAN_AND_MEAN
@@ -23,17 +22,17 @@ public:
    * connect ends soon after the daemon is asked to stop. */
   PipeServer(const std::string &name, std::function<bool()> stopping)
       : _stopping(std::move(stopping)) {
-    _handle = CreateNamedPipeA(
-        name.c_str(),
-        PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_REJECT_REMOTE_CLIENTS, 1,
-        kBufferBytes, kBufferBytes, 0, nullptr);
+    _handle = CreateNamedPipeA(name.c_str(),
+                               PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED |
+                                   FILE_FLAG_FIRST_PIPE_INSTANCE,
+                               PIPE_TYPE_BYTE | PIPE_READMODE_BYTE |
+                                   PIPE_REJECT_REMOTE_CLIENTS,
+                               1, kBufferBytes, kBufferBytes, 0, nullptr);
     _read_event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
     _write_event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
   }
   ~PipeServer() {
-    if (_handle != INVALID_HANDLE_VALUE)
-      CloseHandle(_handle);
+    if (_handle != INVALID_HANDLE_VALUE) CloseHandle(_handle);
     CloseHandle(_read_event);
     CloseHandle(_write_event);
   }
@@ -52,8 +51,7 @@ public:
       const DWORD error = GetLastError();
       if (error == ERROR_IO_PENDING) {
         DWORD ignored = 0;
-        if (!finish(io, ignored))
-          return false;
+        if (!finish(io, ignored)) return false;
       } else if (error != ERROR_PIPE_CONNECTED && error != ERROR_NO_DATA) {
         return false;
       }
@@ -77,8 +75,7 @@ public:
       if (!ReadFile(_handle, bytes, length, &got, &io) &&
           (GetLastError() != ERROR_IO_PENDING || !finish(io, got)))
         return disconnect();
-      if (got == 0)
-        return disconnect();
+      if (got == 0) return disconnect();
       bytes += got;
       length -= got;
     }
@@ -86,8 +83,7 @@ public:
   }
 
   bool send(radio_link_type type, std::span<const uint8_t> payload) {
-    if (!_connected)
-      return false;
+    if (!_connected) return false;
     std::lock_guard<std::mutex> lock(_write_mutex);
     const radio_link_header header{static_cast<uint16_t>(type), 0,
                                    static_cast<uint32_t>(payload.size())};

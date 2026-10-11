@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* The two places a wrong bus address would come from, checked without
- * hardware: how the DMA blocks are chosen and how an address is written into
- * the descriptors the chip reads. Expected bytes follow rtw89's pci.h. */
+/* Checks, without hardware, how DMA blocks are chosen and how an address is
+ * written into the descriptors the chip reads. Bytes follow rtw89's pci.h. */
 #include <cstdio>
 #include <cstring>
 #include <vector>
@@ -17,7 +16,8 @@ namespace ax = devourer::pcie_ax;
 constexpr uintptr_t kBlockFrames = 512;
 constexpr uintptr_t kFrameAt4GiB = uintptr_t{1} << 20;
 constexpr uintptr_t kFrameAt64GiB = uintptr_t{1} << 24;
-/* The blocks one fragmented machine offered: one below 4 GiB, the rest above. */
+/* The blocks one fragmented machine offered: one below 4 GiB, the rest above.
+ */
 const std::vector<uintptr_t> kOffered = {0x35bc00, 0x104c00, 0x33000,
                                          0x21d800, 0x106c00, 0x30f000};
 constexpr uint16_t kLastSegment = 1u << 14;
@@ -26,8 +26,7 @@ int failures = 0;
 
 void expect(bool condition, const char *what) {
   std::printf("%s  %s\n", condition ? "ok  " : "FAIL", what);
-  if (!condition)
-    failures++;
+  if (!condition) failures++;
 }
 
 template <size_t N>
@@ -49,22 +48,23 @@ void check_block_choice() {
          "the others are left to be freed");
 
   std::vector<uintptr_t> mixed = kOffered;
-  expect(take_lowest_blocks(mixed, 3, kBlockFrames, kFrameAt64GiB, 1,
-                            kFrameAt4GiB)
-                 .front() == 0x33000,
-         "one block required low is the first one");
+  expect(
+      take_lowest_blocks(mixed, 3, kBlockFrames, kFrameAt64GiB, 1, kFrameAt4GiB)
+              .front() == 0x33000,
+      "one block required low is the first one");
   mixed = kOffered;
-  expect(take_lowest_blocks(mixed, 3, kBlockFrames, kFrameAt64GiB, 2,
-                            kFrameAt4GiB)
-                     .empty() &&
-             mixed.size() == kOffered.size(),
-         "two required low, with one on offer, takes none");
+  expect(
+      take_lowest_blocks(mixed, 3, kBlockFrames, kFrameAt64GiB, 2, kFrameAt4GiB)
+              .empty() &&
+          mixed.size() == kOffered.size(),
+      "two required low, with one on offer, takes none");
 
   std::vector<uintptr_t> at_limit = {kFrameAt4GiB - kBlockFrames,
                                      kFrameAt4GiB - kBlockFrames + 1};
-  expect(take_lowest_blocks(at_limit, 1, kBlockFrames, kFrameAt4GiB).size() == 1 &&
-             take_lowest_blocks(at_limit, 1, kBlockFrames, kFrameAt4GiB).empty(),
-         "a block may end at the limit but not cross it");
+  expect(
+      take_lowest_blocks(at_limit, 1, kBlockFrames, kFrameAt4GiB).size() == 1 &&
+          take_lowest_blocks(at_limit, 1, kBlockFrames, kFrameAt4GiB).empty(),
+      "a block may end at the limit but not cross it");
 }
 
 void check_buffer_descriptor() {

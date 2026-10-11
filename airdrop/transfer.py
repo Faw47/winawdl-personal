@@ -1,11 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Adapted from bin/airdrop-serve.py in omdrop, Copyright (c) 2026 Brent Kearney.
 """Bounded reading, decoding and storing of what an AirDrop sender uploads.
-
-Everything here handles bytes chosen by whoever is in radio range, so each
-step has a ceiling: body size, decoded size, member count, read rate, and the
-free disk space left afterwards.
-"""
+The bytes come from whoever is in radio range, so every step has a ceiling."""
+import contextlib
 import io
 import logging
 import os
@@ -42,9 +39,8 @@ MAX_CONCURRENT_UPLOADS = 2
 UPLOAD_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_UPLOADS)
 MAX_NAME_UNITS = 255
 
-# Path separators, characters Windows forbids in a name (the colon would
-# otherwise select an alternate data stream), control characters, and format
-# characters: a bidi override makes "gpj.<U+202E>exe" render as "exe.jpg".
+# Separators, what Windows forbids (a colon selects an alternate data stream),
+# control characters, and bidi overrides: "gpj.<U+202E>exe" shows as "exe.jpg".
 UNSAFE_CHAR = re.compile(
     r'[/\\\x00<>:"|?*]|[‪-‮⁦-⁩​-‏﻿]|[\x01-\x1f\x7f-\x9f]')
 # Windows resolves these to devices whatever extension follows.
@@ -121,11 +117,8 @@ class ReadDeadline:
 
 
 class LimitedWriter:
-    """Count writes, enforce a byte ceiling, and preserve free disk space.
-
-    `disk` names a directory on the volume being filled; None skips the
-    free-space check for writers that only fill memory.
-    """
+    """Count writes, enforce a byte ceiling, and preserve free disk space on
+    the volume holding `disk`; None skips that check for in-memory targets."""
 
     def __init__(self, target, limit, label, limit_error=UploadLimitError,
                  disk=None):
@@ -327,9 +320,8 @@ def decode_dvzip(source, target, byte_limit, disk):
 
 
 class ArchiveEndWatcher:
-    """Decodes an upload as it arrives, keeping none of it, to tell when
-    the archive in it is complete. It only ever shortens a wait: a body it
-    cannot follow is left to the idle timeout."""
+    """Decodes an upload as it arrives, keeping none of it, to tell when its
+    archive is complete. A body it cannot follow is left to the idle timeout."""
 
     DVZIP_HEADER_BYTES = 4
 
@@ -513,10 +505,8 @@ def store_upload(raw, dest, tid, receive_budget):
                             ExtractionBudget(receive_budget.byte_limit), created)
     except Exception:
         for name in reversed(created):
-            try:
+            with contextlib.suppress(FileNotFoundError):
                 os.unlink(os.path.join(dest, name))
-            except FileNotFoundError:
-                pass
         raise
 
 
@@ -532,6 +522,6 @@ def store_link(url, dest):
     stem = '-'.join(p for p in (parts.netloc, parts.path.rstrip('/').rsplit('/', 1)[-1]) if p)
     name, f = open_new(dest, safe_name(stem, 'link') + '.url')
     with f:
-        f.write(f'[InternetShortcut]\r\nURL={url}\r\n'.encode('utf-8'))
+        f.write(f'[InternetShortcut]\r\nURL={url}\r\n'.encode())
     mark_as_downloaded(os.path.join(dest, name))
     return name

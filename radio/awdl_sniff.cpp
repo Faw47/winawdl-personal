@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/* Listens on one channel and reports AWDL activity: which devices send AWDL
- * frames, what they call themselves and how strongly they arrive.
- * Usage: awdl_sniff <channel> [seconds] */
+/* Lists the devices sending AWDL frames on one channel, with their names and
+ * signal strength. Usage: awdl_sniff <channel> [seconds] */
 
 #include <array>
 #include <chrono>
@@ -88,8 +87,7 @@ std::string arpa_hostname(Frame tlvs) {
     const uint8_t type = tlvs[0];
     const size_t length = tlvs[1] | (static_cast<size_t>(tlvs[2]) << 8);
     tlvs = tlvs.subspan(kTlvHeaderBytes);
-    if (length > tlvs.size())
-      break;
+    if (length > tlvs.size()) break;
     const Frame value = tlvs.first(length);
     if (type == kTlvArpa && value.size() >= kArpaNameOffset) {
       const size_t name_length = value[1];
@@ -106,12 +104,11 @@ std::optional<AwdlAction> parse_awdl_action(Frame frame) {
       frame[0] != kFrameControlAction)
     return std::nullopt;
   const Frame body = frame.subspan(kMacHeaderBytes);
-  const bool is_awdl = body[0] == kCategoryVendorSpecific &&
-                       std::equal(kAppleOui.begin(), kAppleOui.end(),
-                                  body.begin() + 1) &&
-                       body[4] == kAwdlType;
-  if (!is_awdl)
-    return std::nullopt;
+  const bool is_awdl =
+      body[0] == kCategoryVendorSpecific &&
+      std::equal(kAppleOui.begin(), kAppleOui.end(), body.begin() + 1) &&
+      body[4] == kAwdlType;
+  if (!is_awdl) return std::nullopt;
   return AwdlAction{mac_at(frame, kSenderOffset), body[kActionSubtypeOffset],
                     arpa_hostname(body.subspan(kActionHeaderBytes))};
 }
@@ -126,8 +123,7 @@ class AwdlCensus {
 public:
   void on_packet(const Packet &packet) {
     _frames++;
-    if (packet.RxAtrib.crc_err)
-      return;
+    if (packet.RxAtrib.crc_err) return;
     Frame frame(packet.Data.data(), packet.Data.size());
     if (packet.RxAtrib.fcs_present && frame.size() > kFcsBytes)
       frame = frame.first(frame.size() - kFcsBytes);
@@ -152,8 +148,9 @@ public:
   }
 
   void print_summary(int channel) const {
-    std::printf("\nchannel %d: %llu frames heard, %zu AWDL device(s)\n", channel,
-                static_cast<unsigned long long>(_frames), _peers.size());
+    std::printf("\nchannel %d: %llu frames heard, %zu AWDL device(s)\n",
+                channel, static_cast<unsigned long long>(_frames),
+                _peers.size());
     for (const auto &[mac, peer] : _peers) {
       const uint64_t mean_rssi =
           peer.rssi_samples ? peer.rssi_sum / peer.rssi_samples : 0;
@@ -207,13 +204,11 @@ int main(int argc, char **argv) {
   install_devourer_signal_handlers();
 
   auto transport = devourer::PcieTransport::Open("win", logger);
-  if (!transport)
-    return 1;
+  if (!transport) return 1;
   WiFiDriver driver(logger);
   auto radio =
       driver.CreateRadioPcie(std::move(transport), devourer::DeviceConfig{});
-  if (!radio)
-    return 1;
+  if (!radio) return 1;
 
   AwdlCensus census;
   std::thread timer(stop_after, seconds);

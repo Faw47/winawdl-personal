@@ -171,7 +171,7 @@ index b6141e8..87ddfdf 100644
    int tx_submit(uint8_t hint, uint8_t *buf, size_t len,
                  int timeout_ms) override;
 diff --git a/src/PcieDmaAx.cpp b/src/PcieDmaAx.cpp
-index e581fb1..d620968 100644
+index e581fb1..ba3d90a 100644
 --- a/src/PcieDmaAx.cpp
 +++ b/src/PcieDmaAx.cpp
 @@ -6,9 +6,11 @@
@@ -196,7 +196,7 @@ index e581fb1..d620968 100644
  constexpr uint32_t WP_INFO_SZ = 8;
  constexpr uint32_t RXBD_INFO_FS = 1u << 15;
  constexpr uint32_t RXBD_INFO_LS = 1u << 14;
-@@ -88,38 +89,46 @@ inline void wr_le16(uint8_t *p, uint16_t v) {
+@@ -88,38 +89,45 @@ inline void wr_le16(uint8_t *p, uint16_t v) {
    p[0] = static_cast<uint8_t>(v);
    p[1] = static_cast<uint8_t>(v >> 8);
  }
@@ -228,9 +228,8 @@ index e581fb1..d620968 100644
 +                  PcieDmaAx::kFwcmdSlotStride >= PcieDmaAx::kFwcmdSlotSize,
 +              "a stride must hold its object");
 +
-+/* Slab layout offsets. Every area starts on a multiple of its object stride
-+ * and every stride is a power of two, so an object can only straddle a chunk
-+ * boundary of a chunked slab if the chunk is smaller than the stride. */
++/* Slab layout offsets. Each area starts on a multiple of its power-of-two
++ * stride, so no object straddles a chunk at least as large as that stride. */
  struct Layout {
    size_t txbd, rxq_bd, rpq_bd, rxq_buf, rpq_buf, wd, payload, fwcmd, total;
  };
@@ -270,17 +269,15 @@ index e581fb1..d620968 100644
    return l;
  }
  
-@@ -137,13 +146,63 @@ PcieDmaAx::PcieDmaAx(PcieTransport &t, Logger_t logger, int rx_poll_us)
+@@ -137,13 +145,61 @@ PcieDmaAx::PcieDmaAx(PcieTransport &t, Logger_t logger, int rx_poll_us)
  
  size_t PcieDmaAx::slab_bytes() const { return layout().total; }
  
 -bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
 +unsigned PcieDmaAx::dma_address_bits() const { return pcie_ax::kAddressBits; }
 +
-+/* The frame payloads, which the chip reaches through the address entries of
-+ * a WD page. Rings, receive buffers and WD pages work above 4 GiB on the
-+ * RTL8852CE; with the payloads there too, peers stopped answering although
-+ * every frame was reported sent. */
++/* The frame payloads. Unlike everything else they must stay below 4 GiB: the
++ * chip does not follow the high address bits of a WD page's entries. */
 +size_t PcieDmaAx::low_slab_bytes() const {
 +  const Layout l = layout();
 +  return l.payload + static_cast<size_t>(kPayloadSize) * kWdPages;
@@ -337,7 +334,7 @@ index e581fb1..d620968 100644
      r.wp = 0;
      r.reg_num = kTxCh[ch].num;
      r.reg_idx = kTxCh[ch].idx;
-@@ -153,16 +212,16 @@ bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
+@@ -153,16 +209,16 @@ bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
                (static_cast<uint32_t>(kTxCh[ch].bd_min) << 16);
    }
    _rxq.bd = slab + l.rxq_bd;
@@ -358,7 +355,7 @@ index e581fb1..d620968 100644
    _rpq.reg_num = R_RPQ_NUM;
    _rpq.reg_idx = R_RPQ_IDX;
    _rpq.reg_desa_l = R_RPQ_DESA_L;
-@@ -171,11 +230,11 @@ bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
+@@ -171,11 +227,11 @@ bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
      arm_rx_bd(_rpq, i);
    }
    _wd_pages = slab + l.wd;
@@ -373,7 +370,7 @@ index e581fb1..d620968 100644
    _free_pages.clear();
    _free_pages.reserve(kWdPages);
    for (uint32_t i = kWdPages; i-- > 0;)
-@@ -187,8 +246,7 @@ bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
+@@ -187,8 +243,7 @@ bool PcieDmaAx::attach(uint8_t *slab, uint64_t slab_iova) {
  void PcieDmaAx::arm_rx_bd(RxRing &r, uint32_t idx) {
    bd_write(r.bd + static_cast<size_t>(idx) * BD_SZ,
             static_cast<uint16_t>(kRxBufSize), 0,
@@ -383,7 +380,7 @@ index e581fb1..d620968 100644
  }
  
  uint32_t PcieDmaAx::hw_idx(uint16_t reg_idx) {
-@@ -209,23 +267,28 @@ uint32_t PcieDmaAx::hw_idx(uint16_t reg_idx) {
+@@ -209,23 +264,28 @@ uint32_t PcieDmaAx::hw_idx(uint16_t reg_idx) {
  }
  
  void PcieDmaAx::setup_rings() {
@@ -417,7 +414,7 @@ index e581fb1..d620968 100644
    }
    /* Every page is free again: the DMA engine was stopped + index-cleared
     * before this, so nothing in flight can still name an old page. */
-@@ -238,7 +301,7 @@ void PcieDmaAx::setup_rings() {
+@@ -238,7 +298,7 @@ void PcieDmaAx::setup_rings() {
    std::atomic_thread_fence(std::memory_order_seq_cst);
    _logger->info("PcieDmaAx: rings programmed (13 TX × {} BDs, RXQ/RPQ {} × "
                  "{} B, {} WD pages @ IOVA 0x{:x})",
@@ -426,7 +423,7 @@ index e581fb1..d620968 100644
  }
  
  bool PcieDmaAx::ring_has_room(const TxRing &r, int ch) {
-@@ -307,11 +370,11 @@ int PcieDmaAx::submit_fwcmd(uint8_t *buf, size_t len, int timeout_ms) {
+@@ -307,11 +367,11 @@ int PcieDmaAx::submit_fwcmd(uint8_t *buf, size_t len, int timeout_ms) {
    if (!ring_has_room(r, kFwcmdCh))
      return -1;
    const uint32_t slot = r.wp;
@@ -442,7 +439,7 @@ index e581fb1..d620968 100644
    std::atomic_thread_fence(std::memory_order_seq_cst);
    r.wp = (r.wp + 1) % kBdLen;
    _t.mmio_write<uint16_t>(r.reg_idx, static_cast<uint16_t>(r.wp & IDX_MASK));
-@@ -367,10 +430,12 @@ int PcieDmaAx::submit_wd(int ch, uint8_t *buf, size_t len, int timeout_ms) {
+@@ -367,10 +427,12 @@ int PcieDmaAx::submit_wd(int ch, uint8_t *buf, size_t len, int timeout_ms) {
      _page_busy[page] = true;
    }
  
@@ -459,7 +456,7 @@ index e581fb1..d620968 100644
  
    std::memcpy(pl, buf + wd_len, flen);
    std::memset(pg, 0, kWdPageSize);
-@@ -390,11 +455,7 @@ int PcieDmaAx::submit_wd(int ch, uint8_t *buf, size_t len, int timeout_ms) {
+@@ -390,11 +452,7 @@ int PcieDmaAx::submit_wd(int ch, uint8_t *buf, size_t len, int timeout_ms) {
    for (; n < ADDR_INFO_NR_MAX && remain; n++) {
      const uint32_t chunk = remain > ADDR_INFO_LEN_MAX ? ADDR_INFO_LEN_MAX : remain;
      remain -= chunk;
@@ -472,7 +469,7 @@ index e581fb1..d620968 100644
      dma += chunk;
      ai += ADDR_INFO_SZ;
    }
-@@ -412,8 +473,7 @@ int PcieDmaAx::submit_wd(int ch, uint8_t *buf, size_t len, int timeout_ms) {
+@@ -412,8 +470,7 @@ int PcieDmaAx::submit_wd(int ch, uint8_t *buf, size_t len, int timeout_ms) {
  
    TxRing &r = _tx[ch];
    bd_write(r.bd + static_cast<size_t>(r.wp) * BD_SZ,
@@ -482,7 +479,7 @@ index e581fb1..d620968 100644
    std::atomic_thread_fence(std::memory_order_seq_cst);
    r.wp = (r.wp + 1) % kBdLen;
    _t.mmio_write<uint16_t>(r.reg_idx, static_cast<uint16_t>(r.wp & IDX_MASK));
-@@ -446,7 +506,7 @@ uint32_t PcieDmaAx::reap_rpq_locked() {
+@@ -446,7 +503,7 @@ uint32_t PcieDmaAx::reap_rpq_locked() {
    std::atomic_thread_fence(std::memory_order_acquire);
    uint32_t n = 0;
    while (_rpq.wp != hw && n < kBdLen) {
@@ -491,7 +488,7 @@ index e581fb1..d620968 100644
      const uint32_t info = rd_le32(buf);
      const uint32_t blen = info & RXBD_INFO_LEN_MSK;
      const bool fs = info & RXBD_INFO_FS, ls = info & RXBD_INFO_LS;
-@@ -484,7 +544,7 @@ uint32_t PcieDmaAx::reap_rxq(
+@@ -484,7 +541,7 @@ uint32_t PcieDmaAx::reap_rxq(
    std::atomic_thread_fence(std::memory_order_acquire);
    uint32_t n = 0;
    while (_rxq.wp != hw && n < kBdLen) {
@@ -566,16 +563,14 @@ index 6249473..3f8f561 100644
    bool _rx_assembling = false;
 diff --git a/src/PcieDmaAxDesc.h b/src/PcieDmaAxDesc.h
 new file mode 100644
-index 0000000..60ee465
+index 0000000..2ba2e7d
 --- /dev/null
 +++ b/src/PcieDmaAxDesc.h
-@@ -0,0 +1,62 @@
+@@ -0,0 +1,60 @@
 +#pragma once
 +
-+/* The descriptor encodings of the AX (HAXI) DMA plane that carry a bus
-+ * address. They live apart from the plane so they can be checked without
-+ * hardware: a wrong address here makes the chip read or write memory it was
-+ * never given. Field positions are rtw89's (pci.h). */
++/* The AX (HAXI) descriptor encodings that carry a bus address, apart from the
++ * plane so they can be checked without hardware. Fields follow rtw89 pci.h. */
 +
 +#include <cstdint>
 +
@@ -589,7 +584,7 @@ index 0000000..60ee465
 +
 +constexpr unsigned kBdOptAddressHighShift = 6; /* *_OPT_DMA_HI [13:6] */
 +constexpr uint32_t kAddrInfoBytes = 6;
-+constexpr uint16_t kAddrInfoLengthMask = 0x7FF;   /* B_PCIADDR_LEN_V1_MASK */
++constexpr uint16_t kAddrInfoLengthMask = 0x7FF;    /* B_PCIADDR_LEN_V1_MASK */
 +constexpr unsigned kAddrInfoAddressHighShift = 11; /* B_PCIADDR_HIGH_SEL_V1 */
 +constexpr uint16_t kAddrInfoLast = 1u << 15;       /* B_PCIADDR_LS_V1_MASK */
 +
@@ -619,10 +614,10 @@ index 0000000..60ee465
 + * le16 dma[31:16]}. `last` marks the final piece of the frame. */
 +inline void addr_info_write(uint8_t *entry, uint32_t length, bool last,
 +                            uint64_t dma) {
-+  const uint16_t length_opt = static_cast<uint16_t>(
-+      (length & kAddrInfoLengthMask) |
-+      (address_high(dma) << kAddrInfoAddressHighShift) |
-+      (last ? kAddrInfoLast : 0));
++  const uint16_t length_opt =
++      static_cast<uint16_t>((length & kAddrInfoLengthMask) |
++                            (address_high(dma) << kAddrInfoAddressHighShift) |
++                            (last ? kAddrInfoLast : 0));
 +  entry[0] = static_cast<uint8_t>(length_opt);
 +  entry[1] = static_cast<uint8_t>(length_opt >> 8);
 +  entry[2] = static_cast<uint8_t>(dma);
@@ -633,10 +628,10 @@ index 0000000..60ee465
 +
 +} /* namespace devourer::pcie_ax */
 diff --git a/src/PcieDmaPlane.h b/src/PcieDmaPlane.h
-index 2eb6308..89c929f 100644
+index 2eb6308..cfa4980 100644
 --- a/src/PcieDmaPlane.h
 +++ b/src/PcieDmaPlane.h
-@@ -15,9 +15,35 @@
+@@ -15,9 +15,32 @@
  #include <cstddef>
  #include <cstdint>
  #include <functional>
@@ -644,10 +639,8 @@ index 2eb6308..89c929f 100644
  
  namespace devourer {
  
-+/* DMA memory handed to a plane: virtually contiguous, but bus-contiguous only
-+ * inside a chunk. vfio maps the whole slab at one IOVA (chunk_bytes == 0); a
-+ * host without an IOMMU mapping of its own hands out physical blocks instead,
-+ * and no DMA object may then straddle a chunk boundary. */
++/* DMA memory handed to a plane. With chunk_bytes set it is bus-contiguous only
++ * inside a chunk, and no DMA object may straddle a chunk boundary. */
 +struct DmaSlab {
 +  uint8_t *va = nullptr;
 +  size_t len = 0;
@@ -660,9 +653,8 @@ index 2eb6308..89c929f 100644
 +  }
 +};
 +
-+/* A register bit operation that stops a plane's DMA engine. The transport
-+ * hands these to a host that can replay them if the process dies with DMA
-+ * live (vfio resets the function instead and ignores them). */
++/* A register bit operation that stops a plane's DMA engine, for a host that
++ * can replay it if the process dies with DMA live. */
 +struct DmaQuiesceOp {
 +  uint32_t reg;
 +  uint32_t bits;
@@ -672,7 +664,7 @@ index 2eb6308..89c929f 100644
  class IPcieDmaPlane {
  public:
    virtual ~IPcieDmaPlane() = default;
-@@ -26,10 +52,20 @@ public:
+@@ -26,10 +49,20 @@ public:
  
    /* DMA slab bytes this plane needs (rings + buffers). Called before attach. */
    virtual size_t slab_bytes() const = 0;
@@ -1628,20 +1620,14 @@ index 0000000..5586482
 +} /* namespace devourer */
 diff --git a/src/PcieTransportWin.cpp b/src/PcieTransportWin.cpp
 new file mode 100644
-index 0000000..e449ec4
+index 0000000..4ba750c
 --- /dev/null
 +++ b/src/PcieTransportWin.cpp
-@@ -0,0 +1,337 @@
+@@ -0,0 +1,332 @@
 +#include "PcieTransport.h"
 +
-+/* Windows host backend. Compiled when DEVOURER_PCIE=ON on Windows.
-+ *
-+ * Registers go through a user-mode register proxy driver bound to the card
-+ * (the winawdl project's regproxy; its IOCTL contract is regproxy_ioctl.h,
-+ * found through DEVOURER_REGPROXY_INCLUDE_DIR). The DMA slab is AWE memory
-+ * owned by this process: locked 2 MiB blocks whose physical addresses are
-+ * handed to the chip as bus addresses. Nothing remaps or fences that DMA, so
-+ * the proxy is given the plane's quiesce ops to replay if this process dies. */
++/* Windows host backend. Registers go through the regproxy driver, DMA through
++ * locked 2 MiB blocks whose physical addresses serve as bus addresses. */
 +
 +#define WIN32_LEAN_AND_MEAN
 +#define NOMINMAX
@@ -1668,9 +1654,8 @@ index 0000000..e449ec4
 +constexpr size_t kPagesPerBlock = kBlockBytes / kPageBytes;
 +constexpr unsigned kPageShift = 12;
 +constexpr ULONG_PTR kFrameAt4GiB = ULONG_PTR{1} << (32 - kPageShift);
-+/* The system hands out blocks wherever it likes: ask for more than needed
-+ * and keep the lowest the DMA plane can address. The last attempt takes
-+ * every free large page there is. */
++/* The system hands out blocks wherever it likes: ask for more than needed and
++ * keep the lowest. The last attempt takes every free large page. */
 +constexpr size_t kOverRequest[] = {4, 16};
 +constexpr size_t kRequestEverything = 4096;
 +
@@ -1732,8 +1717,8 @@ index 0000000..e449ec4
 +
 +struct PcieTransport::Os {
 +  HANDLE proxy = INVALID_HANDLE_VALUE;
-+  uint8_t *slab = nullptr;         /* one MEM_PHYSICAL view over all blocks */
-+  std::vector<ULONG_PTR> blocks;   /* first frame of each mapped block */
++  uint8_t *slab = nullptr;          /* one MEM_PHYSICAL view over all blocks */
++  std::vector<ULONG_PTR> blocks;    /* first frame of each mapped block */
 +  std::vector<REGPROXY_OP> quiesce; /* stops the plane's DMA engine */
 +  std::atomic<bool> io_error_logged{false};
 +};
@@ -1798,9 +1783,9 @@ index 0000000..e449ec4
 +                                    MAX_DEVICE_ID_LEN, nullptr)) {
 +      _pci_vid = instance_id_field(instance_id, L"VEN_");
 +      _pci_did = instance_id_field(instance_id, L"DEV_");
-+      _os->proxy = CreateFileW(detail->DevicePath, GENERIC_READ | GENERIC_WRITE,
-+                               0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL,
-+                               nullptr);
++      _os->proxy =
++          CreateFileW(detail->DevicePath, GENERIC_READ | GENERIC_WRITE, 0,
++                      nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
 +    }
 +  }
 +  const DWORD open_error = GetLastError();
@@ -1835,12 +1820,14 @@ index 0000000..e449ec4
 +
 +bool PcieTransport::setup_config_space() {
 +  if (_pci_vid == 0 || _pci_did == 0) {
-+    _logger->error("PcieTransport: PCI ids not found in the device instance id");
++    _logger->error(
++        "PcieTransport: PCI ids not found in the device instance id");
 +    return false;
 +  }
-+  _logger->info("PcieTransport: PCI device {:04x}:{:04x}; config space is out "
-+                "of reach here, bus mastering and ASPM stay as Windows set them",
-+                _pci_vid, _pci_did);
++  _logger->info(
++      "PcieTransport: PCI device {:04x}:{:04x}; config space is out "
++      "of reach here, bus mastering and ASPM stay as Windows set them",
++      _pci_vid, _pci_did);
 +  return true;
 +}
 +
@@ -1971,10 +1958,10 @@ index 0000000..e449ec4
 +} /* namespace devourer */
 diff --git a/src/PhysicalBlocks.h b/src/PhysicalBlocks.h
 new file mode 100644
-index 0000000..f9bf54e
+index 0000000..c95d5d6
 --- /dev/null
 +++ b/src/PhysicalBlocks.h
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,32 @@
 +#pragma once
 +
 +/* Choosing DMA blocks by physical address, apart from the operating system
@@ -1987,18 +1974,12 @@ index 0000000..f9bf54e
 +
 +namespace devourer {
 +
-+/* Moves the `need` lowest blocks that end at or below `limit_frame` out of
-+ * `frames` and returns them in ascending order, provided the first
-+ * `low_need` of them also end at or below `low_limit_frame`. Returns nothing,
-+ * and takes nothing, otherwise. A block is `block_frames` page frames
-+ * starting at its entry. Low blocks are preferred because every device can
-+ * reach them, whatever its address width. */
-+inline std::vector<uintptr_t> take_lowest_blocks(std::vector<uintptr_t> &frames,
-+                                                 size_t need,
-+                                                 uintptr_t block_frames,
-+                                                 uintptr_t limit_frame,
-+                                                 size_t low_need = 0,
-+                                                 uintptr_t low_limit_frame = 0) {
++/* Takes the `need` lowest blocks out of `frames`, or none: all must end by
++ * `limit_frame`, and the first `low_need` of them by `low_limit_frame`. */
++inline std::vector<uintptr_t>
++take_lowest_blocks(std::vector<uintptr_t> &frames, size_t need,
++                   uintptr_t block_frames, uintptr_t limit_frame,
++                   size_t low_need = 0, uintptr_t low_limit_frame = 0) {
 +  std::sort(frames.begin(), frames.end());
 +  auto fits = [&](size_t count, uintptr_t limit) {
 +    return count <= frames.size() &&
@@ -2015,18 +1996,14 @@ index 0000000..f9bf54e
 +} /* namespace devourer */
 diff --git a/src/PreciseDelay.h b/src/PreciseDelay.h
 new file mode 100644
-index 0000000..f3c2600
+index 0000000..160638d
 --- /dev/null
 +++ b/src/PreciseDelay.h
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,20 @@
 +#pragma once
 +
-+/* A delay that lasts about as long as it says.
-+ *
-+ * std::this_thread::sleep_for rounds up to the scheduler tick, and on Windows
-+ * that tick can be 15.6 ms: a 1000 x 50 us register poll meant to give up
-+ * after 50 ms takes 15 s there. PreciseDelayWin.cpp spins for the shortest
-+ * waits and uses a high-resolution timer for the rest. */
++/* A delay that lasts about as long as it says: sleep_for rounds up to the
++ * scheduler tick, which on Windows can turn a 50 us wait into 15.6 ms. */
 +
 +#include <chrono>
 +#include <cstdint>
@@ -2213,21 +2190,15 @@ index 208a8f4..a4f16e2 100644
    namespace r = kestrel::reg;
    /* set_hw_sch_tx_en (cmac_tx.c) band-0: RMW-enable the scheduler contention
 diff --git a/src/kestrel/HalKestrel.h b/src/kestrel/HalKestrel.h
-index c3d070c..6373a06 100644
+index c3d070c..ebc3568 100644
 --- a/src/kestrel/HalKestrel.h
 +++ b/src/kestrel/HalKestrel.h
-@@ -289,6 +289,18 @@ public:
+@@ -289,6 +289,12 @@ public:
      return ok;
    }
  
-+  /* Makes the MAC answer for `own` in BSS `bssid`. The address CAM entry of
-+   * macid 0 names them, reception narrows from sniffer mode to frames for
-+   * `own`, broadcast and multicast, and response frames stop waiting for
-+   * Bluetooth to be idle. Measured on an RTL8852CE whose Bluetooth half
-+   * Windows was using: with that wait in place not one frame was
-+   * acknowledged, without it every one was; the network type, an AP role
-+   * and a join command made no difference. Leaves the CMAC control table
-+   * alone, so injection keeps its rate and antenna path. */
++  /* Makes the MAC acknowledge frames for `own` in BSS `bssid`: names them in
++   * the address CAM, leaves sniffer mode, and lets responses ignore Bluetooth. */
 +  bool set_station_identity(const uint8_t own[6], const uint8_t bssid[6]);
 +  /* Back to `inject_sa` with no link, sniffer mode and the Bluetooth wait. */
 +  bool clear_station_identity(const uint8_t inject_sa[6]);

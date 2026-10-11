@@ -39,8 +39,7 @@ struct radio_client {
 };
 
 /* The pipe is overlapped so the reader thread never blocks a send. */
-static BOOL finish(struct radio_client *client, OVERLAPPED *io, BOOL started,
-                   DWORD *transferred) {
+static BOOL finish(struct radio_client *client, OVERLAPPED *io, BOOL started, DWORD *transferred) {
 	if (!started && GetLastError() != ERROR_IO_PENDING)
 		return FALSE;
 	return GetOverlappedResult(client->pipe, io, transferred, TRUE);
@@ -60,8 +59,7 @@ static BOOL read_exact(struct radio_client *client, void *data, DWORD length) {
 	return TRUE;
 }
 
-static BOOL write_all(struct radio_client *client, const void *data,
-                      DWORD length) {
+static BOOL write_all(struct radio_client *client, const void *data, DWORD length) {
 	const uint8_t *bytes = data;
 	while (length > 0) {
 		OVERLAPPED io = {.hEvent = client->write_done};
@@ -75,8 +73,7 @@ static BOOL write_all(struct radio_client *client, const void *data,
 	return TRUE;
 }
 
-static void queue_frame(struct radio_client *client, const uint8_t *frame,
-                        uint32_t length) {
+static void queue_frame(struct radio_client *client, const uint8_t *frame, uint32_t length) {
 	if (length > RADIO_CLIENT_MAX_FRAME)
 		return;
 	EnterCriticalSection(&client->queue_lock);
@@ -106,7 +103,7 @@ static DWORD WINAPI reader_main(void *arg) {
 		if (header.type == RADIO_LINK_RX) {
 			queue_frame(client, payload, header.length);
 		} else if (header.type == RADIO_LINK_HELLO &&
-		           header.length == sizeof(struct radio_link_hello)) {
+			   header.length == sizeof(struct radio_link_hello)) {
 			const struct radio_link_hello *hello = (const void *) payload;
 			client->version = hello->version;
 			client->channel = hello->channel;
@@ -127,9 +124,8 @@ static DWORD WINAPI reader_main(void *arg) {
 static HANDLE connect_pipe(void) {
 	ULONGLONG deadline = GetTickCount64() + CONNECT_TIMEOUT_MS;
 	for (;;) {
-		HANDLE pipe = CreateFileA(RADIO_LINK_PIPE_NAME,
-		                          GENERIC_READ | GENERIC_WRITE, 0, NULL,
-		                          OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+		HANDLE pipe = CreateFileA(RADIO_LINK_PIPE_NAME, GENERIC_READ | GENERIC_WRITE, 0,
+					  NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 		if (pipe != INVALID_HANDLE_VALUE)
 			return pipe;
 		DWORD error = GetLastError();
@@ -145,8 +141,8 @@ static HANDLE connect_pipe(void) {
 struct radio_client *radio_client_open(void (*on_disconnect)(void)) {
 	HANDLE pipe = connect_pipe();
 	if (pipe == INVALID_HANDLE_VALUE) {
-		log_error("cannot reach the radio daemon at %s (error %lu)",
-		          RADIO_LINK_PIPE_NAME, GetLastError());
+		log_error("cannot reach the radio daemon at %s (error %lu)", RADIO_LINK_PIPE_NAME,
+			  GetLastError());
 		return NULL;
 	}
 
@@ -162,11 +158,10 @@ struct radio_client *radio_client_open(void (*on_disconnect)(void)) {
 	InitializeCriticalSection(&client->write_lock);
 	client->reader = CreateThread(NULL, 0, reader_main, client, 0, NULL);
 
-	if (WaitForSingleObject(client->hello_event, HELLO_TIMEOUT_MS) !=
-	            WAIT_OBJECT_0 ||
+	if (WaitForSingleObject(client->hello_event, HELLO_TIMEOUT_MS) != WAIT_OBJECT_0 ||
 	    client->version != RADIO_LINK_VERSION) {
 		log_error("radio daemon did not greet with protocol version %u",
-		          RADIO_LINK_VERSION);
+			  RADIO_LINK_VERSION);
 		radio_client_close(client);
 		return NULL;
 	}
@@ -189,7 +184,7 @@ void radio_client_close(struct radio_client *client) {
 	DeleteCriticalSection(&client->write_lock);
 	if (client->dropped)
 		log_warn("%llu received frames were dropped unread",
-		         (unsigned long long) client->dropped);
+			 (unsigned long long) client->dropped);
 	free(client->slots);
 	free(client);
 }
@@ -216,12 +211,12 @@ int radio_client_pop(struct radio_client *client, uint8_t *frame) {
 	return length;
 }
 
-int radio_client_send(struct radio_client *client, uint16_t type,
-                      const uint8_t *payload, uint32_t length) {
+int radio_client_send(struct radio_client *client, uint16_t type, const uint8_t *payload,
+		      uint32_t length) {
 	struct radio_link_header header = {.type = type, .length = length};
 	EnterCriticalSection(&client->write_lock);
 	BOOL ok = write_all(client, &header, sizeof(header)) &&
-	          (length == 0 || write_all(client, payload, length));
+		  (length == 0 || write_all(client, payload, length));
 	LeaveCriticalSection(&client->write_lock);
 	return ok ? 0 : -1;
 }

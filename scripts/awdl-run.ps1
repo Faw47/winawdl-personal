@@ -1,6 +1,5 @@
 # Starts the radio daemon on one AWDL channel, then the AWDL daemon on top of
-# it, both in this console. Ctrl+C stops both: the radio daemon exits when its
-# client leaves.
+# it. Ctrl+C stops both: the radio daemon exits when its client leaves.
 param([ValidateSet(6, 44, 149)][int]$Channel = 6, [switch]$Detail)
 $ErrorActionPreference = 'Stop'
 

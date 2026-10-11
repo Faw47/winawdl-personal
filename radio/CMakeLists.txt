@@ -1,6 +1,5 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# Radio-side programs. They link the patched devourer in upstream/devourer,
-# which is GPL-2.0, so everything in this directory is too.
+# Radio-side programs. They link devourer, which is GPL-2.0, so these are too.
 cmake_minimum_required(VERSION 3.15)
 
 # devourer only picks the vcpkg toolchain when it is the top-level project.
@@ -22,9 +21,8 @@ set(DEVOURER_PCIE ON CACHE BOOL "" FORCE)
 set(DEVOURER_REGPROXY_INCLUDE_DIR "${WINAWDL_ROOT}/driver/regproxy"
     CACHE PATH "" FORCE)
 
-# EXCLUDE_FROM_ALL keeps devourer's many demos and tests out of the build. The
-# Visual Studio generator cannot build an excluded subdirectory target by name,
-# so the three demos used here hang off a top-level target.
+# EXCLUDE_FROM_ALL keeps devourer's own demos and tests out of the build. The
+# three used here hang off one target the Visual Studio generator can build.
 add_subdirectory("${WINAWDL_ROOT}/upstream/devourer" devourer EXCLUDE_FROM_ALL)
 add_custom_target(devourer_demos)
 add_dependencies(devourer_demos rxdemo txdemo pcieprobe)

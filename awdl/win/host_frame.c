@@ -18,8 +18,8 @@ static int mac_for_destination(const uint8_t *ip6, uint8_t *mac) {
 		memcpy(mac + 2, ip6 + 12, 4);
 		return 0;
 	}
-	if (memcmp(ip6, link_local_prefix, sizeof(link_local_prefix)) != 0 ||
-	    ip6[11] != 0xff || ip6[12] != 0xfe)
+	if (memcmp(ip6, link_local_prefix, sizeof(link_local_prefix)) != 0 || ip6[11] != 0xff ||
+	    ip6[12] != 0xfe)
 		return -1;
 	mac[0] = ip6[8] ^ 0x02;
 	mac[1] = ip6[9];
@@ -28,8 +28,8 @@ static int mac_for_destination(const uint8_t *ip6, uint8_t *mac) {
 	return 0;
 }
 
-int host_frame_from_ip6(const uint8_t *packet, int packet_len,
-                        const uint8_t self[6], uint8_t *frame, int frame_cap) {
+int host_frame_from_ip6(const uint8_t *packet, int packet_len, const uint8_t self[6],
+			uint8_t *frame, int frame_cap) {
 	if (packet_len < IP6_HEADER_LEN || packet[0] >> 4 != IP6_VERSION ||
 	    packet_len > frame_cap - HOST_FRAME_HEADER_LEN)
 		return -1;
@@ -41,8 +41,7 @@ int host_frame_from_ip6(const uint8_t *packet, int packet_len,
 	return HOST_FRAME_HEADER_LEN + packet_len;
 }
 
-const uint8_t *host_frame_ip6(const uint8_t *frame, int frame_len,
-                              int *packet_len) {
+const uint8_t *host_frame_ip6(const uint8_t *frame, int frame_len, int *packet_len) {
 	if (frame_len <= HOST_FRAME_HEADER_LEN ||
 	    memcmp(frame + 2 * MAC_LEN, ethertype_ip6, sizeof(ethertype_ip6)) != 0)
 		return NULL;

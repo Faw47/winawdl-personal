@@ -57,7 +57,7 @@ daemon (the build script expects the one in `C:\Strawberry\c\bin`).
 All four only compile. `awdl\tests\fake-radio.ps1` then exercises the AWDL
 daemon against a stand-in radio, with no hardware.
 
-The AirDrop receiver is Python 3.9 or newer with no packages to install. It
+The AirDrop receiver is Python 3.10 or newer with no packages to install. It
 needs OpenSSL once, to create its certificate; the one in Git for Windows is
 found by itself. Its tests run without hardware:
 

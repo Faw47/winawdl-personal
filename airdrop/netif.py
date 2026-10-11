@@ -18,9 +18,8 @@ def interface_index(alias):
 
 
 def link_local_address(index):
-    """The address Windows sends from on this interface, or None while the
-    interface has none. Nothing is transmitted: connecting a datagram socket
-    only makes the system choose a source address."""
+    """The address Windows sends from on this interface, or None if it has none.
+    Connecting a datagram socket picks the source address and sends nothing."""
     with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as probe:
         try:
             probe.connect(('ff02::fb', 5353, 0, index))

@@ -1,7 +1,5 @@
-# Runs awdld against a stand-in for the radio daemon, with no hardware.
-# It checks that the daemon connects, sets its address filter, transmits AWDL
-# action frames on schedule, and accepts a peer when one of its own frames is
-# played back under another address.
+# Runs awdld against a stand-in for the radio daemon, with no hardware: it must
+# connect, transmit on schedule, and accept a peer played back to it.
 param([int]$Seconds = 4)
 $ErrorActionPreference = 'Stop'
 

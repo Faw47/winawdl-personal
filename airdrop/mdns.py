@@ -1,10 +1,6 @@
 # SPDX-License-Identifier: MIT
-"""Announces one DNS-SD service over multicast DNS on a single interface.
-
-This is the small part of RFC 6762 an AirDrop receiver needs: say that the
-service exists, answer whoever asks for it, and take it back when leaving.
-The record set is the one OpenDrop and omdrop publish.
-"""
+"""Announces one DNS-SD service over multicast DNS on one interface, with the
+records OpenDrop and omdrop publish for AirDrop."""
 import ipaddress
 import logging
 import socket
@@ -175,7 +171,7 @@ class Announcer:
         arriving on our interface."""
         try:
             packet, sender = self.sock.recvfrom(MAX_PACKET)
-        except socket.timeout:
+        except TimeoutError:
             return False
         except OSError as error:
             if not self.stopping.is_set():
