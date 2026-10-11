@@ -22,6 +22,7 @@ uint8_t radio_client_channel(const struct radio_client *client);
 /* Copies the oldest queued frame into `frame` (RADIO_CLIENT_MAX_FRAME bytes)
  * and returns its length, or 0 when the queue is empty. */
 int radio_client_pop(struct radio_client *client, uint8_t *frame);
+int radio_client_has_frame(struct radio_client *client);
 
 /* `type` is a radio_link_type. Returns 0 on success. */
 int radio_client_send(struct radio_client *client, uint16_t type, const uint8_t *payload,

@@ -1,8 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* AWDL daemon for Windows: OWL's protocol core, driven by the radio daemon.
- * Usage: awdld [-c 6|44|149] [-n] [-r] [-s 1|2] [-g] [-v] [-v]. -n: no host
- * adapter. -r: no device identities in the log. -s: spatial streams to
- * announce. -g: announce the short guard interval. */
+ * Usage: awdld [-c 6|44|149] [-n] [-r] [-s 1|2] [-g] [-j us] [-v] [-v].
+ * -n: no host adapter. -r: no device identities in the log. -s: spatial
+ * streams to announce. -g: announce the short guard interval. -j: join the
+ * TCP segments of a burst, waiting this many microseconds for the next. */
 #include <getopt.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -78,11 +79,14 @@ static void print_status(struct ev_loop *loop, ev_timer *timer, int revents) {
 	struct daemon_state *state = timer->data;
 	const struct awdl_stats *stats = &state->awdl_state.stats;
 	char tree[256] = "";
+	char joined[48] = "";
 	awdl_election_tree_print(&state->awdl_state.election, tree, sizeof(tree));
-	log_info("peers %d | rx action %llu, data %llu | tx action %llu, data %llu | "
+	if (winawdl_segments_joined())
+		snprintf(joined, sizeof(joined), " (%llu joined)", winawdl_segments_joined());
+	log_info("peers %d | rx action %llu, data %llu%s | tx action %llu, data %llu | "
 		 "sync tree %s",
 		 awdl_peers_length(state->awdl_state.peers.peers), stats->rx_action, stats->rx_data,
-		 stats->tx_action, stats->tx_data, tree);
+		 joined, stats->tx_action, stats->tx_data, tree);
 }
 
 int main(int argc, char *argv[]) {
@@ -92,7 +96,7 @@ int main(int argc, char *argv[]) {
 	int streams = 1;
 	int short_guard_interval = 0;
 	int option;
-	while ((option = getopt(argc, argv, "c:nrs:gv")) != -1) {
+	while ((option = getopt(argc, argv, "c:nrs:gj:v")) != -1) {
 		if (option == 'c') {
 			channel = atoi(optarg);
 		} else if (option == 'n') {
@@ -103,12 +107,15 @@ int main(int argc, char *argv[]) {
 			streams = atoi(optarg);
 		} else if (option == 'g') {
 			short_guard_interval = 1;
+		} else if (option == 'j') {
+			winawdl_join_segments(atoi(optarg));
 		} else if (option == 'v') {
 			if (log_level < LOG_TRACE)
 				log_level++;
 		} else {
 			fprintf(stderr,
-				"usage: %s [-c 6|44|149] [-n] [-r] [-s 1|2] [-g] [-v] [-v]\n",
+				"usage: %s [-c 6|44|149] [-n] [-r] [-s 1|2] [-g] [-j us] [-v] "
+				"[-v]\n",
 				argv[0]);
 			return EXIT_FAILURE;
 		}

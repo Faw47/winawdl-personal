@@ -19,6 +19,7 @@
 #include "netutils.h"
 #include "radio_client.h"
 #include "radio_link.h"
+#include "tcp_merge.h"
 #include "win_internal.h"
 
 /* core.c hands io_state.wlan_handle to pcap_dispatch, so that is where the
@@ -33,6 +34,58 @@ static struct host_if *host;
 
 struct radio_client *winawdl_radio(void) {
 	return wlan.radio;
+}
+
+/* However long frames keep coming, joined data reaches the host this soon. */
+#define JOIN_MAX_HOLD_US 3000
+
+static struct {
+	int wait_us; /* 0: segments are not joined */
+	uint64_t since_us;
+	uint64_t last_frame_us;
+	unsigned long long joined;
+} joining;
+static struct tcp_merge merge;
+
+void winawdl_join_segments(int wait_us) {
+	joining.wait_us = wait_us;
+}
+
+unsigned long long winawdl_segments_joined(void) {
+	return joining.joined;
+}
+
+static uint64_t now_us(void) {
+	static LARGE_INTEGER frequency;
+	LARGE_INTEGER ticks;
+	if (frequency.QuadPart == 0)
+		QueryPerformanceFrequency(&frequency);
+	QueryPerformanceCounter(&ticks);
+	return (uint64_t) (ticks.QuadPart / frequency.QuadPart) * 1000000u +
+	       (uint64_t) (ticks.QuadPart % frequency.QuadPart) * 1000000u /
+		       (uint64_t) frequency.QuadPart;
+}
+
+static void deliver_joined(void) {
+	static uint8_t packet[TCP_MERGE_MAX_PACKET];
+	int length = tcp_merge_take(&merge, packet);
+	if (length && host)
+		host_if_write(host, packet, length);
+}
+
+/* Spins until the radio has another frame or the held data has waited long
+ * enough, and returns which: no timer on Windows is this fine. */
+static int frame_before_delivery(void) {
+	uint64_t quiet = joining.last_frame_us + (uint64_t) joining.wait_us;
+	uint64_t latest = joining.since_us + JOIN_MAX_HOLD_US;
+	uint64_t due = quiet < latest ? quiet : latest;
+	for (;;) {
+		if (now_us() >= due)
+			return 0;
+		if (radio_client_has_frame(wlan.radio))
+			return 1;
+		YieldProcessor();
+	}
 }
 
 static void on_radio_disconnect(void) {
@@ -99,8 +152,17 @@ int pcap_dispatch(pcap_t *handle, int count, pcap_handler callback, unsigned cha
 	(void) count;
 	static uint8_t frame[RADIO_CLIENT_MAX_FRAME];
 	int length = radio_client_pop(handle->radio, frame);
+	if (length == 0 && merge.length) {
+		/* The queue is empty, but the rest of an aggregate may still be
+		 * on its way from the radio. */
+		if (frame_before_delivery())
+			length = radio_client_pop(handle->radio, frame);
+		else
+			deliver_joined();
+	}
 	if (length == 0)
 		return 0;
+	joining.last_frame_us = now_us();
 	length = frame_fixup_received(frame, length);
 	struct pcap_pkthdr header = {.caplen = (uint32_t) length, .len = (uint32_t) length};
 	callback(user, &header, frame);
@@ -122,6 +184,23 @@ int host_send(const struct io_state *state, const uint8_t *buf, int len) {
 	const uint8_t *packet = host_frame_ip6(buf, len, &packet_len);
 	if (!host || !packet)
 		return 0;
+	if (joining.wait_us) {
+		int continued = merge.length != 0;
+		if (!tcp_merge_offer(&merge, packet, packet_len)) {
+			/* What is held was received first and goes first. */
+			deliver_joined();
+			continued = 0;
+			if (!tcp_merge_offer(&merge, packet, packet_len))
+				return host_if_write(host, packet, packet_len) < 0 ? -ENOBUFS : 0;
+		}
+		if (continued)
+			joining.joined++;
+		else
+			joining.since_us = now_us();
+		if (merge.closed)
+			deliver_joined();
+		return 0;
+	}
 	return host_if_write(host, packet, packet_len) < 0 ? -ENOBUFS : 0;
 }
 

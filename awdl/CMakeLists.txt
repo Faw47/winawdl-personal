@@ -41,7 +41,7 @@ target_link_libraries(host_if PRIVATE iphlpapi)
 
 set(WIN_SOURCES
     win/main.c win/ev_win.c win/io_win.c win/netutils_win.c win/radio_client.c
-    win/redact.c win/frame_fixup.c compat/ether.c)
+    win/redact.c win/frame_fixup.c win/tcp_merge.c compat/ether.c)
 add_executable(awdld "${OWL}/daemon/core.c" ${WIN_SOURCES})
 set_source_files_properties(${WIN_SOURCES} PROPERTIES
     COMPILE_OPTIONS "-Wall;-Wextra;-Werror")
@@ -54,6 +54,11 @@ add_executable(host_frame_test tests/host_frame_test.c)
 target_compile_options(host_frame_test PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(host_frame_test PRIVATE host_if)
 target_link_options(host_frame_test PRIVATE -static)
+
+add_executable(tcp_merge_test tests/tcp_merge_test.c win/tcp_merge.c)
+target_include_directories(tcp_merge_test PRIVATE win)
+target_compile_options(tcp_merge_test PRIVATE -Wall -Wextra -Werror)
+target_link_options(tcp_merge_test PRIVATE -static)
 
 add_executable(frame_fixup_test tests/frame_fixup_test.c win/frame_fixup.c)
 target_include_directories(frame_fixup_test PRIVATE win)
