@@ -1,6 +1,6 @@
 # Builds the radio-side programs and devourer (upstream\devourer) into build\radio.
 # The devourer_demos target is devourer's rxdemo, txdemo and pcieprobe.
-param([string[]]$Targets = @('winawdl_radio', 'awdl_sniff', 'pipe_server_test', 'frame_capture_test', 'block_ack_test', 'reorder_buffer_test', 'channel_width_test', 'dma_address_test', 'devourer_demos'))
+param([string[]]$Targets = @('winawdl_radio', 'awdl_sniff', 'pipe_server_test', 'frame_capture_test', 'block_ack_test', 'reorder_buffer_test', 'rate_ladder_test', 'channel_width_test', 'dma_address_test', 'devourer_demos'))
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path $PSScriptRoot -Parent

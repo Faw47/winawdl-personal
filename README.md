@@ -149,8 +149,9 @@ unlocked, and with `awdl-run.ps1` running:
 ```
 
 It needs the computer's Bluetooth to wake the receiver, and the firewall
-rules above. Sending is slow so far, about 0.5 MB/s. Contacts Only is not
-implemented in either direction.
+rules above. Sending runs at about 2 MB/s: `awdl-run.ps1` picks the rate of
+outgoing data frames by what the receiver acknowledges, and `-DataRate`
+fixes it. Contacts Only is not implemented in either direction.
 
 ## Licensing
 

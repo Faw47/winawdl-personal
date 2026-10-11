@@ -417,9 +417,27 @@ Three things had to be found out, each from an attempt that failed on
   token, and the preview picture.
 
 With those, one 1.0 MB photo reached Photos on the iPhone: 2.2 s for the
-upload, 21 s after the command was started. Nothing has been done for speed
-in this direction. The receiver now also takes the classic upload form; only
-the loopback test has sent it one.
+upload, 21 s after the command was started. The receiver now also takes the
+classic upload form; only the loopback test has sent it one.
+
+OWL gives every data frame 12 Mbit/s, which carried about 1 MB/s while the
+phone listened and 0.5 MB/s over all. The radio daemon can put its own
+radiotap header on data frames to one station (`-DataRate`). With one
+24.5 MB video: 18.2 s at HT MCS 7, 10.8 s at VHT MCS 7 with two streams on
+80 MHz, and at HT MCS 15 on 40 MHz the phone acknowledged nothing, for a
+reason not found.
+
+A rate the phone does not take means no connection at all, so the daemon
+chooses (`radio/rate_ladder.h`). Each exchange starts at OWL's rate. It goes
+up a level after four windows of 32 frames that were acknowledged, and back
+down after two in which half were given up on, as the card's release reports
+say (`TxStats::reported` and `given_up` in the fork). A frame given up on
+while the station had not been heard for 20 ms is not counted: the phone is
+off the channel for part of every second. In the one run so far 191 frames
+went at 12 Mbit/s, 223 at MCS 7 and 20,063 at the VHT rate, the rate never
+went down, and the video took 11.2 s: 2.2 MB/s, with 1.3% of the segments
+sent twice. Going down has only run in the test. Every frame is still its
+own transmission, where the iPhone sends a hundred in one.
 
 ## Fallback: a small kernel driver
 
@@ -455,7 +473,7 @@ on the first attempt.
 | AWDL daemon (`awdl/`, OWL core on Windows) | Passed on air 2026-10-11 on channel 6: added the owner's iPhone as a peer, elected it sync master, received its action and data frames while transmitting 24 action frames per second |
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
 | AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44, 1,710 kB/s with block ack, and 6.7 MB/s with joined segments and two streams |
-| AirDrop sender (`airdrop/sender.py`) | First file sent 2026-10-11: a 1.0 MB photo reached the owner's iPhone's Photos, after two attempts that failed at different steps |
+| AirDrop sender (`airdrop/sender.py`) | First file sent 2026-10-11: a 1.0 MB photo reached the owner's iPhone's Photos, after two attempts that failed at different steps. A 24.5 MB video then went at 2.2 MB/s with the rate chosen by the radio daemon |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.

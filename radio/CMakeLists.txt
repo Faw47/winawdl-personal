@@ -64,6 +64,13 @@ if(MSVC)
     target_compile_options(channel_width_test PRIVATE /W4 /WX)
 endif()
 
+add_executable(rate_ladder_test tests/rate_ladder_test.cpp rate_ladder.h)
+target_compile_features(rate_ladder_test PRIVATE cxx_std_20)
+target_include_directories(rate_ladder_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(rate_ladder_test PRIVATE /W4 /WX)
+endif()
+
 add_executable(reorder_buffer_test tests/reorder_buffer_test.cpp reorder_buffer.h)
 target_compile_features(reorder_buffer_test PRIVATE cxx_std_20)
 target_include_directories(reorder_buffer_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
