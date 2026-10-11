@@ -12,6 +12,7 @@
 
 #include <ev.h>
 
+#include "frame_fixup.h"
 #include "host_frame.h"
 #include "host_if.h"
 #include "log.h"
@@ -100,15 +101,19 @@ int pcap_dispatch(pcap_t *handle, int count, pcap_handler callback, unsigned cha
 	int length = radio_client_pop(handle->radio, frame);
 	if (length == 0)
 		return 0;
+	length = frame_fixup_received(frame, length);
 	struct pcap_pkthdr header = {.caplen = (uint32_t) length, .len = (uint32_t) length};
 	callback(user, &header, frame);
 	return 1;
 }
 
 int wlan_send(const struct io_state *state, const uint8_t *buf, int len) {
-	if (!state || !state->wlan_handle)
+	static uint8_t frame[RADIO_CLIENT_MAX_FRAME];
+	if (!state || !state->wlan_handle || len < 0 || len > (int) sizeof(frame))
 		return -EINVAL;
-	return radio_client_send(state->wlan_handle->radio, RADIO_LINK_TX, buf, (uint32_t) len);
+	memcpy(frame, buf, (size_t) len);
+	frame_fixup_sent(frame, len);
+	return radio_client_send(state->wlan_handle->radio, RADIO_LINK_TX, frame, (uint32_t) len);
 }
 
 int host_send(const struct io_state *state, const uint8_t *buf, int len) {
