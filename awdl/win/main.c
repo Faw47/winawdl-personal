@@ -1,9 +1,10 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* AWDL daemon for Windows: OWL's protocol core, driven by the radio daemon.
- * Usage: awdld [-c 6|44|149] [-n] [-r] [-s 1|2] [-g] [-j us] [-v] [-v].
+ * Usage: awdld [-c 6|44|149] [-n] [-r] [-s 1|2] [-l] [-j us] [-v] [-v].
  * -n: no host adapter. -r: no device identities in the log. -s: spatial
- * streams to announce. -g: announce the short guard interval. -j: join the
- * TCP segments of a burst, waiting this many microseconds for the next. */
+ * streams to announce, 2 unless told. -l: announce the long guard interval
+ * only. -j: microseconds to wait for the next TCP segment of a burst before
+ * the joined ones go to the host, 400 unless told and 0 for no joining. */
 #include <getopt.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -20,6 +21,9 @@
 
 #define STATUS_PERIOD_S 2.0
 #define DEFAULT_CHANNEL 44
+#define DEFAULT_STREAMS 2
+/* Longer than most gaps between the frames of one aggregate, measured. */
+#define DEFAULT_JOIN_WAIT_US 400
 
 static int shown_level = LOG_INFO;
 static int redact_log;
@@ -93,10 +97,11 @@ int main(int argc, char *argv[]) {
 	int channel = DEFAULT_CHANNEL;
 	int log_level = LOG_INFO;
 	const char *host_name = HOST_IF_NAME;
-	int streams = 1;
-	int short_guard_interval = 0;
+	int streams = DEFAULT_STREAMS;
+	int short_guard_interval = 1;
 	int option;
-	while ((option = getopt(argc, argv, "c:nrs:gj:v")) != -1) {
+	winawdl_join_segments(DEFAULT_JOIN_WAIT_US);
+	while ((option = getopt(argc, argv, "c:nrs:lj:v")) != -1) {
 		if (option == 'c') {
 			channel = atoi(optarg);
 		} else if (option == 'n') {
@@ -105,8 +110,8 @@ int main(int argc, char *argv[]) {
 			redact_log = 1;
 		} else if (option == 's') {
 			streams = atoi(optarg);
-		} else if (option == 'g') {
-			short_guard_interval = 1;
+		} else if (option == 'l') {
+			short_guard_interval = 0;
 		} else if (option == 'j') {
 			winawdl_join_segments(atoi(optarg));
 		} else if (option == 'v') {
@@ -114,7 +119,7 @@ int main(int argc, char *argv[]) {
 				log_level++;
 		} else {
 			fprintf(stderr,
-				"usage: %s [-c 6|44|149] [-n] [-r] [-s 1|2] [-g] [-j us] [-v] "
+				"usage: %s [-c 6|44|149] [-n] [-r] [-s 1|2] [-l] [-j us] [-v] "
 				"[-v]\n",
 				argv[0]);
 			return EXIT_FAILURE;

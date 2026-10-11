@@ -247,13 +247,55 @@ Measured 2026-10-11 on channel 44, one transfer of 30.5 MB:
 | Frames with the retry flag | 904 of 20,410 | 47 of 20,414 |
 | Throughput | 971 kB/s | 1,710 kB/s |
 
-No frame arrived twice, and 9 arrived behind a later sequence number, so
-nothing puts frames back in order. One sender is served at a time. Four or
-five more files were received with it the same day.
+No frame arrived twice. Later runs had up to 159 frames in 20,000 arrive
+behind a later sequence number, which TCP reads as loss, so the radio daemon
+holds the frames after a missing one for up to 100 ms (`radio/reorder_buffer.h`).
 
-What still separates this from two Apple devices: the aggregates are short,
-frames are on 20 MHz and one spatial stream, and the bursts cover about 40%
-of the time.
+One sender is served at a time. A second iPhone nearby, with about one frame
+a second to send, once asked first and kept the session while the one sending
+a file was refused 46 times. A sender now takes the session over from a holder
+that has sent fewer than 16 frames since it last asked.
+
+### Acknowledgements
+
+With block ack alone, a second spatial stream changed nothing: 1.2, 2.3 and
+1.6 MB/s in three runs against 1.9 with one. Captures showed why. Windows
+acknowledges every second TCP segment, each acknowledgement is a frame of
+its own that takes 0.4 to 0.5 ms to leave, and the iPhone sends what those
+release as it gets them:
+
+| | One stream | Two streams |
+|---|---|---|
+| One aggregate and its acknowledgements | 4.4 ms, 11.7 frames | 2.2 ms, 6.4 frames |
+| Share of that spent after the last data frame | 41% | 69% |
+
+So the daemon joins the TCP segments of a burst into one IPv6 packet before
+Windows sees them, as a network card's receive coalescing does
+(`awdl/win/tcp_merge.c`), and Windows acknowledges once per packet. A burst
+ends when the radio has delivered nothing for 400 us. Windows takes these
+packets although they exceed the adapter's MTU of 1450.
+
+| Measured 2026-10-11, channel 44 | Throughput |
+|---|---|
+| Block ack, one stream | 1.9 MB/s |
+| With joining | 3.0 MB/s, one acknowledgement per 7 segments, 21 frames per aggregate |
+| With joining, two streams and the short guard interval | 6.7 MB/s for 30 MB, 5.9 MB/s for 131 MB, about 30 frames per aggregate |
+
+Tried on the way and dropped:
+
+- Holding acknowledgements back in the daemon until the radio was quiet for
+  300 us: 1.3 MB/s, with 9% of them replaced by a later one. They are
+  generated too far apart for that.
+- Asking Windows for fewer acknowledgements with `SIO_TCP_SET_ACK_FREQUENCY`
+  on the receiver's socket: it refuses every value above 1.
+
+OWL passes on its whole 1518-byte buffer for each received packet, and up to
+68 bytes of whatever lay behind the packet went to the adapter with it.
+`host_frame_ip6` now cuts at the length the IPv6 header gives.
+
+What still separates this from two Apple devices: frames are on 20 MHz, and
+the iPhone is on the channel about half the time. Its schedule keeps slots
+for channels 6 and 149 and for its access point's channel.
 
 ## The AirDrop layer
 
@@ -335,7 +377,7 @@ on the first attempt.
 | Radio daemon (`radio/winawdl_radio`) serving frames over a named pipe | Passed 2026-10-11: 827 frames transmitted for its client, none failed |
 | AWDL daemon (`awdl/`, OWL core on Windows) | Passed on air 2026-10-11 on channel 6: added the owner's iPhone as a peer, elected it sync master, received its action and data frames while transmitting 24 action frames per second |
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
-| AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44, or 1,710 kB/s with block ack |
+| AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44, 1,710 kB/s with block ack, and 6.7 MB/s with joined segments and two streams |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.
