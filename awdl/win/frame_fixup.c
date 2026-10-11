@@ -90,6 +90,14 @@ static int walk_tlvs(const uint8_t *frame, int offset, int end, int wanted, int 
 	return offset;
 }
 
+int awdl_action_tlvs(const uint8_t *frame, int length, int *end) {
+	int fcs_len;
+	int offset = tlv_offset(frame, length, &fcs_len);
+	if (offset >= 0)
+		*end = length - fcs_len;
+	return offset;
+}
+
 int frame_fixup_received(uint8_t *frame, int length) {
 	int fcs_len;
 	int offset = tlv_offset(frame, length, &fcs_len);

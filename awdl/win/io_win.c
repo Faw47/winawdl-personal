@@ -19,6 +19,7 @@
 #include "netutils.h"
 #include "radio_client.h"
 #include "radio_link.h"
+#include "service_bridge.h"
 #include "tcp_merge.h"
 #include "win_internal.h"
 
@@ -164,6 +165,10 @@ int pcap_dispatch(pcap_t *handle, int count, pcap_handler callback, unsigned cha
 		return 0;
 	joining.last_frame_us = now_us();
 	length = frame_fixup_received(frame, length);
+	static uint8_t announced[SERVICE_BRIDGE_MAX_PACKET];
+	int announced_len = service_bridge_packet(frame, length, announced);
+	if (announced_len && host)
+		host_if_write(host, announced, announced_len);
 	struct pcap_pkthdr header = {.caplen = (uint32_t) length, .len = (uint32_t) length};
 	callback(user, &header, frame);
 	return 1;

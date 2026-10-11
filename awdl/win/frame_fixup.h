@@ -5,6 +5,10 @@
 #pragma once
 #include <stdint.h>
 
+/* Where the TLVs of an AWDL action frame start, with `*end` set to where they
+ * stop; -1 for any other frame. */
+int awdl_action_tlvs(const uint8_t *frame, int length, int *end);
+
 /* An iPhone can end an action frame with zero padding, and OWL refuses the
  * frame when a byte or two of it is left over. Returns the length without
  * those bytes. */
