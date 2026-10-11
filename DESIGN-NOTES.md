@@ -1,7 +1,9 @@
 # Native Windows radio for AirDrop on the built-in RTL8852CE
 
-Status: 2026-10-11. The register proxy driver builds and its INF validates. It
-is not signed or installed, and nothing here has driven the card yet.
+Status: 2026-10-11. All of this has run on one machine with one card: the
+driver binds to the card, the card receives and transmits, AWDL carries IPv6
+to an iPhone, and the AirDrop receiver has stored photos, a video and a Live
+Photo. The Progress table gives the dates and numbers.
 
 ## Goal
 
@@ -32,9 +34,10 @@ provides five services:
 | Taking the device from the vendor driver | bind to `vfio-pci` | Yes |
 
 The slab holds the transmit and receive rings and buffers. All descriptor
-address fields are 32-bit in devourer's current code.
+address fields are 32-bit in devourer at that revision. The fork writes 36-bit
+ones (see Physical memory for DMA).
 
-## Candidate Windows design, no kernel code of ours
+## Windows design, no kernel code of ours
 
 1. A user-mode (UMDF 2) function driver bound to the card in place of
    Realtek's. It maps BAR2 and forwards register reads and writes from the
@@ -44,9 +47,9 @@ address fields are 32-bit in devourer's current code.
    `AllocateUserPhysicalPages2` and the `MEM_EXTENDED_PARAMETER_NONPAGED_LARGE`
    flag. That returns locked 2 MiB blocks together with their physical frame
    numbers.
-3. devourer's AX DMA plane is changed to place its areas in separate 2 MiB
-   blocks and to compute each receive buffer's address individually, since the
-   receive buffer areas are 2.9 MiB each.
+3. devourer's AX DMA plane lays out its rings and buffers so that none
+   straddles a 2 MiB block, and computes each one's bus address from the block
+   it falls in.
 4. A new `PcieTransport` backend replaces the vfio calls with 1 and 2.
 
 ## Measurements on this PC
@@ -65,10 +68,11 @@ The current probe also maps a block and writes to it. Build it with
 `tools/build.ps1` and run `tools/build/awe_probe.exe` from an elevated prompt.
 
 A second run on 2026-10-11, shortly after the first, returned 38 to 40 blocks
-of 2 MiB with 24 to 25 below 4 GiB, so low memory is not the constraint the
-first run suggested. Mapping such a block into the process failed with the
-one method tried; `probes/awe_probe.c` now tries six combinations, because
-Microsoft documents the allocation but not the mapping.
+of 2 MiB with 24 to 25 below 4 GiB, so low memory was not the constraint that
+day. It became one later (see Physical memory for DMA). Mapping such a block
+into the process failed with the one method tried; `probes/awe_probe.c` now
+tries six combinations, because Microsoft documents the allocation but not
+the mapping.
 
 One register round trip through the proxy costs about 31 microseconds. Polling
 the receive ring at devourer's default 200 microsecond interval is affordable.
@@ -87,8 +91,9 @@ the receive ring at devourer's default 200 microsecond interval is affordable.
    enables bus mastering when it starts the device, which is all the firmware
    download needed. ASPM stays on the power plan setting, and devourer reads
    LTR as disabled and silences it.
-4. Low memory turned out not to be scarce: later runs found 24 to 26 low
-   2 MiB blocks free, and the slab needs 6.
+4. Low memory comes and goes: some runs found 24 to 26 low 2 MiB blocks
+   free, and after 13 days of uptime there was one. The radio now needs one
+   low block and five more anywhere below 64 GiB.
 5. Security: this design lets an administrator process aim a bus-mastering
    device at physical memory. That is inherent to user-space DMA.
 
@@ -125,7 +130,7 @@ and reading that share, 2026-10-11:
 
 - The address CAM entry of macid 0 must name our address. rtw89 keeps no
   receiver address in a register on this chip. devourer built the entry as
-  for the 8852B; the 8852C wants a 32-byte entry and a BSSID byte mask of
+  for the 8852B; the 8852C takes a 32-byte entry and a BSSID byte mask of
   0x3f. Read back from CAM memory, the corrected entry was stored as sent.
 - The network type of the entry and port, an AP role and a join command made
   no difference. Neither did sniffer mode, nor naming the sender as the
@@ -200,9 +205,9 @@ first use.
 ## The AirDrop layer
 
 `airdrop/` is the receiving half of omdrop, adapted for Windows. omdrop's
-receiver was kept for what it knows about real senders and for its limits on
-everything a stranger in radio range controls: body size, decoded size, member
-count, read rate and free disk space. What changed:
+receiver was kept for the sender behaviour it already handles and for its
+limits on everything a stranger in radio range controls: body size, decoded
+size, member count, read rate and free disk space. What changed:
 
 - omdrop leaves the service announcement to its radio helper, which builds
   raw frames. Here `mdns.py` announces `_airdrop._tcp` with ordinary sockets
@@ -232,7 +237,7 @@ trailer. Confirmed 2026-10-11 with a Live Photo, which was stored.
 
 Waiting out the 30-second idle timeout for that is not acceptable, so the
 body is also decoded as it arrives, keeping none of it, by a watcher that
-knows when the archive is whole: the cpio trailer read and the last 512-byte
+detects when the archive is whole: the cpio trailer read and the last 512-byte
 record filled, which is how every upload seen so far ended. From then on the
 receiver waits two seconds for the end marker, not thirty. A plain photo's
 marker comes at once and the connection stays usable; after a video the wait
@@ -252,11 +257,12 @@ Microsoft's hardware portal, which needs an EV certificate. The alternative is
 turning Secure Boot off and enabling test signing, which is a system security
 change for the owner to make, not this project.
 
-## Cheapest de-risking step
+## Telling the card from the Windows layer
 
-Boot a Linux live USB and run devourer's `pcieprobe` against this card. It
-separates "this card works with devourer" from "the Windows layer works", and
-needs no adapter.
+Booting a Linux live USB and running devourer's `pcieprobe` against the card
+shows whether devourer drives that card at all, apart from anything in the
+Windows layer. It was not needed here: the Windows path booted the firmware
+on the first attempt.
 
 ## Progress
 
@@ -290,23 +296,28 @@ package to the driver store does not take over the card on its own.
 - Build scripts do not rely on `vcvars64.bat`. They call `cl.exe` with
   explicit `INCLUDE` and `LIB`.
 - OWL is GPL-3.0 and devourer GPL-2.0. Keep them in separate processes.
-- The radio needs six free 2 MiB blocks of physical memory. They used to have
-  to lie below 4 GiB, and on 2026-10-11, after 13 days of uptime, Windows had
-  one left there and the radio refused to start. A probe in that state found
-  61 such blocks below 64 GiB, and only 3 usable 16 KiB runs of ordinary
-  pages below 4 GiB against 768 needed, so smaller pieces were no way out.
-  The DMA plane now writes 36-bit addresses, as rtw89 does on the 8852C
-  without any enabling step: the high bits go into each buffer descriptor,
-  each WD-page address entry and the ring base registers. Low blocks are
-  still preferred. `radio/tests/dma_address_test` checks the encodings and
-  the block choice. On hardware, 2026-10-11, with every block above 4 GiB
-  (between 15 and 22 GiB): firmware downloaded and booted first try, 33,120
-  packets were received in an AWDL session, and 500 broadcast frames were all
-  reported sent. But in three AWDL sessions run that way the iPhone answered
-  nothing, against four out of four the day before from low memory. The one
-  address field those sessions used that the other checks do not prove is
-  the address entry of a WD page, which points at the frame payload. With
-  the payload area laid out first and required below 4 GiB, the iPhone
-  answered again at once. So the radio needs one low block, not six, and the
-  chip does not appear to honour the high bits of that entry as rtw89 writes
-  them.
+
+## Physical memory for DMA
+
+The radio needs six free 2 MiB blocks of physical memory. They used to have
+to lie below 4 GiB, and on 2026-10-11, after 13 days of uptime, Windows had
+one left there and the radio refused to start. A probe in that state found
+61 such blocks below 64 GiB, and only 3 usable 16 KiB runs of ordinary
+pages below 4 GiB against 768 needed, so smaller pieces were no way out.
+The DMA plane now writes 36-bit addresses, as rtw89 does on the 8852C
+without any enabling step: the high bits go into each buffer descriptor,
+each WD-page address entry and the ring base registers. Low blocks are
+still preferred. `radio/tests/dma_address_test` checks the encodings and
+the block choice.
+
+On hardware, 2026-10-11, with every block above 4 GiB (between 15 and
+22 GiB): firmware downloaded and booted first try, 33,120
+packets were received in an AWDL session, and 500 broadcast frames were all
+reported sent. But in three AWDL sessions run that way the iPhone answered
+nothing, against four out of four the day before from low memory. The one
+address field those sessions used that the other checks do not prove is
+the address entry of a WD page, which points at the frame payload. With
+the payload area laid out first and required below 4 GiB, the iPhone
+answered again at once. So the radio needs one low block, not six, and the
+chip does not appear to honour the high bits of that entry as rtw89 writes
+them.

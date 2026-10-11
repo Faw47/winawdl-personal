@@ -1,7 +1,8 @@
 # winawdl
 
-An attempt to run Apple's AWDL radio protocol natively on Windows, using the
-built-in Realtek RTL8852CE, as the radio half of a Windows AirDrop client.
+Apple's AWDL radio protocol and an AirDrop receiver running natively on
+Windows, on the built-in Realtek RTL8852CE, with no USB adapter and no Linux
+VM.
 
 This is research code. The radio works: the card receives and transmits Wi-Fi
 frames in monitor mode from an ordinary Windows program. On top of it the AWDL
@@ -15,12 +16,13 @@ measurements, the open risks and the safety notes before installing anything.
 ## Before you run it
 
 - Installing the driver takes the Wi-Fi card away from Windows. Wi-Fi is down
-  until `scripts\uninstall-driver.ps1` is run.
-- The driver package is signed with a certificate created on your machine,
-  which the install script adds to the machine's trusted stores.
+  until you run `scripts\uninstall-driver.ps1`.
+- The package script signs the driver with a certificate it creates on your
+  machine, and the install script adds that certificate to the machine's
+  trusted stores.
 - While the AirDrop receiver runs, any Apple device in range that is set to
   send to everyone can put files into your `Downloads` folder without being
-  asked. Nothing received is opened.
+  asked. The receiver opens nothing it stores.
 - The card answers frames without waiting for Bluetooth, which shares its
   radio. Bluetooth devices may lose an occasional packet meanwhile.
 - This is an independent project, not affiliated with or endorsed by Apple.
@@ -67,8 +69,8 @@ All four only compile. `awdl\tests\fake-radio.ps1` then exercises the AWDL
 daemon against a stand-in radio, with no hardware.
 
 The AirDrop receiver is Python 3.10 or newer with no packages to install. It
-needs OpenSSL once, to create its certificate; the one in Git for Windows is
-found by itself. Its tests run without hardware:
+needs OpenSSL once, to create its certificate, and finds the one in Git for
+Windows by itself. Its tests run without hardware:
 
 ```powershell
 py -m unittest discover -s airdrop\tests
@@ -91,8 +93,8 @@ still runs but drops AWDL data.
 .\scripts\uninstall-driver.ps1   # elevated: back to the vendor driver
 ```
 
-Installing adds a self-signed code-signing certificate to the machine's trusted
-stores and takes Wi-Fi down until the uninstall script is run.
+[Before you run it](#before-you-run-it) says what installing changes on the
+machine.
 
 ## Running
 
@@ -117,11 +119,10 @@ To receive files over AirDrop, keep `awdl-run.ps1` running and then:
 .\scripts\airdrop-receive.ps1    # no elevation; Ctrl+C to stop
 ```
 
-While the receiver runs, any Apple device in range set to send to everyone can
-put files into `Downloads` without being asked. Nothing received is opened, and
-each file is marked as downloaded from the Internet. Contacts Only and sending
-are not implemented. `.\scripts\airdrop-firewall.ps1 -Remove` deletes the
-rules.
+The receiver accepts files from everyone in range, as described under
+[Before you run it](#before-you-run-it), and marks each one as downloaded from
+the Internet. Contacts Only and sending are not implemented.
+`.\scripts\airdrop-firewall.ps1 -Remove` deletes the rules.
 
 ## Licensing
 
