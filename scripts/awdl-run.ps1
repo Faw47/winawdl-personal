@@ -13,12 +13,14 @@
 # "client" stays there; a rate in devourer's notation, such as MCS7 or
 # VHT2SS_MCS7/80/SGI, is used for every such frame.
 # -Aggregate asks a peer to take data frames in aggregates. Experimental.
+# -QuickSubmit hands a frame to the card with one register access, not four,
+# so that the card has frames enough waiting to aggregate. Experimental.
 param([ValidateSet(6, 44, 149)][int]$Channel = 44, [switch]$Detail, [switch]$Redact,
       [string]$Capture, [switch]$NoBlockAck, [ValidateSet(1, 2)][int]$Streams = 2,
       [switch]$LongGuard, [ValidateRange(0, 3000)][int]$Join = 400,
       [ValidateSet(0, 20, 40, 80)][int]$Width = 0,
       [ValidateRange(0, 62)][int]$Retries = 7, [string]$DataRate = 'auto',
-      [switch]$Aggregate)
+      [switch]$Aggregate, [switch]$QuickSubmit)
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path $PSScriptRoot -Parent
@@ -37,6 +39,7 @@ if ($Capture) {
 }
 if ($NoBlockAck) { $radioArgs += '--no-block-ack' }
 if ($Aggregate) { $radioArgs += '--aggregate' }
+if ($QuickSubmit) { $radioArgs += '--quick-submit' }
 $radioProcess = Start-Process $radio -ArgumentList $radioArgs -PassThru -NoNewWindow
 
 $awdldArgs = @('-c', $Channel)

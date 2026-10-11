@@ -463,8 +463,34 @@ With that, one agreement carried a whole 24.5 MB video: 18,729 frames,
 6,568 block acks, 322 such notices, 5.2 s, 4.7 MB/s, with 1.3% of the TCP
 segments sent twice. While the phone listened up to 1,568 frames went in
 200 ms, about 11 MB/s. A block ack covered 2.6 frames on average, so the
-aggregates are short; why, and the 2,304 block acks that covered none, is
-open. One run. Receiving with the switch on has not been tried.
+aggregates were short, and 2,304 block acks covered no frame at all.
+
+Both had one cause, in the notice itself. The card takes a block-ack
+request for a frame that wants an acknowledgement, gets a block ack, and
+repeats the request to its limit: eight times with growing pauses, about
+8 ms, each answered by a block ack that covers nothing. It then reports the
+request given up on, and the daemon read that as a lost data frame and sent
+the next notice. After the first real loss this went round for the rest of
+the transfer, 322 times in 5 s. The fork now sends a block-ack request once,
+and the daemon expects that report. The next transfer had 44 notices, then
+22, and no empty block acks.
+
+It was no faster for that, 4.9 MB/s on the air, because the frames reach
+the card too slowly. One register access through the proxy costs 31 us, and
+devourer's send makes four for a frame: it reads whether the ring has room,
+reads what the chip released, writes the ring's index and reads that the
+chip fetched the frame. That is 8,000 frames a second at best, which is the
+peak every capture until then shows, and it leaves the card about 4 frames
+to build an aggregate from. With `-QuickSubmit` (`tx_quick_submit` in the
+fork's transport configuration) a frame costs the one write: the ring's
+room is read only once half of it may be in use, releases are left to the
+receive loop, and nothing waits for the fetch.
+
+With both switches the same video took 2.3 s on the air and 2.5 s for the
+sender, 9.9 MB/s: 18,828 frames under one agreement, 1,321 block acks of
+13.9 frames on average, 6 notices, 0.8% of the TCP segments sent twice, and
+up to 3,545 frames in 200 ms while the phone listened, about 25 MB/s. One
+run each. Receiving with either switch on has not been tried.
 
 ## Fallback: a small kernel driver
 
@@ -500,7 +526,7 @@ on the first attempt.
 | AWDL daemon (`awdl/`, OWL core on Windows) | Passed on air 2026-10-11 on channel 6: added the owner's iPhone as a peer, elected it sync master, received its action and data frames while transmitting 24 action frames per second |
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
 | AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44, 1,710 kB/s with block ack, and 6.7 MB/s with joined segments and two streams |
-| AirDrop sender (`airdrop/sender.py`) | First file sent 2026-10-11: a 1.0 MB photo reached the owner's iPhone's Photos, after two attempts that failed at different steps. A 24.5 MB video then went at 2.2 MB/s with the rate chosen by the radio daemon, and at 4.7 MB/s with `-Aggregate` |
+| AirDrop sender (`airdrop/sender.py`) | First file sent 2026-10-11: a 1.0 MB photo reached the owner's iPhone's Photos, after two attempts that failed at different steps. A 24.5 MB video then went at 2.2 MB/s with the rate chosen by the radio daemon, and at 9.9 MB/s with `-Aggregate -QuickSubmit` |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.

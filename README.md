@@ -151,9 +151,11 @@ unlocked, and with `awdl-run.ps1` running:
 It needs the computer's Bluetooth to wake the receiver, and the firewall
 rules above. Sending runs at about 2 MB/s: `awdl-run.ps1` picks the rate of
 outgoing data frames by what the receiver acknowledges, and `-DataRate`
-fixes it. With `-Aggregate`, which is experimental, the receiver is asked to
-take those frames in aggregates, and one 24.5 MB video went at 4.7 MB/s.
-Contacts Only is not implemented in either direction.
+fixes it. Two experimental switches go further: with `-Aggregate` the
+receiver is asked to take those frames in aggregates, and with `-QuickSubmit`
+the card is handed frames fast enough to fill them. With both, one 24.5 MB
+video went at 9.9 MB/s. Contacts Only is not implemented in either
+direction.
 
 ## Licensing
 

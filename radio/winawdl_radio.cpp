@@ -3,7 +3,7 @@
  * client over the pipe in radio_link.h.
  * Usage: winawdl_radio <channel> [--width 20|40|80] [--capture file.pcap]
  *        [--no-block-ack] [--retries 0..62]
- *        [--data-rate auto|client|MCS7/20] [--aggregate] */
+ *        [--data-rate auto|client|MCS7/20] [--aggregate] [--quick-submit] */
 
 #include <array>
 #include <atomic>
@@ -415,13 +415,18 @@ public:
 
   void not_sent() { _next = {}; }
 
+  /* The next frame sent is one whose answer the card does not take for an
+   * acknowledgement, a block-ack request: it will report it given up on. */
+  void next_goes_unacknowledged() { _next.unacknowledged = true; }
+
   /* The card took the frame last prepared, or one that was not prepared.
    * Data frames wait their turn in one queue; anything else has its own and
    * is out at once. */
   void sent() {
     const InFlight frame = std::exchange(_next, {});
     if (!frame.data) {
-      _others_in_flight++;
+      if (_others_in_flight.size() >= kMostInFlight) _others_in_flight.clear();
+      _others_in_flight.push_back(frame.unacknowledged);
       return;
     }
     if (_in_flight.size() >= kMostInFlight) _in_flight.clear();
@@ -442,6 +447,7 @@ public:
 private:
   struct InFlight {
     bool data = false;
+    bool unacknowledged = false; /* a frame other than data: see above */
     bool rated = false;
     size_t level = 0;
     std::optional<uint16_t> sequence; /* of a frame under an agreement */
@@ -466,9 +472,11 @@ private:
     const bool station_present =
         micros(now) - _session.station_heard_us <=
         std::chrono::microseconds(kStationHeardRecently).count();
-    const uint64_t others = std::min(finished, _others_in_flight);
-    _others_in_flight -= others;
-    finished -= others;
+    for (; finished && !_others_in_flight.empty(); finished--) {
+      /* Not a frame that was lost: the report is what was expected. */
+      if (_others_in_flight.front() && given_up) given_up--;
+      _others_in_flight.pop_front();
+    }
     for (; finished && !_in_flight.empty(); finished--) {
       const InFlight frame = _in_flight.front();
       _in_flight.pop_front();
@@ -485,7 +493,7 @@ private:
   RateLadder _ladder;
   std::deque<InFlight> _in_flight;
   InFlight _next;
-  uint64_t _others_in_flight = 0;
+  std::deque<bool> _others_in_flight; /* each: goes unacknowledged */
   bool _gap = false;
   uint64_t _reported = 0, _given_up = 0;
 };
@@ -601,6 +609,7 @@ void tell_window(IRadio &radio, FrameCapture *capture, RateControl &rates,
     notice.clear();
     return;
   }
+  rates.next_goes_unacknowledged();
   send_frame(radio, capture, rates,
              block_ack::window_start(window->first, session.own.get(),
                                      OutgoingSession::kTid, window->second));
@@ -727,6 +736,7 @@ struct Options {
    * in devourer's notation. */
   std::string data_rate = "auto";
   bool aggregate = false;
+  bool quick_submit = false;
 };
 
 /* The rate `spec` names, or nothing if it names none or asks for a wider
@@ -769,6 +779,8 @@ std::optional<Options> parse_options(int argc, char **argv) {
       options.block_ack = false;
     else if (argument == "--aggregate")
       options.aggregate = true;
+    else if (argument == "--quick-submit")
+      options.quick_submit = true;
     else if (argument == "--capture" && i + 1 < argc)
       options.capture_path = argv[++i];
     else if (argument == "--width" && i + 1 < argc)
@@ -800,7 +812,8 @@ int main(int argc, char **argv) {
     std::fprintf(stderr,
                  "usage: %s <channel> [--width 20|40|80] [--capture file.pcap] "
                  "[--no-block-ack] [--retries 0..62] "
-                 "[--data-rate auto|client|MCS7/20] [--aggregate]\n",
+                 "[--data-rate auto|client|MCS7/20] [--aggregate] "
+                 "[--quick-submit]\n",
                  argv[0]);
     return 2;
   }
@@ -825,7 +838,9 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  auto transport = devourer::PcieTransport::Open("win", logger);
+  devourer::PcieTransport::Config bus;
+  bus.tx_quick_submit = options->quick_submit;
+  auto transport = devourer::PcieTransport::Open("win", logger, bus);
   if (!transport) return 1;
   WiFiDriver driver(logger);
   devourer::DeviceConfig config;
