@@ -1,0 +1,52 @@
+# What can be checked with no radio: the AirDrop layer over loopback, and the
+# app's own checks. The driver, the radio daemon and the AWDL daemon need the
+# Windows Driver Kit, vcpkg and the card, and are not built here.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  airdrop:
+    name: AirDrop layer, Python ${{ matrix.python }}
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The oldest version the README names, and the one it is written on.
+        python: ['3.10', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Style
+        run: |
+          python -m pip install ruff==0.15.10
+          python -m ruff check airdrop
+      - name: Tests, over loopback
+        run: python -m unittest discover -s airdrop\tests
+
+  app:
+    name: Windows app
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build
+        run: dotnet build app\winawdl.csproj -c Release -nologo
+      - name: Checks that need no radio and no window
+        shell: pwsh
+        run: |
+          $out = "$PWD\build\app\check"
+          # The app has no console, so its exit is waited for and its log read.
+          $run = Start-Process build\app\winawdl\winawdl.exe -ArgumentList '--check', "`"$out`"" -Wait -PassThru
+          if (Test-Path "$out\check.log") { Get-Content "$out\check.log" }
+          exit $run.ExitCode
