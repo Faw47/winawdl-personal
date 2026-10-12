@@ -11,8 +11,8 @@ them and carries IPv6 traffic to and from them. An AirDrop receiver on top of
 that has received photos, a 28 MB video and a Live Photo from an iPhone, at
 about 16 MB/s, and a sender has put files into the iPhone's Photos at 9 to
 14 MB/s. All of it has run on one machine with one card. A Windows app puts
-the two behind one window; it has run against the receiver and sender on one
-computer, and not yet with the radio. Read
+the two behind one window: through it the radio has been started and
+stopped, a small file sent to the iPhone and one received from it. Read
 [DESIGN-NOTES.md](DESIGN-NOTES.md) for the design, the
 measurements, the open risks and the safety notes before installing anything.
 
@@ -179,6 +179,10 @@ Contacts Only is not implemented in either direction.
 needs the driver bound, both daemons built and the firewall rules, and no
 elevated prompt of its own.
 
+![The app: a device asking to send a photo, a transfer to a device under way, and the light theme with received files](app/screenshot.png)
+
+The devices and files in the picture are stand-ins from the app's own checks.
+
 - **Radio.** The switch starts the radio daemon and the AWDL daemon as
   `awdl-run.ps1` does with no arguments. Windows asks for administrator
   rights for a second copy of the app, which runs the two without a window
@@ -192,9 +196,10 @@ elevated prompt of its own.
 - **Closing** the window leaves the app in the notification area, still
   receiving, until it is quit from its icon there. Its settings turn that off.
 
-What has been tried so far is what `build-app.ps1 -Check` does. Starting the
-radio from the app and a transfer with a phone through it have not been, and
-neither has what a phone shows when a request from it is declined.
+Over the air it has so far started and stopped the radio, sent one 0.2 MB
+file to an iPhone and received one 71 kB picture from it. Large transfers
+through it have not been tried, nor what a phone shows when a request from
+it is declined. `build-app.ps1 -Check` covers the rest without a radio.
 [app/DESIGN.md](app/DESIGN.md) is the direction its look follows.
 
 ## Licensing

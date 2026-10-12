@@ -572,10 +572,31 @@ standing in for both daemons, and each state of the radio and of the engine
 against the screen it should put up. `--drive` opens the real window off
 screen, never activated, starts the real engine with `--loopback` and a
 second one as the other device, and presses each control through its
-automation peer, which is the interface a screen reader uses. 42 and 58
-checks pass. What that leaves untried is everything behind the Windows
-prompt and everything over the air: the switch starting the real daemons,
-and a transfer with a phone through the window.
+automation peer, which is the interface a screen reader uses. 43 and 58
+checks pass.
+
+The first run with the radio was the owner's, on 2026-10-12, and what
+follows is read from the logs it left. The switch started both daemons, and
+the engine was receiving on `awdl0` three seconds later. A 0.2 MB file went
+to the owner's iPhone, which accepted it and confirmed the upload. The
+iPhone then asked to send a 71 kB picture, and it was stored 15 s later,
+the time it took to press Accept in the window. Stopping interrupted the
+AWDL daemon with Ctrl+C and the radio daemon left with its client; neither
+had to be killed. Three things showed up:
+
+- What the daemons print was being read in the console's code page and
+  stored damaged wherever a line held a dash or a multiplication sign. It is
+  read as UTF-8 now.
+- While looking, one receiver nearby refused the TLS handshake with
+  "certificate unknown" each time it was asked for its name, every 2 s. The
+  engine keeps asking and the window never shows it. It is probably a device
+  visible to its contacts only, which would deserve the notice the window
+  already has for those; that has not been tried.
+- A folder listing shows a log's size as it was when the file was opened.
+  The logs do fill as the daemons run.
+
+Still untried through the window: a large transfer, and what a phone shows
+when its request is declined.
 
 ## Fallback: a small kernel driver
 
@@ -612,7 +633,7 @@ on the first attempt.
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
 | AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44, 1,710 kB/s with block ack, and 6.7 MB/s with joined segments and two streams |
 | AirDrop sender (`airdrop/sender.py`) | First file sent 2026-10-11: a 1.0 MB photo reached the owner's iPhone's Photos, after two attempts that failed at different steps. A 24.5 MB video then went at 2.2 MB/s with the rate chosen by the radio daemon, then at 9.9 MB/s in aggregates, and a 144.5 MB one at 14.5 MB/s |
-| The Windows app (`app/`, `airdrop/engine.py`) | Written 2026-10-12. Its window has sent and received files over loopback against a second engine, 96 MB each way intact, and its supervisor has started and stopped stand-in daemons. Not yet run with the radio |
+| The Windows app (`app/`, `airdrop/engine.py`) | Written 2026-10-12. Its window has sent and received files over loopback against a second engine, 96 MB each way intact. On air the same day: its switch started and stopped both daemons, a 0.2 MB file went to the owner's iPhone and a 71 kB picture came back after Accept in the window |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.
