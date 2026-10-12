@@ -47,7 +47,6 @@ public sealed class MainWindow : Window
 
     private void Paint()
     {
-        Icon = PlaceholderIcon.ForWindow(_theme.Current);
         TitleBar.Paint(this, _theme.Current);
         TextScale = TextScaleInWindows();
     }
@@ -152,7 +151,7 @@ public sealed class Tray : IDisposable
     {
         const string key = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
         var darkTaskbar = Registry.CurrentUser.OpenSubKey(key)?.GetValue("SystemUsesLightTheme") is 0;
-        return PlaceholderIcon.ForTray(darkTaskbar);
+        return AppIcon.ForTray(darkTaskbar);
     }
 
     private void OnPreferenceChanged(object sender, UserPreferenceChangedEventArgs e) =>

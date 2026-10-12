@@ -195,8 +195,7 @@ elevated prompt of its own.
 What has been tried so far is what `build-app.ps1 -Check` does. Starting the
 radio from the app and a transfer with a phone through it have not been, and
 neither has what a phone shows when a request from it is declined.
-[app/DESIGN.md](app/DESIGN.md) is the direction its look follows. It has no
-icon yet: the first letter of its name stands in for one.
+[app/DESIGN.md](app/DESIGN.md) is the direction its look follows.
 
 ## Licensing
 

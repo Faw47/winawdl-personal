@@ -1,6 +1,5 @@
 using System.Runtime.InteropServices;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -33,37 +32,80 @@ public static class TitleBar
     private static extern int DwmSetWindowAttribute(IntPtr window, int attribute, ref int value, int size);
 }
 
-/// <summary>Stands in for an icon until the owner describes one: the first letter
-/// of the name, set in the app's own type. See app/DESIGN.md.</summary>
-public static class PlaceholderIcon
+/// <summary>The app's mark: a file that has just landed, turned as the files in
+/// the window are, and the rings spreading from where it fell. One drawing
+/// gives the icon file and the single-color mark of the notification area.
+/// See app/DESIGN.md.</summary>
+public static class AppIcon
 {
-    public const string Letter = "w";
+    /// <summary>The blue Windows ships as its accent. The icon keeps it whatever
+    /// the accent is, so that it is the same icon wherever it is pinned.</summary>
+    public static readonly Color Ground = Color.FromRgb(0x00, 0x78, 0xD4);
 
-    /// <summary>For the taskbar and Alt+Tab: the letter on a raised square.</summary>
-    public static ImageSource ForWindow(Palette palette)
+    private const double Grid = 256;
+    private const double Turn = -12;
+    /// <summary>A ring fades and thins as it spreads.</summary>
+    private static readonly double[] Fade = [1, 0.7, 0.4];
+    private static readonly double[] Thin = [1, 0.88, 0.76];
+
+    private readonly record struct Cut(double Tile, double Stroke, double[] Rings);
+
+    /// <summary>Fewer and heavier rings as the icon gets smaller, so that each
+    /// stays more than a pixel wide.</summary>
+    private static Cut For(int size) => size switch
     {
-        const int size = 64;
-        var tile = new Border
+        >= 48 => new Cut(62, 11, [66, 101, 136]),
+        >= 20 => new Cut(66, 17, [70, 106]),
+        _ => new Cut(80, 26, [90]),
+    };
+
+    /// <summary>The mark at `size` pixels, on its plate, or alone when `ground` is null.</summary>
+    public static RenderTargetBitmap Draw(int size, Color mark, Color? ground)
+    {
+        var cut = For(size);
+        var center = new Point(Grid / 2, Grid / 2);
+        var brush = new SolidColorBrush(mark);
+        var visual = new DrawingVisual();
+        using (var dc = visual.RenderOpen())
         {
-            Width = size, Height = size, CornerRadius = new CornerRadius(14),
-            Background = palette.Brush(palette.Raised), BorderBrush = palette.Brush(palette.Line),
-            BorderThickness = new Thickness(1),
-            Child = Mark(palette.Brush(palette.Ink), 40),
-        };
-        return Render(tile, size);
+            dc.PushTransform(new ScaleTransform(size / Grid, size / Grid));
+            // The plate cuts the widest ring, which shows only in its corners.
+            var plate = new RectangleGeometry(new Rect(8, 8, Grid - 16, Grid - 16), 54, 54);
+            if (ground is { } fill)
+            {
+                // Lit from above, like every raised thing in the window.
+                var lit = new LinearGradientBrush(Shade(fill, 1.1), Shade(fill, 0.9), 90);
+                dc.DrawGeometry(lit, null, plate);
+            }
+            dc.PushClip(ground is null ? new RectangleGeometry(new Rect(0, 0, Grid, Grid)) : plate);
+            for (var ring = 0; ring < cut.Rings.Length; ring++)
+            {
+                dc.PushOpacity(Fade[ring]);
+                dc.DrawEllipse(null, new Pen(brush, cut.Stroke * Thin[ring]), center, cut.Rings[ring], cut.Rings[ring]);
+                dc.Pop();
+            }
+            dc.PushTransform(new RotateTransform(Turn, center.X, center.Y));
+            var tile = new Rect(center.X - cut.Tile / 2, center.Y - cut.Tile / 2, cut.Tile, cut.Tile);
+            dc.DrawRoundedRectangle(brush, null, tile, cut.Tile * 0.24, cut.Tile * 0.24);
+            dc.Pop();
+            dc.Pop();
+            dc.Pop();
+        }
+        var bitmap = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(visual);
+        bitmap.Freeze();
+        return bitmap;
     }
 
-    /// <summary>For the tray, which shows small single-color marks.</summary>
+    private static Color Shade(Color color, double by) => Color.FromRgb(
+        (byte)Math.Min(255, color.R * by + (by > 1 ? 14 : 0)), (byte)Math.Min(255, color.G * by),
+        (byte)Math.Min(255, color.B * by));
+
+    /// <summary>For the notification area, which shows small marks in one color.</summary>
     public static System.Drawing.Icon ForTray(bool onDarkTaskbar)
     {
-        const int size = 32;
-        var mark = new Border
-        {
-            Width = size, Height = size,
-            Child = Mark(onDarkTaskbar ? Brushes.White : Brushes.Black, 30),
-        };
         var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(Render(mark, size)));
+        encoder.Frames.Add(BitmapFrame.Create(Draw(32, onDarkTaskbar ? Colors.White : Colors.Black, null)));
         using var png = new System.IO.MemoryStream();
         encoder.Save(png);
         png.Position = 0;
@@ -78,22 +120,4 @@ public static class PlaceholderIcon
 
     [DllImport("user32.dll")]
     private static extern bool DestroyIcon(IntPtr icon);
-
-    private static TextBlock Mark(Brush brush, double fontSize) => new()
-    {
-        Text = Letter, Foreground = brush, FontSize = fontSize, FontWeight = FontWeights.SemiBold,
-        FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"),
-        HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-        Margin = new Thickness(0, -6, 0, 0),
-    };
-
-    private static RenderTargetBitmap Render(FrameworkElement element, int size)
-    {
-        element.Measure(new Size(size, size));
-        element.Arrange(new Rect(0, 0, size, size));
-        var bitmap = new RenderTargetBitmap(size, size, 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(element);
-        bitmap.Freeze();
-        return bitmap;
-    }
 }

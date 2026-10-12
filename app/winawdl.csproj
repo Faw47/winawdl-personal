@@ -10,6 +10,8 @@
     <RootNamespace>Winawdl</RootNamespace>
     <Version>0.1.0</Version>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Written by the app itself from the drawing in src\Shell\Chrome.cs: see app\DESIGN.md. -->
+    <ApplicationIcon>winawdl.ico</ApplicationIcon>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>

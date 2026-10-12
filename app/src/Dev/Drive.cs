@@ -588,15 +588,8 @@ public static class Drive
             Say("The window as Windows draws it, title bar included");
             var whole = Path.Combine(folder, "window-as-drawn.png");
             Check(Screen.Print(_window, whole), $"the whole window is printed to {Path.GetFileName(whole)}");
-            foreach (var (name, palette) in new[] { ("light", Palette.Light(ThemeService.SystemAccent())), ("dark", _theme.Current) })
-            {
-                var encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create((BitmapSource)Shell.PlaceholderIcon.ForWindow(palette)));
-                using var file = File.Create(Path.Combine(folder, $"icon-window-{name}.png"));
-                encoder.Save(file);
-            }
-            using (var tray = Shell.PlaceholderIcon.ForTray(onDarkTaskbar: true).ToBitmap())
-                tray.Save(Path.Combine(folder, "icon-tray-on-dark.png"));
+            Check(_window.Icon is null && System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) is not null,
+                  "the window takes the icon built into the app, which is the one Explorer shows for it");
 
             Say("Focus rings (drawn from each control's own focus style; Tab itself was not pressed)");
             var layer = AdornerLayer.GetAdornerLayer(_view)!;

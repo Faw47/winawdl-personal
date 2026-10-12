@@ -115,6 +115,12 @@ public static class Stage
             Sheet(pictures, into);
             return 0;
         }
+        if (args is ["icon", var icon, var preview])
+        {
+            WriteIcon(icon);
+            IconPreview(preview);
+            return 0;
+        }
         var folder = Directory.CreateDirectory(args[0]).FullName;
         var only = args.Skip(1).ToHashSet();
         var app = new Application();
@@ -406,6 +412,127 @@ public static class Stage
         }
         Walk(root);
         return found;
+    }
+
+    private static readonly int[] IconSizes = [16, 20, 24, 32, 40, 48, 64, 256];
+
+    /// <summary>Writes app\winawdl.ico from the drawing in AppIcon: run again
+    /// after the drawing changes, then rebuild.</summary>
+    public static void WriteIcon(string path)
+    {
+        var images = IconSizes.Select(size =>
+        {
+            var drawn = AppIcon.Draw(size, Colors.White, AppIcon.Ground);
+            return (Size: size, Data: size >= 256 ? PngBytes(drawn) : DibBytes(drawn));
+        }).ToList();
+        using var file = new BinaryWriter(File.Create(path));
+        file.Write((short)0);
+        file.Write((short)1);
+        file.Write((short)images.Count);
+        var offset = 6 + 16 * images.Count;
+        foreach (var (size, data) in images)
+        {
+            // A side of 256 is written as 0.
+            file.Write((byte)(size >= 256 ? 0 : size));
+            file.Write((byte)(size >= 256 ? 0 : size));
+            file.Write((short)0);
+            file.Write((short)1);
+            file.Write((short)32);
+            file.Write(data.Length);
+            file.Write(offset);
+            offset += data.Length;
+        }
+        foreach (var (_, data) in images) file.Write(data);
+    }
+
+    private static byte[] PngBytes(BitmapSource drawn)
+    {
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(drawn));
+        using var data = new MemoryStream();
+        encoder.Save(data);
+        return data.ToArray();
+    }
+
+    /// <summary>An icon's older form, which the small sizes are kept in: the
+    /// pixels from the bottom row up, then a mask of the fully clear ones.</summary>
+    private static byte[] DibBytes(BitmapSource drawn)
+    {
+        var size = drawn.PixelWidth;
+        var pixels = new byte[size * size * 4];
+        new FormatConvertedBitmap(drawn, PixelFormats.Bgra32, null, 0).CopyPixels(pixels, size * 4, 0);
+        var maskRow = (size + 31) / 32 * 4;
+        using var data = new MemoryStream();
+        using var writer = new BinaryWriter(data);
+        writer.Write(40);
+        writer.Write(size);
+        writer.Write(size * 2);
+        writer.Write((short)1);
+        writer.Write((short)32);
+        writer.Write(0);
+        writer.Write(pixels.Length + maskRow * size);
+        writer.Write(0L);
+        writer.Write(0L);
+        for (var row = size - 1; row >= 0; row--) writer.Write(pixels, row * size * 4, size * 4);
+        for (var row = size - 1; row >= 0; row--)
+        {
+            var clear = new byte[maskRow];
+            for (var x = 0; x < size; x++)
+                if (pixels[(row * size + x) * 4 + 3] == 0) clear[x / 8] |= (byte)(0x80 >> x % 8);
+            writer.Write(clear);
+        }
+        return data.ToArray();
+    }
+
+    /// <summary>The icon at every size it is stored in, on a light and a dark
+    /// taskbar, with the smallest ones enlarged pixel for pixel.</summary>
+    public static void IconPreview(string path)
+    {
+        const double band = 300, width = 1500;
+        var smooth = new DrawingVisual();
+        using (var dc = smooth.RenderOpen())
+        {
+            // Each pixel as a square: scaling the picture would blur what is being judged.
+            void Enlarged(BitmapSource small, double left, double top, int times)
+            {
+                var side = small.PixelWidth;
+                var pixels = new byte[side * side * 4];
+                new FormatConvertedBitmap(small, PixelFormats.Bgra32, null, 0).CopyPixels(pixels, side * 4, 0);
+                for (var y = 0; y < side; y++)
+                    for (var x = 0; x < side; x++)
+                    {
+                        var at = (y * side + x) * 4;
+                        var color = Color.FromArgb(pixels[at + 3], pixels[at + 2], pixels[at + 1], pixels[at]);
+                        dc.DrawRectangle(new SolidColorBrush(color), null, new Rect(left + x * times, top + y * times, times, times));
+                    }
+            }
+
+            foreach (var (row, taskbar, single) in new[]
+                     {
+                         (0, Color.FromRgb(0xF3, 0xF3, 0xF3), Colors.Black), (1, Color.FromRgb(0x20, 0x20, 0x20), Colors.White),
+                     })
+            {
+                var top = row * band;
+                dc.DrawRectangle(new SolidColorBrush(taskbar), null, new Rect(0, top, width, band));
+                double x = 22;
+                foreach (var size in IconSizes.Reverse())
+                {
+                    dc.DrawImage(AppIcon.Draw(size, Colors.White, AppIcon.Ground), new Rect(x, top + 22, size, size));
+                    x += size + 18;
+                }
+                foreach (var size in (int[])[16, 24, 32])
+                {
+                    Enlarged(AppIcon.Draw(size, Colors.White, AppIcon.Ground), x, top + 22, 7);
+                    x += size * 7 + 18;
+                }
+                var tray = AppIcon.Draw(32, single, null);
+                dc.DrawImage(tray, new Rect(x, top + 22, 32, 32));
+                Enlarged(tray, x, top + 70, 5);
+            }
+        }
+        var picture = new RenderTargetBitmap((int)width, (int)(band * 2), 96, 96, PixelFormats.Pbgra32);
+        picture.Render(smooth);
+        WritePng(picture, path);
     }
 
     /// <summary>Several pictures side by side in one file, to look over at once.</summary>

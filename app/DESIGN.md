@@ -13,9 +13,8 @@ A change to the first part outranks anything in the second.
   setting, with the owner's own Windows accent color as the one accent. The
   app looks like it belongs on the machine.
 - **Name:** winawdl.
-- **Icon:** to be drawn from the owner's idea, which has not been described
-  yet. Until it is, the first letter of the name stands in, and nothing in
-  the app presents that letter as a logo.
+- **Icon:** "more like an AirDrop-like icon" (the owner, on seeing the letter
+  that first stood in for one).
 - **Shell:** the most optimized one, which is a native window: one process,
   nothing downloaded, drag and drop that carries file paths.
 
@@ -119,6 +118,31 @@ Windows itself uses that sign for that press: the gear for settings, the
 cross that closes, stops or removes, the tick on a transfer that got through,
 the shield on anything that leads to a permission prompt. A file shows its
 own thumbnail when Windows has one.
+
+### The app's icon
+
+White rings spreading on blue, around a file turned the way the files in the
+window are: a file that has just landed. Rings on blue are what make it read
+as AirDrop at a glance, which is what was asked for. It is not Apple's mark,
+which is theirs alone: that one is open at the bottom around a wedge, this
+one is whole rings around a file.
+
+- The blue is `#0078D4`, the accent Windows ships with. It stays that blue
+  whatever the accent is, because an icon is pinned and found by its color.
+- The plate is a shade lighter at the top than at the bottom: lit from
+  above, like every raised thing in the window.
+- A ring fades and thins as it spreads, and the widest is cut by the plate.
+- Small sizes carry fewer, heavier rings (three from 48 pixels, two from 20,
+  one below), so that each stays more than a pixel wide.
+- The notification area gets the same mark in one color, white or black with
+  the taskbar, as Windows' own marks there are.
+
+The drawing is code, in `src/Shell/Chrome.cs`. After changing it, write the
+icon file again and rebuild:
+
+```powershell
+.\build\app\winawdl\winawdl.exe --render icon app\winawdl.ico build\app\icon-preview.png
+```
 
 ### Motion
 
