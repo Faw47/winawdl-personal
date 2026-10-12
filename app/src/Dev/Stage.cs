@@ -43,6 +43,7 @@ public sealed class ScriptedRadio : IRadio
     public RadioPhase Phase { get; private set; }
     public string LastLine { get; private set; } = "";
     public string LogFolder => Path.GetTempPath();
+    public bool FromSource { get; set; } = true;
     public event Action? Changed;
     public int Starts { get; private set; }
 

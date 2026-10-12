@@ -20,21 +20,34 @@ public static class RadioSupervisor
     private const int InterruptWaitMs = 5000;
     private const int OwnLogLimitBytes = 64 * 1024;
 
-    public static string LogFolder(string repo) => Path.Combine(repo, "build", "app", "logs");
-    public static string RadioProgram(string repo) =>
-        Path.Combine(repo, "build", "radio", "Release", "winawdl_radio.exe");
-    public static string AwdlProgram(string repo) => Path.Combine(repo, "build", "awdl", "awdld.exe");
+    /// <summary>Where the daemons' output goes. The same for this elevated copy
+    /// and for the app that reads it, whoever each runs as, and not a place the
+    /// app could talk this copy into writing elsewhere.</summary>
+    public static string LogFolder => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "winawdl", "logs");
+
+    public static string RadioProgram(string root) =>
+        Found(root, @"radio\winawdl_radio.exe", @"build\radio\Release\winawdl_radio.exe");
+    public static string AwdlProgram(string root) => Found(root, @"awdl\awdld.exe", @"build\awdl\awdld.exe");
+
+    /// <summary>A program where an installed copy keeps it, or else where a
+    /// build of the repository leaves it.</summary>
+    private static string Found(string root, string installed, string built)
+    {
+        var place = Path.Combine(root, installed);
+        return File.Exists(place) ? place : Path.Combine(root, built);
+    }
 
     /// <summary>The elevated entry point: `--radio owner-pid stop-event-name`.</summary>
     public static int Run(string[] arguments)
     {
-        if (arguments.Length != 2 || !int.TryParse(arguments[0], out var owner) || Repo.Find() is not { } repo)
+        if (arguments.Length != 2 || !int.TryParse(arguments[0], out var owner) || Repo.Find() is not { } root)
             return 2;
         // The same two commands scripts\awdl-run.ps1 runs with its defaults.
         return Supervise(owner, arguments[1],
-                         new Daemon("radio", RadioProgram(repo), [Channel]),
-                         new Daemon("awdld", AwdlProgram(repo), ["-c", Channel]),
-                         LogFolder(repo));
+                         new Daemon("radio", RadioProgram(root), [Channel]),
+                         new Daemon("awdld", AwdlProgram(root), ["-c", Channel]),
+                         LogFolder);
     }
 
     /// <summary>Returns 0 after a stop that was asked for, 3 when a daemon ended by itself.</summary>

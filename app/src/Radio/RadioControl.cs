@@ -32,7 +32,8 @@ public sealed class RadioControl : IRadio
 
     public RadioPhase Phase { get; private set; }
     public string LastLine { get; private set; } = "";
-    public string LogFolder => _repo is null ? "" : RadioSupervisor.LogFolder(_repo);
+    public string LogFolder => RadioSupervisor.LogFolder;
+    public bool FromSource => _repo is not null && Engine.Repo.IsSourceTree(_repo);
     public event Action? Changed;
 
     private void Become(RadioPhase phase, string lastLine = "")

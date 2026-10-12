@@ -30,7 +30,7 @@ internal sealed class OtherDevice : IDisposable
     private readonly ConcurrentQueue<JsonElement> _said = new();
     private readonly List<JsonElement> _seen = [];
 
-    public OtherDevice(string python, string repo, string name, int port, int peerPort, string folder)
+    public OtherDevice(string python, string repo, string name, int port, int peerPort, string folder, string keys)
     {
         var start = new ProcessStartInfo(python)
         {
@@ -41,7 +41,7 @@ internal sealed class OtherDevice : IDisposable
         foreach (var argument in (string[])
                  [
                      "-u", Path.Combine(repo, "airdrop", "engine.py"), "--loopback", "--port", $"{port}",
-                     "--peer", $"[::1]:{peerPort}", "--name", name, "--outdir", folder,
+                     "--peer", $"[::1]:{peerPort}", "--name", name, "--outdir", folder, "--keys", keys,
                  ])
             start.ArgumentList.Add(argument);
         _process = Process.Start(start)!;
@@ -327,6 +327,11 @@ public static class Drive
             var big = Path.Combine(folder, "files", "stand-in-film.mov");
             if (!File.Exists(big)) File.WriteAllBytes(big, RandomNumberGenerator.GetBytes(96 * 1024 * 1024));
             int myPort = FreePort(), theirPort = FreePort();
+            // Both ends present a certificate this app makes itself, as a PC without OpenSSL would.
+            var keys = Path.Combine(folder, "keys");
+            if (Directory.Exists(keys)) Directory.Delete(keys, recursive: true);
+            Check(Identity.Ensure(keys) && File.Exists(Path.Combine(keys, Identity.Key)),
+                  "the app makes the certificate the engine presents, with no OpenSSL");
 
             _theme = Program.Dress(_app);
             _theme.Apply(Palette.Night(ThemeService.SystemAccent()));
@@ -334,7 +339,7 @@ public static class Drive
             _desk = new ScriptedDesk(_app.Dispatcher) { RunsLater = true };
             _settings = new AppSettings { Name = "Driven PC", Folder = mine };
             _engine = new EngineProcess(_app.Dispatcher, repo,
-                                        ["--loopback", "--port", $"{myPort}", "--peer", $"[::1]:{theirPort}"]);
+                                        ["--loopback", "--port", $"{myPort}", "--peer", $"[::1]:{theirPort}", "--keys", keys]);
             var radio = new ScriptedRadio();
             _model = new TableModel(_engine, radio, _desk, _settings);
             _window = new MainWindow(_model, _theme, _settings)
@@ -343,7 +348,7 @@ public static class Drive
                 ShowActivated = false, ShowInTaskbar = false,
             };
             _view = (MainView)_window.Content;
-            _other = new OtherDevice(python, repo, "Other device", theirPort, myPort, theirs);
+            _other = new OtherDevice(python, repo, "Other device", theirPort, myPort, theirs, keys);
             _model.StartTheEngine();
             _window.Show();
             try

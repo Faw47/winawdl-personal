@@ -112,8 +112,11 @@ class Beacon:
         shell = os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'System32',
                              'WindowsPowerShell', 'v1.0', 'powershell.exe')
         try:
+            # A PC that never ran a script of its own refuses script files; this
+            # one is the project's, and the setting holds for this process only.
             self.process = subprocess.Popen(
-                [shell, '-NoProfile', '-NonInteractive', '-File', self.script],
+                [shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                 '-File', self.script],
                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, text=True)
             said = self.process.stdout.readline().strip()

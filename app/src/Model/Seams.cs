@@ -26,6 +26,9 @@ public interface IRadio
     /// <summary>What the daemons last wrote: progress while starting, the cause after a failure.</summary>
     string LastLine { get; }
     string LogFolder { get; }
+    /// <summary>The app runs from a clone of the repository, whose programs are
+    /// built there, and not from an installed copy.</summary>
+    bool FromSource { get; }
     event Action Changed;
 
     void Start();

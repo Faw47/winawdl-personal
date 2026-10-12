@@ -136,7 +136,9 @@ public sealed class TableModel : Observable
         Across.RadioProblem => _radio.Phase switch
         {
             RadioPhase.Refused => "The radio stayed off",
-            RadioPhase.NotBuilt => "The radio has not been built yet",
+            RadioPhase.NotBuilt => _radio.FromSource
+                ? "The radio has not been built yet"
+                : "The radio's programs are missing",
             _ => _radioHasRun ? "The radio stopped" : "The radio did not start",
         },
         _ => _radio.Phase == RadioPhase.Stopping ? "Stopping the radio" : "The radio is off",
@@ -151,8 +153,9 @@ public sealed class TableModel : Observable
         Across.RadioProblem => _radio.Phase switch
         {
             RadioPhase.Refused => "Windows asked for permission and the answer was no.",
-            RadioPhase.NotBuilt => "Run scripts\\build-radio.ps1 and scripts\\build-awdl.ps1 in the "
-                                   + "repository, then try again.",
+            RadioPhase.NotBuilt => _radio.FromSource
+                ? "Run scripts\\build-radio.ps1 and scripts\\build-awdl.ps1 in the repository, then try again."
+                : "This copy of winawdl is incomplete. Install it again.",
             _ => _radio.LastLine.Length > 0 ? _radio.LastLine : "It left nothing in its log.",
         },
         _ => _radio.Phase == RadioPhase.Stopping

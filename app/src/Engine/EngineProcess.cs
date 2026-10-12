@@ -19,6 +19,10 @@ public static class Repo
         return null;
     }
 
+    /// <summary>Whether `root` is a clone being worked in, whose programs are
+    /// built there, and not an installed copy.</summary>
+    public static bool IsSourceTree(string root) => File.Exists(Path.Combine(root, "scripts", "build-radio.ps1"));
+
     public static string DataFolder
     {
         get
@@ -82,6 +86,8 @@ public sealed partial class EngineProcess(Dispatcher dispatcher, string? repo, I
         };
         foreach (var argument in (string[])["-u", script, "--name", name, "--outdir", folder])
             start.ArgumentList.Add(argument);
+        var keys = extraArguments.SkipWhile(argument => argument != "--keys").Skip(1).FirstOrDefault();
+        Identity.Ensure(keys ?? Identity.DefaultFolder);
         if (!ask) start.ArgumentList.Add("--take-all");
         foreach (var argument in extraArguments) start.ArgumentList.Add(argument);
 
