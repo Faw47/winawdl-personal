@@ -118,7 +118,9 @@ class EngineTest(unittest.TestCase):
         stored = heard.wait('stored', id=asked['id'])
         thread.join()
         self.assertEqual(outcome, [sender.SENT])
-        self.assertEqual((stored['folder'], stored['names']), (folder, ['clip.mp4']))
+        # The engine gives the folder's full name; a temporary one may come in its short form.
+        self.assertTrue(os.path.samefile(stored['folder'], folder))
+        self.assertEqual(stored['names'], ['clip.mp4'])
         with open(os.path.join(folder, 'clip.mp4'), 'rb') as source:
             self.assertEqual(source.read(), data)
         done = [said['done'] for said in heard.events if said['event'] == 'incoming']
