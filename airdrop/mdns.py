@@ -140,6 +140,7 @@ class Instances:
         self._names = set()
         self._services = {}
         self._addresses = {}
+        self._heard = {}  # instance name: when it was last announced
 
     def feed(self, packet, source):
         """Take in one packet from `source`, the address it came from."""
@@ -147,6 +148,7 @@ class Instances:
             if rtype == TYPE_PTR and name == self.type_name:
                 if ttl:
                     self._names.add(value)
+                    self._heard[value] = time.monotonic()
                 else:
                     self._names.discard(value)
             elif rtype == TYPE_SRV and name.endswith('.' + self.type_name):
@@ -162,10 +164,15 @@ class Instances:
         missing = sorted(self._names - self._services.keys())
         return [(self.type_name, TYPE_PTR)] + [(name, TYPE_SRV) for name in missing]
 
-    def located(self):
-        """{instance name: (address, port)} for those that can be reached."""
+    def located(self, within=None):
+        """{instance name: (address, port)} for those that can be reached,
+        or only those announced in the last `within` seconds: nothing says
+        goodbye for a device that stops announcing in its AWDL frames."""
+        oldest = time.monotonic() - within if within else None
         out = {}
         for name in self._names & self._services.keys():
+            if oldest is not None and self._heard.get(name, 0) < oldest:
+                continue
             host, port, source = self._services[name]
             out[name] = (self._addresses.get(host, source), port)
         return out

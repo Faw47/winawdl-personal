@@ -372,6 +372,11 @@ class ArchiveEndWatcher:
         self._held = b''
         self._inflater = None
         self._block_left = 0
+        self.decoded = 0  # bytes of the archive seen so far
+
+    @property
+    def gave_up(self):
+        return self._gave_up
 
     def feed(self, wire):
         """Take the next bytes of the body; True once the archive is whole."""
@@ -398,7 +403,9 @@ class ArchiveEndWatcher:
 
     def _inflate(self, data):
         while data:
-            self._scanner.feed(self._inflater.decompress(data, IO_CHUNK_BYTES))
+            plain = self._inflater.decompress(data, IO_CHUNK_BYTES)
+            self.decoded += len(plain)
+            self._scanner.feed(plain)
             data = self._inflater.unconsumed_tail
 
     def _blocks(self, data):
@@ -419,24 +426,32 @@ class ArchiveEndWatcher:
             if self._inflater:
                 self._inflate(bytes(piece))
             else:
+                self.decoded += len(piece)
                 self._scanner.feed(piece)
         self._held = b''
 
 
 class EndWatchingFile:
     """Writes an upload to `target` and calls `on_complete`, once, when what
-    has been written holds a complete archive."""
+    has been written holds a complete archive. `on_progress` is told how many
+    bytes of the archive have arrived, or of the body if that cannot be read."""
 
-    def __init__(self, target, on_complete):
+    def __init__(self, target, on_complete, on_progress=None):
         self._target = target
         self._on_complete = on_complete
+        self._on_progress = on_progress
         self._watcher = ArchiveEndWatcher()
+        self._complete = False
+        self._wire = 0
 
     def write(self, data):
         written = self._target.write(data)
-        if self._watcher and self._watcher.feed(data):
-            self._watcher = None
+        self._wire += len(data)
+        if not self._complete and self._watcher.feed(data):
+            self._complete = True
             self._on_complete()
+        if self._on_progress:
+            self._on_progress(self._wire if self._watcher.gave_up else self._watcher.decoded)
         return written
 
 

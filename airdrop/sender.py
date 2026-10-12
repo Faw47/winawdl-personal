@@ -91,6 +91,8 @@ class Beacon:
     def __init__(self, script=BEACON_SCRIPT):
         self.script = script
         self.process = None
+        self.on = False
+        self.said = ''  # why it is off
 
     def __enter__(self):
         shell = os.path.join(os.environ.get('SYSTEMROOT', r'C:\Windows'), 'System32',
@@ -103,7 +105,9 @@ class Beacon:
             said = self.process.stdout.readline().strip()
         except OSError as error:
             said = str(error)
-        if said == BEACON_READY:
+        self.on = said == BEACON_READY
+        self.said = '' if self.on else said or 'no answer'
+        if self.on:
             logging.info('Bluetooth beacon on')
         else:
             logging.warning('no Bluetooth beacon (%s): a receiver shows up only while '
@@ -116,15 +120,33 @@ class Beacon:
             self.process.wait()
 
 
+class Watch:
+    """What a program that shows a transfer is told. This one says nothing."""
+
+    def connected(self, connection):
+        """Closing `connection` from another thread stops the transfer."""
+
+    def accepted(self, total):
+        pass
+
+    def progress(self, done):
+        pass
+
+    def uploaded(self):
+        """Everything is on its way; the receiver has yet to confirm it."""
+
+
 class Progress:
-    def __init__(self, total):
+    def __init__(self, total, watch=None):
         self.total = total
         self.done = 0
         self.started = time.monotonic()
         self._last = self.started
+        self._watch = watch or Watch()
 
     def note(self, size):
         self.done += size
+        self._watch.progress(self.done)
         now = time.monotonic()
         if now - self._last >= PROGRESS_SECONDS:
             self._last = now
@@ -146,17 +168,26 @@ def client_context(keys_dir):
     return context
 
 
+class Unsendable(SystemExit):
+    """Why a list of paths cannot go out; `kind` names the reason for a
+    program, the message for a person."""
+
+    def __init__(self, kind, message):
+        super().__init__(message)
+        self.kind = kind
+
+
 def outgoing(paths):
     """The files to send, refusing what an archive cannot hold apart."""
     files = []
     for path in paths:
         if not os.path.isfile(path):
-            raise SystemExit(f'{path} is not a file')
+            raise Unsendable('not_a_file', f'{path} is not a file')
         status = os.stat(path)
         files.append(Outgoing(path, os.path.basename(path), status.st_size, status.st_mtime))
     names = [file.name.lower() for file in files]
     if len(set(names)) != len(names):
-        raise SystemExit('two of the files have the same name')
+        raise Unsendable('same_name', 'two of the files have the same name')
     return files
 
 
@@ -175,19 +206,28 @@ def outline(body):
         return f'<{len(body)} bytes that are no plist>'
 
 
-def receiver_name(address, port, scope, context):
-    """What the receiver here calls itself; None from one that keeps its name
-    for its contacts."""
+def receiver_identity(address, port, scope, context):
+    """(name, model) the receiver here gives for itself; None from one that
+    keeps its name for its contacts. The model may be None."""
     connection = Connection(address, port, scope, context, CONNECT_SECONDS)
     try:
         status, body = post_plist(connection, '/Discover', {})
-        return plistlib.loads(body).get('ReceiverComputerName') if status == 200 else None
+        if status != 200:
+            return None
+        answer = plistlib.loads(body)
+        name = answer.get('ReceiverComputerName')
+        return (name, answer.get('ReceiverModelName')) if name else None
     except (OSError, http.client.HTTPException) as error:
         raise Unreachable(str(error) or type(error).__name__) from None
     except ValueError:
         return None
     finally:
         connection.close()
+
+
+def receiver_name(address, port, scope, context):
+    identity = receiver_identity(address, port, scope, context)
+    return identity[0] if identity else None
 
 
 def find_receivers(browser, scope, context, wanted, seconds):
@@ -278,22 +318,35 @@ def archive_body(files, progress):
     return transfer.encode_dvzip(_archive(files, progress))
 
 
-def send(address, port, scope, context, sender_name, files):
-    """Ask the receiver, and upload once its owner accepts. Returns whether
-    the files went through."""
+def archive_bytes(files):
+    """How long the archive of these files is, which is what a transfer's
+    progress counts up to."""
+    return cpio.archive_length([('.', 0)] + [(f'./{file.name}', file.size) for file in files])
+
+
+SENT, DECLINED, REFUSED = 'sent', 'declined', 'refused'
+
+
+def deliver(address, port, scope, context, sender_name, files, watch=None):
+    """Ask the receiver, and upload once its owner accepts. Returns SENT,
+    DECLINED, or REFUSED for an upload the receiver did not take."""
+    watch = watch or Watch()
     connection = Connection(address, port, scope, context, ASK_SECONDS)
     try:
         transfer_id = str(uuid.uuid4()).upper()
+        connection.connect()
+        watch.connected(connection)
         status, answer = post_plist(connection, '/Ask',
                                     ask_body(sender_name, files, transfer_id))
         logging.debug('answer to the ask: status %d, %s', status, outline(answer))
         if status != 200:
             logging.warning('declined (status %d)', status)
-            return False
+            return DECLINED
         total = sum(file.size for file in files)
         logging.info('accepted; sending %d file(s), %.1f MB', len(files), total / MIB)
+        watch.accepted(total)
         connection.sock.settimeout(UPLOAD_IDLE_SECONDS)
-        progress = Progress(total)
+        progress = Progress(total, watch)
         # The receiver ties the upload to what it accepted by the transfer's
         # identifier.
         connection.request('POST', '/Upload', body=archive_body(files, progress),
@@ -301,15 +354,21 @@ def send(address, port, scope, context, sender_name, files):
                                     'Content-Type': 'application/x-dvzip',
                                     'TransferID': transfer_id},
                            encode_chunked=True)
+        watch.uploaded()
         response = connection.getresponse()
         response.read()
         if response.status != 200:
             logging.warning('the receiver refused the upload (status %d)', response.status)
-            return False
+            return REFUSED
         logging.info('sent, at %.1f MB/s', progress.rate())
-        return True
+        return SENT
     finally:
         connection.close()
+
+
+def send(address, port, scope, context, sender_name, files):
+    """Whether the files went through."""
+    return deliver(address, port, scope, context, sender_name, files) == SENT
 
 
 def parse_args(argv):

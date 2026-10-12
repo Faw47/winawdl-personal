@@ -141,6 +141,14 @@ def write_archive(members):
     yield trailer + b'\0' * (-(written + len(trailer)) % RECORD_BYTES)
 
 
+def archive_length(members):
+    """How many bytes write_archive yields for members of these names and sizes."""
+    written = sum(len(_portable_header(name, 0, 0, size, 0)) + size
+                  for name, size in members)
+    written += len(_portable_header(TRAILER, 0, 0, 0, 0))
+    return written + -written % RECORD_BYTES
+
+
 class TrailerScanner:
     """Follows an archive as it arrives, keeping none of it, to tell when it
     is all there: its trailer read and its last record filled."""
