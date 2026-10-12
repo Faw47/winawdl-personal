@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 """The engine against a sender, against another engine, and as the process a
 program drives, all over loopback. Needs OpenSSL, like the sender's tests."""
+import argparse
 import json
 import os
 import plistlib
@@ -13,10 +14,13 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
+sys.path.insert(0, HERE)
 import cpio  # noqa: E402
 import engine  # noqa: E402
 import mdns  # noqa: E402
+import receiver  # noqa: E402
 import sender  # noqa: E402
+from test_sender import RefusingReceiver  # noqa: E402
 
 LOOPBACK_SCOPE = 0
 WAIT_SECONDS = 15
@@ -226,6 +230,38 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(heard_here.wait('send', id='s1')['reason'], 'not_a_file')
         sending.handle({'do': 'send', 'id': 's2', 'peer': 'nobody', 'files': []})
         self.assertEqual(heard_here.wait('send', id='s2')['reason'], 'gone')
+
+    def test_a_receiver_that_refuses_this_computer_is_counted_and_not_shown(self):
+        with tempfile.TemporaryDirectory() as stranger:
+            refusing = RefusingReceiver(self.keys.name, stranger)
+            self.addCleanup(refusing.close)
+            running, heard, _ = self.engine('--peer', f'[::1]:{refusing.port}')
+            running.handle({'do': 'look', 'on': True})
+            self.assertEqual(heard.wait('unwilling')['count'], 1)
+            self.assertEqual(heard.kinds('peer', 'id'), [])
+            running.handle({'do': 'look', 'on': False})
+            heard.wait('unwilling', count=0)
+
+    def test_a_receiver_that_gives_no_name_is_counted_too(self):
+        settings = argparse.Namespace(
+            name='', model='MacBookPro18,3', dest=self.temp.name, max_receive_percent=30,
+            interface_index=LOOPBACK_SCOPE, redact=False)
+        nameless = receiver.Receiver(0, settings)
+        nameless.socket = receiver.tls_context(self.keys.name).wrap_socket(
+            nameless.socket, server_side=True, do_handshake_on_connect=False)
+        thread = threading.Thread(target=nameless.serve_forever, daemon=True)
+        thread.start()
+
+        def stop():
+            nameless.shutdown()
+            thread.join()
+            nameless.server_close()
+
+        self.addCleanup(stop)
+        running, heard, _ = self.engine('--peer', f'[::1]:{nameless.server_address[1]}')
+        running.handle({'do': 'look', 'on': True})
+        self.assertEqual(heard.wait('unwilling')['count'], 1)
+        self.assertEqual(heard.kinds('peer', 'id'), [])
 
     def test_looking_stops_when_told(self):
         _, _, _, sending, heard_here, peer = self.pair()

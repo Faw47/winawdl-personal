@@ -27,7 +27,7 @@ public sealed class TableModel : Observable
     private bool _radioHasRun;
     private string _beaconWhy = "", _receivingProblem = "", _heldNotice = "", _radioNotice = "";
     private string _engineProblem = "", _engineDetail = "", _nameDraft = "", _nameError = "", _folderError = "";
-    private int _contactsOnly;
+    private int _unwilling;
 
     public TableModel(IEngine engine, IRadio radio, IDesk desk, AppSettings settings)
     {
@@ -218,11 +218,13 @@ public sealed class TableModel : Observable
             notices.Add("Bluetooth could not wake nearby devices"
                         + (_beaconWhy.Length > 0 ? $" ({_beaconWhy})" : "")
                         + ". A device shows up here while its own share sheet is open.");
-        if (_contactsOnly > 0)
-            notices.Add(_contactsOnly == 1
-                ? "A device nearby shows itself to its contacts only. Set its AirDrop to Everyone for 10 Minutes."
-                : $"{_contactsOnly} devices nearby show themselves to their contacts only. Set their "
-                  + "AirDrop to Everyone for 10 Minutes.");
+        // Said of what was seen: one that keeps its name to itself, or would not
+        // have this PC's certificate. Contacts Only is the likely cause of both.
+        if (_unwilling > 0)
+            notices.Add(_unwilling == 1
+                ? "A device nearby only answers devices it knows. Set its AirDrop to Everyone for 10 Minutes."
+                : $"{_unwilling} devices nearby only answer devices they know. Set their AirDrop to "
+                  + "Everyone for 10 Minutes.");
         if (!notices.SequenceEqual(Notices))
         {
             Notices.Clear();
@@ -295,7 +297,7 @@ public sealed class TableModel : Observable
                     Peers.Clear();
                     Incoming.Clear();
                     _looking = _receiving = false;
-                    _contactsOnly = 0;
+                    _unwilling = 0;
                 }
                 break;
             case "receiving":
@@ -307,8 +309,8 @@ public sealed class TableModel : Observable
                 _beaconOn = !_looking || Flag(said, "beacon") || Text(said, "why") == "test receivers";
                 _beaconWhy = Text(said, "why");
                 break;
-            case "contacts_only":
-                _contactsOnly = (int)(Number(said, "count") ?? 0);
+            case "unwilling":
+                _unwilling = (int)(Number(said, "count") ?? 0);
                 break;
             case "peer":
                 AddPeer(Text(said, "id"), Text(said, "name"), Text(said, "model"));

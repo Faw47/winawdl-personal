@@ -5,6 +5,7 @@ import argparse
 import io
 import os
 import socket
+import ssl
 import sys
 import tempfile
 import threading
@@ -12,6 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cpio  # noqa: E402
+import identity  # noqa: E402
 import mdns  # noqa: E402
 import receiver  # noqa: E402
 import sender  # noqa: E402
@@ -24,6 +26,46 @@ INSTANCE = f'0a1b2c3d4e5f.{SERVICE_TYPE}'
 ADDRESS = 'fe80::5000:5eff:fe00:5301'
 SERVICE = mdns.Service(SERVICE_TYPE, '0a1b2c3d4e5f', '0a1b2c3d4e5f.local', ADDRESS, 8770,
                        'flags=1019')
+
+
+class RefusingReceiver:
+    """Listens on loopback and ends every TLS handshake over the client's
+    certificate: it wants one signed by a stranger it alone trusts."""
+
+    def __init__(self, keys_dir, stranger_dir):
+        certificate, key = identity.ensure_self_signed(keys_dir)
+        trusted, _ = identity.ensure_self_signed(stranger_dir)
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.context.load_cert_chain(certificate, key)
+        self.context.verify_mode = ssl.CERT_REQUIRED
+        self.context.load_verify_locations(cafile=trusted)
+        self.sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+        self.sock.bind(('::1', 0))
+        self.sock.listen()
+        self.port = self.sock.getsockname()[1]
+        threading.Thread(target=self._serve, daemon=True).start()
+
+    def _serve(self):
+        while True:
+            try:
+                connection, _ = self.sock.accept()
+            except OSError:
+                return
+            with connection:
+                connection.settimeout(2)
+                try:
+                    self.context.wrap_socket(connection, server_side=True).close()
+                except OSError:
+                    # Closing with the client's request unread would reset the
+                    # connection before the client has read the alert.
+                    try:
+                        while connection.recv(4096):
+                            pass
+                    except OSError:
+                        pass
+
+    def close(self):
+        self.sock.close()
 
 
 class ArchiveWriterTest(unittest.TestCase):
@@ -166,6 +208,27 @@ class LoopbackTest(unittest.TestCase):
             port = unused.getsockname()[1]
         with self.assertRaises(sender.Unreachable):
             sender.receiver_name('::1', port, LOOPBACK_SCOPE, self.client_context)
+
+    def test_a_receiver_that_refuses_the_certificate_is_unwilling(self):
+        with tempfile.TemporaryDirectory() as stranger:
+            refusing = RefusingReceiver(self.keys.name, stranger)
+            self.addCleanup(refusing.close)
+            with self.assertRaises(sender.Unwilling):
+                sender.receiver_identity('::1', refusing.port, LOOPBACK_SCOPE,
+                                         self.client_context)
+
+    def test_only_an_alert_about_the_certificate_is_a_refusal(self):
+        def alert(reason):
+            error = ssl.SSLError(1, reason)
+            error.reason = reason
+            return error
+
+        # The first is what an iPhone sent, the second what OpenSSL sends.
+        self.assertTrue(sender.refuses_certificate(alert('SSLV3_ALERT_CERTIFICATE_UNKNOWN')))
+        self.assertTrue(sender.refuses_certificate(alert('TLSV1_ALERT_UNKNOWN_CA')))
+        self.assertFalse(sender.refuses_certificate(alert('SSLV3_ALERT_HANDSHAKE_FAILURE')))
+        self.assertFalse(sender.refuses_certificate(alert('CERTIFICATE_VERIFY_FAILED')))
+        self.assertFalse(sender.refuses_certificate(ConnectionResetError()))
 
     def test_files_arrive_as_they_were(self):
         large = os.urandom(3 * sender.IO_BLOCK_BYTES + 17)

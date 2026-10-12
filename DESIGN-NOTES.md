@@ -572,7 +572,7 @@ standing in for both daemons, and each state of the radio and of the engine
 against the screen it should put up. `--drive` opens the real window off
 screen, never activated, starts the real engine with `--loopback` and a
 second one as the other device, and presses each control through its
-automation peer, which is the interface a screen reader uses. 43 and 58
+automation peer, which is the interface a screen reader uses. 45 and 58
 checks pass.
 
 The first run with the radio was the owner's, on 2026-10-12, and what
@@ -588,10 +588,13 @@ had to be killed. Three things showed up:
   stored damaged wherever a line held a dash or a multiplication sign. It is
   read as UTF-8 now.
 - While looking, one receiver nearby refused the TLS handshake with
-  "certificate unknown" each time it was asked for its name, every 2 s. The
-  engine keeps asking and the window never shows it. It is probably a device
-  visible to its contacts only, which would deserve the notice the window
-  already has for those; that has not been tried.
+  "certificate unknown" each time it was asked for its name, every 2 s, and
+  the window never showed it. Such a receiver is now counted with those that
+  answer without a name, the window says that a device nearby only answers
+  devices it knows and to set its AirDrop to Everyone for 10 Minutes, and it
+  is asked again every 10 s. That it is what a device visible to its contacts
+  only does is likely and not established: nothing vouches for a certificate
+  made here. The notice has not been seen with a phone yet.
 - A folder listing shows a log's size as it was when the file was opened.
   The logs do fill as the daemons run.
 

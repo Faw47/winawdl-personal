@@ -149,10 +149,15 @@ public static class Checks
         Expect(model.Across == Across.Nearby && world.Radio.Phase == RadioPhase.Running && model.Presence == "Visible as STUDY-PC",
                $"link up -> the devices' side, header \"{model.Presence}\", \"{model.NobodyTitle}\"");
         world.Engine.Say(new { @event = "looking", on = true, beacon = false, why = "the radio is off" });
-        world.Engine.Say(new { @event = "contacts_only", count = 2 });
+        world.Engine.Say(new { @event = "unwilling", count = 2 });
         world.Engine.Say(new { @event = "receiving", on = false, reason = "port_held" });
         Expect(model.Notices.Count == 3 && model.Presence == "Not visible yet",
                $"no Bluetooth, a held port and shy devices -> three notices: {string.Join(" | ", model.Notices)}");
+        world.Engine.Say(new { @event = "unwilling", count = 1 });
+        Expect(model.Notices.Contains("A device nearby only answers devices it knows. Set its AirDrop to Everyone for 10 Minutes."),
+               "one device that refuses this PC or keeps its name -> the notice says what to change on it");
+        world.Engine.Say(new { @event = "unwilling", count = 0 });
+        Expect(model.Notices.Count == 2, "it stops refusing, or leaves -> the notice goes");
         world.Engine.Say(new { @event = "link", up = false });
         world.Radio.Become(RadioPhase.Failed, "radio: could not get 6 locked 2 MiB blocks below 4 GiB");
         Expect(model.Across == Across.RadioProblem && model.PanelTitle == "The radio stopped" && model.PanelHasLog,

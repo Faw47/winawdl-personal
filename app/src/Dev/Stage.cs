@@ -240,7 +240,7 @@ public static class Stage
         yield return ("nobody", world =>
         {
             Up(world);
-            world.Engine.Say(new { @event = "contacts_only", count = 1 });
+            world.Engine.Say(new { @event = "unwilling", count = 1 });
         });
         yield return ("idle", Devices);
         yield return ("holding", world =>

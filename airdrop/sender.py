@@ -56,6 +56,20 @@ class Unreachable(Exception):
     pass
 
 
+class Unwilling(Exception):
+    """The receiver would not have this computer's certificate."""
+
+
+def refuses_certificate(error):
+    """Whether a receiver ended the TLS handshake over the certificate it was
+    shown. An iPhone has been seen to, with "certificate unknown"; it is
+    probably what one visible to its contacts only does, since nothing vouches
+    for a certificate made here."""
+    reason = getattr(error, 'reason', None) or ''
+    return (isinstance(error, ssl.SSLError) and 'ALERT' in reason
+            and ('CERTIFICATE' in reason or 'UNKNOWN_CA' in reason))
+
+
 class Outgoing(NamedTuple):
     path: str
     name: str
@@ -208,7 +222,9 @@ def outline(body):
 
 def receiver_identity(address, port, scope, context):
     """(name, model) the receiver here gives for itself; None from one that
-    keeps its name for its contacts. The model may be None."""
+    keeps its name for its contacts. The model may be None. Unwilling is
+    raised by one that refuses the certificate, Unreachable by one that
+    cannot be talked to for now."""
     connection = Connection(address, port, scope, context, CONNECT_SECONDS)
     try:
         status, body = post_plist(connection, '/Discover', {})
@@ -218,6 +234,8 @@ def receiver_identity(address, port, scope, context):
         name = answer.get('ReceiverComputerName')
         return (name, answer.get('ReceiverModelName')) if name else None
     except (OSError, http.client.HTTPException) as error:
+        if refuses_certificate(error):
+            raise Unwilling(str(error)) from None
         raise Unreachable(str(error) or type(error).__name__) from None
     except ValueError:
         return None
@@ -242,6 +260,11 @@ def find_receivers(browser, scope, context, wanted, seconds):
                 continue
             try:
                 name = receiver_name(address, port, scope, context)
+            except Unwilling:
+                attempts[instance] = CONNECT_ATTEMPTS
+                logging.info('a receiver at %s refuses this computer\'s certificate: it '
+                             'probably takes files from its contacts only', address)
+                continue
             except Unreachable as error:
                 attempts[instance] = attempts.get(instance, 0) + 1
                 logging.info('a receiver at %s does not answer yet: %s', address, error)

@@ -36,6 +36,9 @@ PEER_SILENCE_SECONDS = 20
 # How often a receiver that gave no name yet is asked again, and how often
 # one given on the command line is checked.
 PROBE_PAUSE_SECONDS = 2
+# One that will not talk to this computer is asked again less often: only
+# its owner opening it to everyone changes the answer.
+UNWILLING_PAUSE_SECONDS = 10
 PROGRESS_GAP_SECONDS = 0.1
 ASK_POLL_SECONDS = 0.25
 # A sender that neither leaves nor gets an answer is given up on after this.
@@ -281,7 +284,7 @@ class Peer:
         self.model = None
         self.probing = False
         self.next_probe = 0.0
-        self.shy = False  # visible to its contacts only
+        self.shy = False  # answers only devices it knows
 
 
 class Looking:
@@ -390,22 +393,27 @@ class Looking:
     def _say_shy(self, shy):
         if shy != self._shy_said:
             self._shy_said = shy
-            self.events.say('contacts_only', count=shy)
+            self.events.say('unwilling', count=shy)
 
     def _probe(self, key, peer, scope, stop):
         try:
             found = sender.receiver_identity(peer.address, peer.port, scope, self.context)
+        except sender.Unwilling as error:
+            logging.info('a receiver at %s refuses this computer: %s', peer.address, error)
+            found = None
         except sender.Unreachable as error:
             logging.info('a receiver at %s does not answer yet: %s', peer.address, error)
             found = False
         with self._lock:
             peer.probing = False
-            peer.next_probe = time.monotonic() + PROBE_PAUSE_SECONDS
+            # None is a receiver that keeps its name for those it knows, or
+            # would not have our certificate at all.
+            peer.shy = found is None
+            peer.next_probe = time.monotonic() + (
+                UNWILLING_PAUSE_SECONDS if peer.shy else PROBE_PAUSE_SECONDS)
             still_there = self._peers.get(key) is peer and not stop.is_set()
             if found and still_there:
                 peer.name, peer.model = found
-            # None is a receiver that keeps its name for its contacts.
-            peer.shy = found is None
         if found and still_there:
             self.events.say('peer', id=key, name=peer.name, model=peer.model)
 
