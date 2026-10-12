@@ -251,10 +251,11 @@ public static class Checks
         Expect(Process.GetProcessesByName("PING").Length == 0, "no daemon is left running");
 
         // A daemon that says one line with a dash in it on its error stream, then stays.
+        var dashed = $"up {(char)0x2014} ready";
         var speaker = new Daemon("radio", Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
         [
             "-NoProfile", "-Command",
-            "$e = [Console]::OpenStandardError(); $b = [Text.Encoding]::UTF8.GetBytes(\"up — ready`n\"); "
+            "$e = [Console]::OpenStandardError(); $b = [Text.Encoding]::UTF8.GetBytes(\"" + dashed + "`n\"); "
             + "$e.Write($b, 0, $b.Length); $e.Flush(); Start-Sleep 30",
         ]);
         var spoken = Supervised(Environment.ProcessId, speaker, Forever("awdld"), stop =>
@@ -262,7 +263,7 @@ public static class Checks
             Thread.Sleep(4000);
             stop.Set();
         });
-        Expect(spoken.Code == 0 && File.ReadAllText(Path.Combine(logs, "radio.log")).Contains("up — ready"),
+        Expect(spoken.Code == 0 && File.ReadAllText(Path.Combine(logs, "radio.log")).Contains(dashed),
                "what a daemon writes to its error stream in UTF-8 is in its log as written");
 
         var died = Supervised(Environment.ProcessId, new Daemon("radio", ping, ["-n", "1", "127.0.0.1"]), Forever("awdld"), _ => { });
