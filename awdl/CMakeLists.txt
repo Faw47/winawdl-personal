@@ -4,6 +4,11 @@
 cmake_minimum_required(VERSION 3.15)
 project(winawdl_awdl C)
 
+# The file names in log lines and in the programs themselves start at the
+# repository, not at the folder of the disk it was cloned into.
+get_filename_component(REPOSITORY "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
+add_compile_options("-ffile-prefix-map=${REPOSITORY}=.")
+
 set(WINAWDL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(OWL "${WINAWDL_ROOT}/upstream/owl")
 

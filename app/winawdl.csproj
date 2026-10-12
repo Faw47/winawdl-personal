@@ -8,7 +8,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>winawdl</AssemblyName>
     <RootNamespace>Winawdl</RootNamespace>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
+    <!-- What is built says where its sources are from the repository down, not from the disk it was built on. -->
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..'))=.</PathMap>
     <Product>winawdl</Product>
     <Description>AirDrop and AWDL on Windows, through the built-in Wi-Fi card</Description>
     <Copyright>Copyright (c) 2026 Raphaël Richaud. MIT License.</Copyright>

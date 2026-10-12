@@ -17,6 +17,7 @@ try {
       "/DUMDF_VERSION_MAJOR=$umdfMajor" "/DUMDF_VERSION_MINOR=$umdfMinor" `
       "/Fd$out\winawdl_regproxy.pdb" "$PSScriptRoot\regproxy.c" `
       /link /DLL "/OUT:$out\winawdl_regproxy.dll" /SUBSYSTEM:WINDOWS /GUARD:CF /DEBUG /INCREMENTAL:NO /OPT:REF /OPT:ICF `
+      '/PDBALTPATH:%_PDB%' `
       WdfDriverStubUm.lib ntdll.lib mincore.lib
   if ($LASTEXITCODE -ne 0) { throw "regproxy.c failed to compile ($LASTEXITCODE)" }
 } finally { Pop-Location }
