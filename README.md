@@ -10,7 +10,9 @@ daemon joins the AWDL channel, finds nearby Apple devices, synchronises with
 them and carries IPv6 traffic to and from them. An AirDrop receiver on top of
 that has received photos, a 28 MB video and a Live Photo from an iPhone, at
 about 16 MB/s, and a sender has put files into the iPhone's Photos at 9 to
-14 MB/s. All of it has run on one machine with one card. Read
+14 MB/s. All of it has run on one machine with one card. A Windows app puts
+the two behind one window; it has run against the receiver and sender on one
+computer, and not yet with the radio. Read
 [DESIGN-NOTES.md](DESIGN-NOTES.md) for the design, the
 measurements, the open risks and the safety notes before installing anything.
 
@@ -23,7 +25,8 @@ measurements, the open risks and the safety notes before installing anything.
   trusted stores.
 - While the AirDrop receiver runs, any Apple device in range that is set to
   send to everyone can put files into your `Downloads` folder without being
-  asked. The receiver opens nothing it stores.
+  asked. The receiver opens nothing it stores. The app asks you first, unless
+  its settings are changed to take everything.
 - The card answers frames without waiting for Bluetooth, which shares its
   radio. Bluetooth devices may lose an occasional packet meanwhile.
 - While the sender looks for a receiver it advertises over Bluetooth as an
@@ -42,6 +45,7 @@ measurements, the open risks and the safety notes before installing anything.
 | `upstream/owl` | Submodule: [OWL](https://github.com/seemoo-lab/owl), unmodified |
 | `awdl` | The AWDL daemon `awdld`: OWL's protocol core with a Windows I/O layer |
 | `airdrop` | The AirDrop receiver, adapted from [omdrop](https://github.com/brentkearney/omdrop-plugin): service announcement and the HTTPS endpoints senders talk to. And a sender, which finds receivers and uploads to one |
+| `app` | The Windows app: a window over the receiver and the sender, which also starts and stops the two daemons |
 | `tools`, `probes` | Small clients of the driver and one-off measurements |
 | `scripts` | Build, packaging, install and test helpers |
 | `deps` | Pinned vcpkg manifest for devourer's dependencies, and Wintun once fetched |
@@ -82,6 +86,18 @@ py -m unittest discover -s airdrop\tests
 
 C and C++ sources follow the `.clang-format` files, and the Python is checked
 with `ruff check airdrop` against `airdrop\ruff.toml`.
+
+The app is C# on WPF and needs the .NET SDK 10 or newer, and nothing else:
+
+```powershell
+.\scripts\build-app.ps1          # build\app\winawdl\winawdl.exe
+.\scripts\build-app.ps1 -Check   # and its checks, which need no radio
+```
+
+`-Check` runs the app's real window, kept off screen, against the receiver
+and sender over loopback, with a second copy of them playing the other
+device, and presses every control through the interface a screen reader
+uses. It leaves a log and a picture of each step in `build\app\drive`.
 
 The AWDL daemon hands traffic to Windows through
 [Wintun](https://www.wintun.net/), WireGuard's virtual network adapter.
@@ -156,6 +172,31 @@ frames follows what the receiver acknowledges (`-DataRate` fixes it), the
 receiver is asked to take those frames in aggregates (`-NoAggregate`), and
 the card is handed frames fast enough to fill them (`-NoQuickSubmit`).
 Contacts Only is not implemented in either direction.
+
+### The app
+
+`build\app\winawdl\winawdl.exe` does what the three scripts above do. It
+needs the driver bound, both daemons built and the firewall rules, and no
+elevated prompt of its own.
+
+- **Radio.** The switch starts the radio daemon and the AWDL daemon as
+  `awdl-run.ps1` does with no arguments. Windows asks for administrator
+  rights for a second copy of the app, which runs the two without a window
+  and stops them when the switch goes off or the app ends. What they print
+  goes to `build\app\logs`. A radio started from a terminal is used as it is.
+- **Sending.** Devices show up while the window is open, which is also the
+  only time it advertises over Bluetooth. Drop files on the window and press
+  a device, or drop them on the device.
+- **Receiving.** A device that wants to send is shown with what it offers,
+  to accept or decline. Received files appear at the bottom of the window.
+- **Closing** the window leaves the app in the notification area, still
+  receiving, until it is quit from its icon there. Its settings turn that off.
+
+What has been tried so far is what `build-app.ps1 -Check` does. Starting the
+radio from the app and a transfer with a phone through it have not been, and
+neither has what a phone shows when a request from it is declined.
+[app/DESIGN.md](app/DESIGN.md) is the direction its look follows. It has no
+icon yet: the first letter of its name stands in for one.
 
 ## Licensing
 

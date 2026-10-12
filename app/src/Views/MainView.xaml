@@ -1,0 +1,437 @@
+<UserControl x:Class="Winawdl.Views.MainView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:t="clr-namespace:Winawdl.Theme"
+             x:Name="Root" Focusable="False" AllowDrop="True"
+             Background="{DynamicResource Table}" Foreground="{DynamicResource Ink}"
+             FontFamily="{StaticResource FontText}" FontSize="14"
+             UseLayoutRounding="True" SnapsToDevicePixels="True">
+  <UserControl.Resources>
+    <BooleanToVisibilityConverter x:Key="Shown" />
+
+    <!-- A file as a thing: its own picture when Windows has one, a glyph for its kind when not. -->
+    <ControlTemplate x:Key="FileFace" TargetType="ContentControl">
+      <t:Raised x:Name="Surface" Radius="8" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
+                Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}">
+        <Grid>
+          <TextBlock Style="{StaticResource Glyph}" FontSize="22" Foreground="{DynamicResource InkSoft}"
+                     Text="{Binding Glyph}" />
+          <t:RoundClip Radius="8">
+            <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+          </t:RoundClip>
+        </Grid>
+      </t:Raised>
+    </ControlTemplate>
+
+    <Style x:Key="FileButton" TargetType="Button">
+      <Setter Property="FocusVisualStyle" Value="{StaticResource FocusField}" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <t:Raised x:Name="Surface" Radius="8" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
+                      Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}">
+              <Grid>
+                <TextBlock Style="{StaticResource Glyph}" FontSize="22" Foreground="{DynamicResource InkSoft}"
+                           Text="{Binding Glyph}" />
+                <t:RoundClip Radius="8">
+                  <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+                </t:RoundClip>
+              </Grid>
+            </t:Raised>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Surface" Property="IsHot" Value="True" />
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Surface" Property="IsDown" Value="True" />
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- The small round button that takes one file back out of the hand. -->
+    <Style x:Key="RemoveButton" TargetType="Button">
+      <Setter Property="FocusVisualStyle" Value="{StaticResource FocusPlate}" />
+      <Setter Property="Width" Value="24" />
+      <Setter Property="Height" Value="24" />
+      <Setter Property="Opacity" Value="0" />
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Grid>
+              <Ellipse Fill="{DynamicResource Ink}" />
+              <TextBlock Text="&#xE711;" Style="{StaticResource Glyph}" FontSize="9"
+                         Foreground="{DynamicResource Table}" />
+            </Grid>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+      <Style.Triggers>
+        <Trigger Property="IsKeyboardFocused" Value="True">
+          <Setter Property="Opacity" Value="1" />
+        </Trigger>
+        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=Grid}}" Value="True">
+          <Setter Property="Opacity" Value="1" />
+        </DataTrigger>
+      </Style.Triggers>
+    </Style>
+
+    <Style x:Key="Figures" TargetType="TextBlock" BasedOn="{StaticResource Soft}">
+      <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+      <Style.Triggers>
+        <Trigger Property="Text" Value="">
+          <Setter Property="Visibility" Value="Collapsed" />
+        </Trigger>
+      </Style.Triggers>
+    </Style>
+  </UserControl.Resources>
+
+  <UserControl.InputBindings>
+    <KeyBinding Gesture="Ctrl+V" Command="{Binding Paste}" />
+    <KeyBinding Gesture="Ctrl+O" Command="{Binding ChooseFiles}" />
+  </UserControl.InputBindings>
+
+  <Grid>
+    <!-- While the settings cover it, nothing on the table can be reached. -->
+    <Grid x:Name="TableSide" IsEnabled="{Binding TableInReach}">
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="*" />
+        <RowDefinition Height="Auto" />
+      </Grid.RowDefinitions>
+
+      <DockPanel Margin="22,8,14,4" MaxWidth="604">
+        <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+          <t:Switch x:Name="RadioSwitch" Content="Radio" Checked="OnRadioSwitch" Unchecked="OnRadioSwitch"
+                    IsChecked="{Binding RadioOn, Mode=OneWay}" AutomationProperties.Name="Radio" />
+          <Button x:Name="SettingsButton" Style="{StaticResource IconButton}" t:Plate.Glyph="&#xE713;"
+                  Margin="6,0,0,0" Command="{Binding OpenSettings}" ToolTip="Settings"
+                  AutomationProperties.Name="Settings" />
+        </StackPanel>
+        <TextBlock Style="{StaticResource Soft}" Text="{Binding Presence}" VerticalAlignment="Center"
+                   TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+      </DockPanel>
+
+      <!-- Across the table: devices, and what they want to send. -->
+      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                    Focusable="False">
+        <StackPanel Margin="20,8,20,16" MaxWidth="600">
+          <ItemsControl ItemsSource="{Binding Incoming}" Focusable="False">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <ContentControl Style="{StaticResource RaisedCard}" Margin="0,0,0,12" Tag="arrive"
+                                Loaded="OnArrived" t:Plate.Progress="{Binding Progress}">
+                  <StackPanel>
+                    <TextBlock Style="{StaticResource Name}" TextWrapping="Wrap" TextTrimming="None"
+                               Text="{Binding Headline}" />
+                    <TextBlock Style="{StaticResource Figures}" Margin="0,3,0,0" Text="{Binding Status}" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0"
+                                Visibility="{Binding IsAsking, Converter={StaticResource Shown}}">
+                      <Button Style="{StaticResource RaisedButton}" Content="Decline" Margin="0,0,10,0"
+                              Command="{Binding Decline}" />
+                      <Button Style="{StaticResource AccentButton}" Content="Accept"
+                              Command="{Binding Accept}" />
+                    </StackPanel>
+                    <Button Style="{StaticResource TextButton}" Content="Dismiss" HorizontalAlignment="Right"
+                            Margin="0,6,-8,-6" Command="{Binding Dismiss}"
+                            Visibility="{Binding IsLost, Converter={StaticResource Shown}}" />
+                  </StackPanel>
+                </ContentControl>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+
+          <StackPanel Margin="2,22,2,0" MaxWidth="400" HorizontalAlignment="Left"
+                      Visibility="{Binding ShowsPanel, Converter={StaticResource Shown}}">
+            <TextBlock Style="{StaticResource Title}" Text="{Binding PanelTitle}" />
+            <TextBlock Style="{StaticResource Body}" Foreground="{DynamicResource InkSoft}" Margin="0,8,0,0"
+                       Text="{Binding PanelBody}" />
+            <StackPanel Orientation="Horizontal" Margin="0,20,0,0">
+              <Button Style="{StaticResource AccentButton}" Command="{Binding PanelAction}"
+                      AutomationProperties.Name="{Binding PanelActionLabel}"
+                      Visibility="{Binding PanelHasAction, Converter={StaticResource Shown}}">
+                <StackPanel Orientation="Horizontal">
+                  <TextBlock Style="{StaticResource Glyph}" Text="&#xE83D;" Margin="0,1,8,0"
+                             Foreground="{DynamicResource OnAccent}"
+                             Visibility="{Binding PanelAsksWindows, Converter={StaticResource Shown}}" />
+                  <TextBlock Text="{Binding PanelActionLabel}" />
+                </StackPanel>
+              </Button>
+              <Button Style="{StaticResource TextButton}" Content="Open the logs" Margin="12,0,0,0"
+                      Command="{Binding OpenLog}"
+                      Visibility="{Binding PanelHasLog, Converter={StaticResource Shown}}" />
+            </StackPanel>
+          </StackPanel>
+
+          <StackPanel Visibility="{Binding ShowsNearby, Converter={StaticResource Shown}}">
+            <TextBlock Style="{StaticResource Label}" Text="Nearby" Margin="2,2,0,8" />
+            <ItemsControl ItemsSource="{Binding Peers}" Focusable="False">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Button Style="{StaticResource PlateButton}" Margin="0,0,0,10" Tag="arrive"
+                          Loaded="OnArrived" AllowDrop="True" Drop="OnDropOnPeer" DragOver="OnDragOverPeer"
+                          Command="{Binding Press}" t:Plate.Progress="{Binding Progress}"
+                          AutomationProperties.Name="{Binding Name}">
+                    <Grid>
+                      <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                      </Grid.ColumnDefinitions>
+                      <!-- The device sits in a small well of its own: it is where the files land. -->
+                      <t:Well Width="44" Height="44" Radius="12" Margin="0,0,14,0"
+                              Fill="{DynamicResource Well}" Edge="{DynamicResource Edge}"
+                              Outline="{DynamicResource Outline}"
+                              ShadeStrength="{DynamicResource ShadeStrength}">
+                        <TextBlock Style="{StaticResource Glyph}" FontSize="22" Text="{Binding Glyph}" />
+                      </t:Well>
+                      <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Style="{StaticResource Name}" Text="{Binding Name}" />
+                        <TextBlock Text="{Binding Status}">
+                          <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Figures}">
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsProblem}" Value="True">
+                                  <Setter Property="Foreground" Value="{DynamicResource Ember}" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </TextBlock.Style>
+                        </TextBlock>
+                      </StackPanel>
+                      <Border Grid.Column="2" CornerRadius="10" Padding="14,7" Margin="12,0,0,0"
+                              VerticalAlignment="Center" Background="{DynamicResource Accent}"
+                              Visibility="{Binding ShowsSend, Converter={StaticResource Shown}}">
+                        <TextBlock Text="Send" FontWeight="SemiBold" Foreground="{DynamicResource OnAccent}" />
+                      </Border>
+                      <Button Grid.Column="2" Style="{StaticResource IconButton}" t:Plate.Glyph="&#xE711;"
+                              Margin="8,0,-4,0" Command="{Binding Stop}" ToolTip="Stop sending"
+                              AutomationProperties.Name="{Binding StopName}"
+                              Visibility="{Binding IsBusy, Converter={StaticResource Shown}}" />
+                      <TextBlock Grid.Column="2" Style="{StaticResource Glyph}" Text="&#xE73E;" FontSize="18"
+                                 Margin="12,0,6,0" Foreground="{DynamicResource AccentText}"
+                                 Visibility="{Binding IsSent, Converter={StaticResource Shown}}" />
+                    </Grid>
+                  </Button>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Margin="2,8,2,0" MaxWidth="400" HorizontalAlignment="Left"
+                        Visibility="{Binding ShowsNobody, Converter={StaticResource Shown}}">
+              <TextBlock Style="{StaticResource Name}" Text="{Binding NobodyTitle}" />
+              <TextBlock Style="{StaticResource Body}" Foreground="{DynamicResource InkSoft}" Margin="0,6,0,0"
+                         Text="{Binding NobodyBody}" />
+            </StackPanel>
+          </StackPanel>
+
+          <ItemsControl ItemsSource="{Binding Notices}" Focusable="False" Margin="2,10,2,0" MaxWidth="400"
+                        HorizontalAlignment="Left">
+            <ItemsControl.ItemTemplate>
+              <DataTemplate>
+                <TextBlock Style="{StaticResource Soft}" Margin="0,6,0,0" Text="{Binding}" />
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
+      </ScrollViewer>
+
+      <!-- This side of the table: what was received, and what is in hand. -->
+      <StackPanel Grid.Row="2" Margin="20,0,20,20" MaxWidth="600">
+        <StackPanel Margin="0,0,0,14" Visibility="{Binding HasReceived, Converter={StaticResource Shown}}">
+          <DockPanel Margin="2,0,-6,6">
+            <Button DockPanel.Dock="Right" Style="{StaticResource TextButton}" Content="Open folder"
+                    Command="{Binding OpenFolder}" />
+            <TextBlock Style="{StaticResource Label}" Text="Received" VerticalAlignment="Center" />
+          </DockPanel>
+          <t:Well Radius="18" Fill="{DynamicResource Well}" Edge="{DynamicResource Edge}"
+                  Outline="{DynamicResource Outline}" ShadeStrength="{DynamicResource ShadeStrength}">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                          Focusable="False">
+              <ItemsControl ItemsSource="{Binding Received}" Focusable="False" Margin="10,12,10,8">
+                <ItemsControl.ItemsPanel>
+                  <ItemsPanelTemplate>
+                    <StackPanel Orientation="Horizontal" />
+                  </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <StackPanel Width="76" Margin="2,0" Tag="drop" Loaded="OnArrived">
+                      <Button Style="{StaticResource FileButton}" Width="64" Height="64"
+                              Command="{Binding Press}" ToolTip="{Binding Name}"
+                              AutomationProperties.Name="{Binding Name}" RenderTransformOrigin="0.5,0.5">
+                        <Button.RenderTransform>
+                          <RotateTransform Angle="{Binding Turn}" />
+                        </Button.RenderTransform>
+                        <Button.ContextMenu>
+                          <ContextMenu>
+                            <MenuItem Header="Open" Command="{Binding Press}" />
+                            <MenuItem Header="Show in folder" Command="{Binding Reveal}" />
+                          </ContextMenu>
+                        </Button.ContextMenu>
+                      </Button>
+                      <TextBlock Style="{StaticResource Soft}" Margin="0,8,0,0" TextAlignment="Center"
+                                 TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+                    </StackPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </t:Well>
+        </StackPanel>
+
+        <t:Well x:Name="Hand" Radius="22" MinHeight="132" Fill="{DynamicResource Well}"
+                Edge="{DynamicResource Edge}" Outline="{DynamicResource Outline}"
+                ShadeStrength="{DynamicResource ShadeStrength}" Target="{DynamicResource Accent}">
+          <Grid>
+            <StackPanel VerticalAlignment="Center" Margin="16,20"
+                        Visibility="{Binding HoldsNothing, Converter={StaticResource Shown}}">
+              <TextBlock x:Name="HandTitle" Style="{StaticResource Name}" Text="Drop files here to send them"
+                         HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center" />
+              <Button Content="Choose files" Margin="0,12,0,0" HorizontalAlignment="Center"
+                      Command="{Binding ChooseFiles}">
+                <Button.Style>
+                  <!-- The accent only while choosing files is the next thing to do. -->
+                  <Style TargetType="Button" BasedOn="{StaticResource RaisedButton}">
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding ChooseIsNext}" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource Accent}" />
+                        <Setter Property="Foreground" Value="{DynamicResource OnAccent}" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </Button.Style>
+              </Button>
+              <TextBlock Style="{StaticResource Soft}" Margin="0,12,0,0" HorizontalAlignment="Center"
+                         TextAlignment="Center" Text="Ctrl+V pastes files copied in Explorer" />
+            </StackPanel>
+
+            <StackPanel Margin="14,14,8,10" Visibility="{Binding HasHeld, Converter={StaticResource Shown}}">
+              <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                            Focusable="False">
+                <ItemsControl ItemsSource="{Binding Held}" Focusable="False" Margin="0,4,0,4">
+                  <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                      <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                  </ItemsControl.ItemsPanel>
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Width="66" Height="66" Margin="2,2,8,2" Background="Transparent" Tag="drop"
+                            Loaded="OnArrived" ToolTip="{Binding Name}">
+                        <ContentControl Template="{StaticResource FileFace}" Focusable="False"
+                                        Width="56" Height="56" HorizontalAlignment="Left"
+                                        VerticalAlignment="Bottom" RenderTransformOrigin="0.5,0.5">
+                          <ContentControl.RenderTransform>
+                            <RotateTransform Angle="{Binding Turn}" />
+                          </ContentControl.RenderTransform>
+                        </ContentControl>
+                        <Button Style="{StaticResource RemoveButton}" HorizontalAlignment="Right"
+                                VerticalAlignment="Top" Command="{Binding Remove}" ToolTip="Remove"
+                                AutomationProperties.Name="{Binding RemoveName}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+              <DockPanel Margin="2,8,0,0">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                  <Button Style="{StaticResource TextButton}" Content="Add" Command="{Binding ChooseFiles}"
+                          AutomationProperties.Name="Add files" />
+                  <Button Style="{StaticResource TextButton}" Content="Clear" Command="{Binding ClearHeld}"
+                          AutomationProperties.Name="Clear the files" />
+                </StackPanel>
+                <StackPanel>
+                  <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold" Text="{Binding HeldSummary}"
+                             TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" />
+                  <TextBlock Style="{StaticResource Soft}" Text="{Binding HeldHint}" />
+                </StackPanel>
+              </DockPanel>
+            </StackPanel>
+          </Grid>
+        </t:Well>
+        <TextBlock Style="{StaticResource Soft}" Foreground="{DynamicResource Ember}" Margin="4,8,4,0"
+                   Text="{Binding HeldNotice}"
+                   Visibility="{Binding HasHeldNotice, Converter={StaticResource Shown}}" />
+      </StackPanel>
+    </Grid>
+
+    <!-- Settings slide over the table from the right. -->
+    <Grid x:Name="Sheet" Visibility="{Binding SettingsOpen, Converter={StaticResource Shown}}">
+      <Rectangle Fill="{DynamicResource Veil}" MouseLeftButtonDown="OnVeilPressed" />
+      <Border x:Name="SheetPanel" HorizontalAlignment="Right" Width="344"
+              Background="{DynamicResource Table}" BorderBrush="{DynamicResource Line}"
+              BorderThickness="1,0,0,0" KeyboardNavigation.TabNavigation="Cycle"
+              KeyboardNavigation.ControlTabNavigation="Cycle">
+        <Border.InputBindings>
+          <KeyBinding Key="Escape" Command="{Binding CloseSettings}" />
+        </Border.InputBindings>
+        <!-- Rows, so that Tab meets things in the order they are read. -->
+        <Grid Margin="22,10,14,20">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <DockPanel>
+            <Button x:Name="CloseSheet" DockPanel.Dock="Right" Style="{StaticResource IconButton}"
+                    t:Plate.Glyph="&#xE711;" Command="{Binding CloseSettings}" ToolTip="Close (Esc)"
+                    AutomationProperties.Name="Close settings" />
+            <TextBlock Style="{StaticResource Title}" Text="Settings" VerticalAlignment="Center" />
+          </DockPanel>
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,14,0,10">
+            <StackPanel Margin="0,0,8,0">
+              <TextBlock Style="{StaticResource Label}" Text="Name other devices see" Margin="0,0,0,6" />
+              <TextBox x:Name="NameBox" Style="{StaticResource Field}" MaxLength="63"
+                       Text="{Binding NameDraft, UpdateSourceTrigger=PropertyChanged}"
+                       LostKeyboardFocus="OnNameLeft" KeyDown="OnNameKey"
+                       AutomationProperties.Name="Name other devices see" />
+              <TextBlock Style="{StaticResource Soft}" Foreground="{DynamicResource Ember}" Margin="0,6,0,0"
+                         Text="{Binding NameError}"
+                         Visibility="{Binding HasNameError, Converter={StaticResource Shown}}" />
+
+              <TextBlock Style="{StaticResource Label}" Text="Received files go to" Margin="0,22,0,4" />
+              <TextBlock Style="{StaticResource Body}" Text="{Binding Folder}" />
+              <Button Style="{StaticResource RaisedButton}" Content="Change folder" Margin="0,10,0,0"
+                      HorizontalAlignment="Left" Command="{Binding ChangeFolder}" />
+              <TextBlock Style="{StaticResource Soft}" Foreground="{DynamicResource Ember}" Margin="0,6,0,0"
+                         Text="{Binding FolderError}"
+                         Visibility="{Binding HasFolderError, Converter={StaticResource Shown}}" />
+
+              <TextBlock Style="{StaticResource Label}" Text="When a device wants to send files"
+                         Margin="0,22,0,2" />
+              <!-- The two choices are one group by sharing this panel. -->
+              <StackPanel>
+                <RadioButton Style="{StaticResource Choice}" Content="Ask me first"
+                             IsChecked="{Binding AskFirst}" />
+                <RadioButton Style="{StaticResource Choice}" IsChecked="{Binding TakeAll}"
+                             AutomationProperties.Name="Take everything">
+                  <StackPanel>
+                    <TextBlock Text="Take everything" />
+                    <TextBlock Style="{StaticResource Soft}"
+                               Text="Anyone in range can then put files in that folder." />
+                  </StackPanel>
+                </RadioButton>
+              </StackPanel>
+
+              <CheckBox Style="{StaticResource Tick}" Margin="0,16,0,0" IsChecked="{Binding KeepInTray}"
+                        AutomationProperties.Name="Keep receiving when the window is closed">
+                <StackPanel>
+                  <TextBlock Text="Keep receiving when the window is closed" TextWrapping="Wrap" />
+                  <TextBlock Style="{StaticResource Soft}"
+                             Text="winawdl stays in the notification area. Quit it from its icon there." />
+                </StackPanel>
+              </CheckBox>
+            </StackPanel>
+          </ScrollViewer>
+          <DockPanel Grid.Row="2" Margin="0,0,8,0">
+            <Button DockPanel.Dock="Right" Style="{StaticResource TextButton}" Content="Project page"
+                    Margin="0,0,-8,0" Command="{Binding OpenProject}" />
+            <TextBlock Style="{StaticResource Soft}" Text="{Binding Version}" VerticalAlignment="Center" />
+          </DockPanel>
+        </Grid>
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>

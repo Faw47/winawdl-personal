@@ -524,6 +524,59 @@ spans in which it was away for part of the time carry a third of that. What
 the card holds when the phone leaves is still lost and sent again by TCP,
 which then slows down for a while.
 
+## The app
+
+`app/` is a WPF program on .NET 10 with no package from outside the SDK, so
+that building it downloads nothing. It is three processes at most.
+
+The window runs without administrator rights. That is forced: Explorer runs
+without them, and Windows does not let a program drop files on a window that
+has more rights than it.
+
+The receiver and the sender stay the Python they were. `airdrop/engine.py`
+runs both in one process that the window starts and talks to over its
+standard streams, one JSON object a line each way: events out, commands in.
+The end of its input is its cue to leave, so it cannot outlive the window.
+The receiver and the sender each gained a small interface for a program that
+watches a transfer: the receiver asks it whether to accept, and tells it how
+many bytes of the archive have come in, counted by the same pass that
+already looked for the archive's end. The engine holds a sender's ask open
+until the window answers, and notices a sender that stops waiting by its
+connection becoming readable while it is owed an answer. With asking on, an
+upload that follows no accepted ask is refused: without that, the question
+could be skipped by not asking it. Declining answers status 401, which is
+what this project's own sender takes as a no; what an iPhone shows for it has
+not been tried.
+
+A receiver that announces itself in AWDL frames says no goodbye when it
+stops, so the engine drops one that has not been announced for 20 s. It
+looks for receivers, and advertises over Bluetooth, only while the window
+can be seen.
+
+The radio daemon and the AWDL daemon need administrator rights. The switch
+starts the app a second time with `--radio`, through the Windows prompt, and
+that copy runs the two daemons as `awdl-run.ps1` does and waits for one of
+four things: an event the window signals, the window's process ending, or
+either daemon ending. It then interrupts the AWDL daemon with Ctrl+C, which
+is the stop both daemons were written for, and the radio daemon if it has
+not already left with its client. Two details make that work from a program
+with no console. Each daemon is given a console of its own that is never
+shown, because a process without one cannot be sent Ctrl+C. And the copy
+first says that it does not ignore Ctrl+C itself: a process inherits that
+from whatever started it, a daemon would inherit it in turn, and the
+interrupt would be sent and ignored. Both daemons are also in a job that
+ends them if the copy itself dies.
+
+None of that needs a radio to try. `--check` runs the supervisor with `ping`
+standing in for both daemons, and each state of the radio and of the engine
+against the screen it should put up. `--drive` opens the real window off
+screen, never activated, starts the real engine with `--loopback` and a
+second one as the other device, and presses each control through its
+automation peer, which is the interface a screen reader uses. 42 and 57
+checks pass. What that leaves untried is everything behind the Windows
+prompt and everything over the air: the switch starting the real daemons,
+and a transfer with a phone through the window.
+
 ## Fallback: a small kernel driver
 
 A KMDF driver of a few hundred lines would do all five services properly,
@@ -559,6 +612,7 @@ on the first attempt.
 | Host network interface for AWDL data (Wintun, `awdl/win/host_if.c`) | Passed 2026-10-11: `awdl0` came up with the MAC-derived link-local address as its only one, and the owner's iPhone answered 6 of 8 pings over AWDL. Round trips took 0.5 to 0.9 s and the first ping of each run was lost |
 | AirDrop receiver (`airdrop/`, adapted from omdrop) | First file received 2026-10-11: the owner's iPhone found the PC in its AirDrop sheet and one 280 kB photo arrived intact. Three other attempts failed, and all ran at about 10 kB/s. With frames acknowledged, photos, a 28 MB video and a Live Photo arrived at 300 to 430 kB/s on channel 6, and 30.5 MB arrived at 971 kB/s on channel 44, 1,710 kB/s with block ack, and 6.7 MB/s with joined segments and two streams |
 | AirDrop sender (`airdrop/sender.py`) | First file sent 2026-10-11: a 1.0 MB photo reached the owner's iPhone's Photos, after two attempts that failed at different steps. A 24.5 MB video then went at 2.2 MB/s with the rate chosen by the radio daemon, then at 9.9 MB/s in aggregates, and a 144.5 MB one at 14.5 MB/s |
+| The Windows app (`app/`, `airdrop/engine.py`) | Written 2026-10-12. Its window has sent and received files over loopback against a second engine, 96 MB each way intact, and its supervisor has started and stopped stand-in daemons. Not yet run with the radio |
 
 The INF matches only the generic `PCI\VEN_10EC&DEV_C852` ID, so adding the
 package to the driver store does not take over the card on its own.
