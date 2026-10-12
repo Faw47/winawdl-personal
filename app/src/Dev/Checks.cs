@@ -250,6 +250,21 @@ public static class Checks
                $"they are interrupted the way Ctrl+C does, not killed: stopped {asked.Seconds - 2.5:0.0} s after the request");
         Expect(Process.GetProcessesByName("PING").Length == 0, "no daemon is left running");
 
+        // A daemon that says one line with a dash in it on its error stream, then stays.
+        var speaker = new Daemon("radio", Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
+        [
+            "-NoProfile", "-Command",
+            "$e = [Console]::OpenStandardError(); $b = [Text.Encoding]::UTF8.GetBytes(\"up — ready`n\"); "
+            + "$e.Write($b, 0, $b.Length); $e.Flush(); Start-Sleep 30",
+        ]);
+        var spoken = Supervised(Environment.ProcessId, speaker, Forever("awdld"), stop =>
+        {
+            Thread.Sleep(4000);
+            stop.Set();
+        });
+        Expect(spoken.Code == 0 && File.ReadAllText(Path.Combine(logs, "radio.log")).Contains("up — ready"),
+               "what a daemon writes to its error stream in UTF-8 is in its log as written");
+
         var died = Supervised(Environment.ProcessId, new Daemon("radio", ping, ["-n", "1", "127.0.0.1"]), Forever("awdld"), _ => { });
         Expect(died.Code == 3 && died.Ended.Contains("radio"), $"a daemon ends by itself -> exit {died.Code}, the status names it, the other is stopped");
 

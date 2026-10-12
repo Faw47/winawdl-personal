@@ -83,7 +83,7 @@ public static class RadioSupervisor
         }
 
         // The AWDL daemon first: the radio daemon ends by itself when its client leaves.
-        var notes = new List<string> { $"{DateTime.Now:u} ended by: {ended}" };
+        var notes = new List<string> { $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} ended by: {ended}" };
         foreach (var (daemon, process, _) in Enumerable.Reverse(running))
         {
             if (!process.HasExited) notes.Add($"{daemon.Name}: {Interrupt(process)}");
@@ -116,6 +116,8 @@ public static class RadioSupervisor
             // to send Ctrl+C through, and the daemon could only be killed.
             UseShellExecute = false, CreateNoWindow = false, WindowStyle = ProcessWindowStyle.Hidden,
             RedirectStandardOutput = true, RedirectStandardError = true,
+            // Both daemons write UTF-8; read as the console's code page, a dash in a line comes out as three wrong letters.
+            StandardOutputEncoding = System.Text.Encoding.UTF8, StandardErrorEncoding = System.Text.Encoding.UTF8,
             WorkingDirectory = Path.GetDirectoryName(daemon.Program),
         };
         foreach (var argument in daemon.Arguments) start.ArgumentList.Add(argument);
