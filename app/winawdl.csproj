@@ -9,6 +9,10 @@
     <AssemblyName>winawdl</AssemblyName>
     <RootNamespace>Winawdl</RootNamespace>
     <Version>0.1.0</Version>
+    <Product>winawdl</Product>
+    <Description>AirDrop and AWDL on Windows, through the built-in Wi-Fi card</Description>
+    <Copyright>Copyright (c) 2026 Raphaël Richaud. MIT License.</Copyright>
+    <RepositoryUrl>https://github.com/raph559/winawdl</RepositoryUrl>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Written by the app itself from the drawing in src\Shell\Chrome.cs: see app\DESIGN.md. -->
     <ApplicationIcon>winawdl.ico</ApplicationIcon>

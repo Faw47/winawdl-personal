@@ -121,6 +121,11 @@ public static class Stage
             IconPreview(preview);
             return 0;
         }
+        if (args is ["brand", var docs])
+        {
+            Brand(docs);
+            return 0;
+        }
         var folder = Directory.CreateDirectory(args[0]).FullName;
         var only = args.Skip(1).ToHashSet();
         var app = new Application();
@@ -482,6 +487,36 @@ public static class Stage
             writer.Write(clear);
         }
         return data.ToArray();
+    }
+
+    /// <summary>The two pictures the repository shows of the mark: the icon,
+    /// large, and the card a link to the repository is drawn with.</summary>
+    public static void Brand(string folder)
+    {
+        Directory.CreateDirectory(folder);
+        WritePng(AppIcon.Draw(512, Colors.White, AppIcon.Ground), Path.Combine(folder, "logo.png"));
+
+        const double width = 1280, height = 640;
+        var light = Palette.Light(Rgb.Hex("#0078D4"));
+        FormattedText Line(string text, string family, double size, FontWeight weight, Rgb color) => new(
+            text, System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+            new Typeface(new FontFamily(family), FontStyles.Normal, weight, FontStretches.Normal), size,
+            light.Brush(color), 1);
+        var card = new DrawingVisual();
+        using (var dc = card.RenderOpen())
+        {
+            dc.DrawRectangle(light.Brush(light.Table), null, new Rect(0, 0, width, height));
+            dc.DrawImage(AppIcon.Draw(256, Colors.White, AppIcon.Ground), new Rect(128, 192, 256, 256));
+            dc.DrawText(Line("winawdl", "Segoe UI Variable Display, Segoe UI", 116, FontWeights.SemiBold, light.Ink),
+                        new Point(440, 176));
+            dc.DrawText(Line("AirDrop and AWDL on Windows,", "Segoe UI Variable Text, Segoe UI", 40,
+                             FontWeights.Normal, light.InkSoft), new Point(446, 326));
+            dc.DrawText(Line("through the built-in Wi-Fi card", "Segoe UI Variable Text, Segoe UI", 40,
+                             FontWeights.Normal, light.InkSoft), new Point(446, 378));
+        }
+        var picture = new RenderTargetBitmap((int)width, (int)height, 96, 96, PixelFormats.Pbgra32);
+        picture.Render(card);
+        WritePng(picture, Path.Combine(folder, "social-preview.png"));
     }
 
     /// <summary>The icon at every size it is stored in, on a light and a dark

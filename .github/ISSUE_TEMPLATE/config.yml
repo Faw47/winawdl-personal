@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A flaw that could be used against someone
+    url: https://github.com/raph559/winawdl/security/advisories/new
+    about: Report it privately instead of opening an issue. SECURITY.md says what counts.

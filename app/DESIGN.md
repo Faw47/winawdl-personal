@@ -142,7 +142,13 @@ icon file again and rebuild:
 
 ```powershell
 .\build\app\winawdl\winawdl.exe --render icon app\winawdl.ico build\app\icon-preview.png
+.\build\app\winawdl\winawdl.exe --render brand docs
 ```
+
+The second line redraws the two pictures of the mark that the repository
+shows: `docs\logo.png`, and `docs\social-preview.png`, the card a link to the
+repository is drawn with. That card is the mark, the name, and one line set
+in the app's own type on its own table color, and nothing else.
 
 ### Motion
 

@@ -1,0 +1,58 @@
+name: Something does not work
+description: A build, the install, the radio, a transfer or the app misbehaves
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A flaw that could be used against someone goes to "Report a vulnerability" under the Security tab, not here.
+
+        Logs taken near other people hold their devices' names and addresses. Take them with `awdl-run.ps1 -Redact` and `airdrop-receive.ps1 --redact`, or strike those out.
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part
+      options:
+        - Building
+        - The driver
+        - The radio daemon
+        - The AWDL daemon
+        - Receiving
+        - Sending
+        - The app
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened, and what you expected
+    validations:
+      required: true
+  - type: textarea
+    id: ran
+    attributes:
+      label: What you ran
+      description: The commands, in order, or what you pressed in the app.
+      render: powershell
+  - type: input
+    id: card
+    attributes:
+      label: Wi-Fi card
+      description: Its name and hardware ID, as Device Manager shows them.
+      placeholder: Realtek RTL8852CE, PCI\VEN_10EC&DEV_C852
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version and build
+      placeholder: Windows 11 Pro, build 26200
+  - type: input
+    id: other
+    attributes:
+      label: The other device
+      placeholder: iPhone 13 Pro, iOS 18.2
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: What the script printed, or the files in build\app\logs for the app.
+      render: text
