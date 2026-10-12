@@ -54,5 +54,5 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: What the script printed, or the files in build\app\logs for the app.
+      description: What the script or the installer printed, or for the app the files in C:\ProgramData\winawdl\logs.
       render: text

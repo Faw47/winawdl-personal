@@ -20,6 +20,13 @@ python -m ruff check airdrop               # its style
 .\awdl\tests\fake-radio.ps1                # the AWDL daemon against a stand-in radio
 ```
 
+The installer is tried the same way, and only that way unless you mean to
+install: `.\scripts\build-installer.ps1 -AllowDirty` gathers a trial copy
+under `build\installer`, and `install.ps1 -DryRun` and `uninstall.ps1 -DryRun`
+in it say what they would do. Without `-DryRun` they do it, at once if the
+prompt is already elevated. Do not run one to see it refuse: check first
+which rights the prompt has.
+
 `radio` and `awdl` build their test programs beside the daemons;
 `scripts\build-radio.ps1` and `scripts\build-awdl.ps1` list them.
 

@@ -27,17 +27,21 @@ installing anything.
 | Receiving | Photos, a 28 MB video and a Live Photo have arrived from an iPhone, at about 16 MB/s |
 | Sending | Files have gone into the iPhone's Photos at 9 to 14 MB/s |
 | The app | One window over both. Through it the radio has been started and stopped, a small file sent to the iPhone and one received from it. Large transfers through it have not been tried |
-| Not there | Contacts Only, in either direction. Any card but the RTL8852CE. A driver signed for other machines, and so anything to download and run |
+| The installer | Signs the driver on the PC it runs on, binds the card, and undoes both. It has run in full on the PC it was made on, and on no other |
+| Not there | Contacts Only, in either direction. Any card but the RTL8852CE |
 
 All of it has run on one machine, with one card, against one iPhone.
 
 ## Before you run it
 
 - Installing the driver takes the Wi-Fi card away from Windows. Wi-Fi is down
-  until you run `scripts\uninstall-driver.ps1`.
-- The package script signs the driver with a certificate it creates on your
-  machine, and the install script adds that certificate to the machine's
-  trusted stores.
+  until you uninstall.
+- The driver is signed with a certificate made on your machine, which is then
+  added to the machine's trusted roots and trusted publishers. The installer
+  deletes that certificate's private key as soon as the driver is signed, so
+  nothing else can be signed with it. The scripts for a build from source
+  keep the key, in a form that cannot be copied off the machine, to sign the
+  next build.
 - While the AirDrop receiver runs, any Apple device in range that is set to
   send to everyone can put files into your `Downloads` folder without being
   asked. The receiver opens nothing it stores. The app asks you first, unless
@@ -58,18 +62,47 @@ All of it has run on one machine, with one card, against one iPhone.
   installed.
 - Bluetooth, to send: it is what wakes the receiver.
 - An iPhone, iPad or Mac with AirDrop set to "Everyone for 10 Minutes".
-- To build: Visual Studio Build Tools 2022 with its bundled vcpkg, CMake, the
-  Windows SDK, the Windows Driver Kit 10.0.26100, MinGW-w64 GCC (the build
-  script expects the one in `C:\Strawberry\c\bin`), the .NET SDK 10, Python
-  3.10 or newer, and Git for Windows, whose OpenSSL makes the certificate the
-  receiver and the sender present.
+- For the installer: the .NET Desktop Runtime 10, Python 3.10 or newer, and
+  the Visual C++ runtime. It offers to fetch what is missing with `winget`.
+- For a build from source: Visual Studio Build Tools 2022 with its bundled
+  vcpkg, CMake, the Windows SDK, the Windows Driver Kit 10.0.26100, MinGW-w64
+  GCC (the build script expects the one in `C:\Strawberry\c\bin`), the .NET
+  SDK 10, Python 3.10 or newer, and Git for Windows.
 
 ## Install
 
-There is nothing to download and run. The driver has to be built and signed
-on the machine that uses it: a certificate you make is trusted only where you
-install it, and no other signature is available to this project. Everything
-else is built from source in the same go.
+### With the installer
+
+1. Download `winawdl-<version>-windows-x64.zip` from
+   [the releases](https://github.com/raph559/winawdl/releases) and unpack it
+   anywhere.
+2. Double-click `install.cmd`. Windows asks for administrator rights, then the
+   installer lists what it will change and waits for your answer.
+3. Start winawdl from the Start Menu and turn its Radio switch on. Windows
+   asks for administrator rights again, for the radio.
+
+The installer stops, having changed nothing, on a PC without the card. It
+copies winawdl to `C:\Program Files\winawdl`, signs the driver there as
+described under [Before you run it](#before-you-run-it), gives the card to
+it, lets AirDrop through Windows Firewall from link-local addresses only, and
+adds a Start Menu entry. `install.ps1 -DryRun` says all that and does none of
+it.
+
+To take it off again, use "Installed apps" in Settings or `uninstall.cmd` in
+that folder. The card goes back to its own driver, the certificate stops
+being trusted, and the rules and the files go. Files you received stay.
+
+No signature other than one made on your own PC is available to this
+project, which is why the driver is signed there and not before. The
+installer has so far run on one PC, the one it was made on. Its uninstaller
+has not yet been run for real.
+
+The radio also needs the right to lock pages in memory, which an elevated
+prompt had from the start on that PC. The installer says so when it is
+missing: give your account "Lock pages in memory" under Local Security
+Policy, User Rights Assignment, and sign in again.
+
+### From source
 
 1. Get the source. GitHub's source archives leave the submodules out, so
    clone. A recursive clone would also pull devourer's vendor reference
@@ -144,14 +177,16 @@ To undo it all:
 
 ### The app
 
-`build\app\winawdl\winawdl.exe` needs the driver bound, both daemons built
-and the firewall rules, and no elevated prompt of its own.
+The app, from the Start Menu or as `build\app\winawdl\winawdl.exe`, needs
+the driver bound, the two daemons and the firewall rules, and no elevated
+prompt of its own.
 
 - **Radio.** The switch starts the radio daemon and the AWDL daemon as
   `awdl-run.ps1` does with no arguments. Windows asks for administrator
   rights for a second copy of the app, which runs the two without a window
   and stops them when the switch goes off or the app ends. What they print
-  goes to `build\app\logs`. A radio started from a terminal is used as it is.
+  goes to `C:\ProgramData\winawdl\logs`. A radio started from a terminal is
+  used as it is.
 - **Sending.** Devices show up while the window is open, which is also the
   only time it advertises over Bluetooth. Drop files on the window and press
   a device, or drop them on the device.
@@ -235,6 +270,7 @@ either direction.
 | `awdl` | The AWDL daemon `awdld`: OWL's protocol core with a Windows I/O layer |
 | `airdrop` | The AirDrop receiver, adapted from [omdrop](https://github.com/brentkearney/omdrop-plugin): service announcement and the HTTPS endpoints senders talk to. A sender, which finds receivers and uploads to one. And the engine that runs both for the app |
 | `app` | The Windows app: a window over the receiver and the sender, which also starts and stops the two daemons |
+| `installer` | What installs a built copy on a PC and takes it off again: the scripts that go in a release's zip, which `scripts\build-installer.ps1` puts together |
 | `tools`, `probes` | Small clients of the driver and one-off measurements |
 | `scripts` | Build, packaging, install and test helpers |
 | `deps` | Pinned vcpkg manifest for devourer's dependencies, and Wintun once fetched |
@@ -253,9 +289,10 @@ py -m unittest discover -s airdrop\tests   # the receiver, the sender and the en
 .\awdl\tests\fake-radio.ps1                # the AWDL daemon against a stand-in radio
 ```
 
-The AirDrop layer is Python 3.10 or newer with no packages to install. It
-needs OpenSSL once, to create its certificate, and finds the one in Git for
-Windows by itself. `build-app.ps1 -Check` runs the app's real window, kept off
+The AirDrop layer is Python 3.10 or newer with no packages to install. Run
+from a terminal, it needs OpenSSL once, to create its certificate, and finds
+the one in Git for Windows by itself; the app makes that certificate for it.
+`build-app.ps1 -Check` runs the app's real window, kept off
 screen, against the receiver and sender over loopback, with a second copy of
 them playing the other device, and presses every control through the
 interface a screen reader uses. It leaves a log and a picture of each step

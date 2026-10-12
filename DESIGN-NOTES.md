@@ -572,7 +572,7 @@ standing in for both daemons, and each state of the radio and of the engine
 against the screen it should put up. `--drive` opens the real window off
 screen, never activated, starts the real engine with `--loopback` and a
 second one as the other device, and presses each control through its
-automation peer, which is the interface a screen reader uses. 45 and 58
+automation peer, which is the interface a screen reader uses. 45 and 59
 checks pass.
 
 The first run with the radio was the owner's, on 2026-10-12, and what
@@ -600,6 +600,58 @@ had to be killed. Three things showed up:
 
 Still untried through the window: a large transfer, and what a phone shows
 when its request is declined.
+
+### The installer
+
+A driver signed by a certificate made on one PC is trusted only where that
+certificate is installed, and nobody should install a stranger's. So the
+programs are built once and the driver is signed where it is installed.
+Three things make that possible without the Driver Kit on that PC:
+
+- A catalog lists hashes, not a signer. `scripts\build-installer.ps1` stamps
+  the INF and runs Inf2Cat on the build machine, and ships the catalog
+  unsigned.
+- `Set-AuthenticodeSignature`, which every Windows has, signs a catalog. The
+  installer makes a code-signing certificate, adds it to the machine's
+  trusted roots and trusted publishers, signs the catalog and the driver's
+  DLL, and deletes the private key before it goes on. What the machine then
+  trusts can sign nothing more. Its subject is not the one the from-source
+  scripts use, so each leaves the other's certificate alone.
+- The vendor's driver outranks ours, and `devcon update` is what forced the
+  change. That is one call, `UpdateDriverForPlugAndPlayDevices` with the
+  force flag, which the installer makes itself.
+
+An installed copy has no repository around it. The app looks for the two
+daemons beside itself before it looks in `build`. The daemons' output goes to
+`C:\ProgramData\winawdl\logs`: the elevated copy and the window agree on that
+place whoever each runs as, and the window cannot talk the elevated copy into
+writing anywhere else. The app makes the certificate the engine presents,
+which used to need OpenSSL. And the Bluetooth script is started with the
+execution policy set aside for that one process, because a PC that never ran
+a script of its own refuses script files.
+
+What is shipped must not say who built it. GCC wrote the path of every source
+file into the AWDL daemon, the linker wrote the path of the debug file into
+the driver, and so did the C# compiler into the app, each with the name of
+the account. All three are told to start those paths at the repository, and
+the build of the installer reads every file it gathered and stops if the
+name is in one.
+
+Not bundled: the .NET Desktop Runtime 10, Python, and the Visual C++ runtime
+the radio daemon links to. The installer checks for each and offers `winget`.
+It also says when an elevated prompt lacks the right to lock pages in memory,
+and does not grant it.
+
+On 2026-10-12 the installer ran in full on the development PC, over a
+from-source setup: files copied, certificate made and trusted, both files
+signed, package added, card moved from the old package to the new one with
+status OK, old package removed, rules, shortcut and uninstall entry written.
+That run was not meant. A check that it refuses without administrator rights
+was made from a prompt that turned out to have them, and it did what an
+installer does. Its lesson is in CONTRIBUTING.md. What it proves is that the
+catalog signed by PowerShell is accepted and that the forced change of driver
+works. Not yet tried: the radio on the driver it bound, the uninstaller for
+real, the `winget` path, and any other PC.
 
 ## Fallback: a small kernel driver
 
