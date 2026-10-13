@@ -731,8 +731,42 @@ That run was not meant. A check that it refuses without administrator rights
 was made from a prompt that turned out to have them, and it did what an
 installer does. Its lesson is in CONTRIBUTING.md. What it proves is that the
 catalog signed by PowerShell is accepted and that the forced change of driver
-works. Not yet tried: the radio on the driver it bound, the uninstaller for
-real, the `winget` path, and any other PC.
+works. The radio ran on that driver the next day.
+
+On 2026-10-13 the owner ran the whole cycle, through the launchers, and it
+found what no dry run could: a dry run skips every real step, and those here
+were run by PowerShell 7 while the launchers start Windows PowerShell 5.1.
+
+- The uninstaller stopped half way. It had given the card back and stopped
+  trusting the certificate, and then removed a leftover signing key through
+  a pipeline: `Remove-Item` only knows `-DeleteKey` when handed the
+  certificate's path, and refuses the parameter even with nothing to
+  remove. The rules, the shortcut, the entry and the files stayed.
+- Each real step was then tried under 5.1, on throwaway folders where it
+  removes something. Two more faults: started from the folder it removes,
+  as Windows starts it, the uninstaller holds that folder open; and where
+  the Store's stand-in for `python.exe` is all the Python there is, the
+  installer ends while looking for Python, because the stand-in answers on
+  its error stream and the script stops on errors.
+- With the three fixed, the uninstaller ran to its end and everything it
+  names was checked gone. It left a copy of itself in the temporary folder,
+  which it now removes.
+- The installer, version 0.3.0, was then run from `install.cmd`. Windows
+  recorded the package imported and the card given to it at 17:27:32, and
+  the radio daemon opened the card through it eleven seconds later. The
+  radio itself did not start: three tries in sixteen seconds each ended
+  with no free 2 MiB block below 4 GiB, after 15 days without a reboot,
+  which is the fault described under physical memory below and not the
+  installer's. winawdl was uninstalled a minute later, and again everything
+  it names was checked gone.
+
+Windows' own Uninstall button was made to work on the way: it opens the list
+of installed apps, whose Uninstall starts the uninstaller with `/yes`, since
+Windows has asked already, and the uninstaller closes the app and lets it
+stop its radio where it used to refuse while they ran.
+
+Not yet tried: a transfer on a copy installed by 0.3.0, the `winget` path,
+and any other PC.
 
 ## Fallback: a small kernel driver
 

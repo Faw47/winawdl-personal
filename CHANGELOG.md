@@ -25,6 +25,11 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
   the one it keeps time with. One transfer waited 22 s on a wrong choice
   there, and the cause is not yet known.
 
+- **The uninstaller works.** Its first real run stopped half way, with the
+  card given back and the firewall rules, the shortcut and the files left.
+  It also could not remove its folder when started from it, and the
+  installer ended on a PC whose only Python is the Store's stand-in. All
+  three are fixed, and the whole cycle has now been run on one PC.
 - **Uninstalling from Windows.** Started by Windows' own Uninstall button, the
   uninstaller no longer asks a second time, and it closes the app and its
   radio itself where it used to refuse while they ran. The list of installed

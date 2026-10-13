@@ -96,8 +96,8 @@ received stay.
 
 No signature other than one made on your own PC is available to this
 project, which is why the driver is signed there and not before. The
-installer has so far run on one PC, the one it was made on. Its uninstaller
-has not yet been run for real.
+installer and its uninstaller have so far run on one PC, the one they were
+made on.
 
 The radio also needs the right to lock pages in memory, which an elevated
 prompt had from the start on that PC. The installer says so when it is

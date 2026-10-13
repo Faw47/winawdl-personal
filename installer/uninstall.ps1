@@ -18,6 +18,7 @@ $FirewallGroup = 'winawdl AirDrop'
 $UninstallKey  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\winawdl'
 $Shortcut      = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\winawdl.lnk'
 $Data          = (Join-Path $env:LOCALAPPDATA 'winawdl'), (Join-Path $env:ProgramData 'winawdl')
+$TempCopy      = 'winawdl-uninstall.ps1'
 
 function Step([string]$what, [scriptblock]$do) {
   if ($DryRun) { "  would: $what"; return }
@@ -106,3 +107,5 @@ if ($DryRun) { 'Dry run done: nothing was changed.'; exit 0 }
 "The Wi-Fi card now: $(Get-CardDriver)"
 'winawdl is off this PC. Files it received are still where they were stored.'
 if (-not $RemoveData) { "Its settings and logs are still in $($Data -join ' and ')." }
+# uninstall.cmd runs a copy of this file, made outside the folder that was removed.
+if ((Split-Path $PSCommandPath -Leaf) -eq $TempCopy) { Remove-Item $PSCommandPath -ErrorAction SilentlyContinue }
