@@ -3,7 +3,7 @@
 What each tagged state of the project holds. The measurements behind the
 numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
-## 0.3.0, not yet tagged
+## 0.3.0, 2026-10-13
 
 - **A request on screen.** While the app's window is not the one in front, a
   device that wants to send shows as a card in the corner of the screen, with

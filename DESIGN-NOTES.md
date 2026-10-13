@@ -789,8 +789,14 @@ script removed the Start Menu shortcut setup had just made, taking it for
 the leftover of an install from the zip, which puts its own in the same
 place. It no longer touches the shortcut.
 
-Not yet tried: setup over an earlier install, its uninstaller, a failing
-step, the `winget` path, and any other PC.
+With that fixed the owner ran setup again, over the install it had made. It
+asked for the app to be closed, replaced the driver package with the new one
+and left a single one in the store, one trusted certificate with no key, the
+two rules, one entry in the list, and the shortcut. That build, from commit
+`6f91199`, is the one published as 0.3.0.
+
+Not yet tried: setup's own uninstaller, a failing step, the `winget` path,
+and any other PC.
 
 ## Fallback: a small kernel driver
 

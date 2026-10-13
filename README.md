@@ -26,8 +26,8 @@ installing anything.
 | AWDL | The daemon joins the AWDL channel, finds nearby Apple devices, synchronises with them and carries IPv6 traffic to and from them |
 | Receiving | Photos, a 28 MB video and a Live Photo have arrived from an iPhone, at about 16 MB/s |
 | Sending | Files have gone into the iPhone's Photos at 9 to 14 MB/s |
-| The app | One window over both. Through it the radio has been started and stopped, a small file sent to the iPhone and one received from it. Large transfers through it have not been tried |
-| The installer | Signs the driver on the PC it runs on, binds the card, and undoes both. It has run in full on the PC it was made on, and on no other |
+| The app | One window over both. Through it the radio has been started and stopped, and Live Photos of 6 MB received from the iPhone and small files sent to it, with requests answered from a card on screen. Large transfers through it have not been tried |
+| The installer | A setup program that signs the driver on the PC it runs on, binds the card, and undoes both when uninstalled. It has run in full on the PC it was made on, and on no other |
 | Not there | Contacts Only, in either direction. Any card but the RTL8852CE |
 
 All of it has run on one machine, with one card, against one iPhone.
@@ -216,10 +216,11 @@ prompt of its own.
 - **Closing** the window leaves the app in the notification area, still
   receiving, until it is quit from its icon there. Its settings turn that off.
 
-Over the air it has so far started and stopped the radio, sent one 0.2 MB
-file to an iPhone and received one 71 kB picture from it. Large transfers
-through it have not been tried, nor what a phone shows when a request from
-it is declined. [app/DESIGN.md](app/DESIGN.md) is the direction its look
+Over the air it has so far started and stopped the radio, sent files of up
+to 0.7 MB to an iPhone and received Live Photos of 6 MB from it, answered
+from the window and from the card on screen, with a device always accepted
+and without. Large transfers through it have not been tried, nor what a
+phone shows when a request from it is declined. [app/DESIGN.md](app/DESIGN.md) is the direction its look
 follows.
 
 ### From a terminal
