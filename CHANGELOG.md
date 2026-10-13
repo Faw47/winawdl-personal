@@ -3,14 +3,19 @@
 What each tagged state of the project holds. The measurements behind the
 numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
-## 0.2.0, 2026-10-12
+## 0.2.0, 2026-10-13
 
 - **An installer.** A zip with the programs already built, and `install.cmd`,
   which signs the driver on the PC it runs on with a certificate it makes
   there, deletes that certificate's private key, gives the card to the
   driver, adds the firewall rules and a Start Menu entry. `uninstall.cmd`
-  undoes all of it. It has run in full on the PC it was made on; its
-  uninstaller has not yet been run for real.
+  undoes all of it. It has run in full on the PC it was made on, where the
+  installed app then received a Live Photo and sent a file; its uninstaller
+  has not yet been run for real.
+- **A device is listed once.** An iPhone that announced itself under a second
+  name was shown twice for up to 20 s, or for as long as a transfer to it ran.
+- **A Live Photo is one photo** among what was received, and can play its
+  video. It is still stored as two files, a still and a video.
 - **The app runs from an installed folder.** It finds the daemons beside
   itself, keeps their logs in `C:\ProgramData\winawdl\logs`, and makes the
   certificate the receiver and sender present, so OpenSSL is no longer needed.

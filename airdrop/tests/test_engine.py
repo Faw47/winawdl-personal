@@ -20,6 +20,7 @@ import engine  # noqa: E402
 import mdns  # noqa: E402
 import receiver  # noqa: E402
 import sender  # noqa: E402
+import transfer  # noqa: E402
 from test_sender import RefusingReceiver  # noqa: E402
 
 LOOPBACK_SCOPE = 0
@@ -327,6 +328,27 @@ class PiecesTest(unittest.TestCase):
         self.assertEqual(list(instances.located()), [instance])
         instances.feed(service.response(), 'fe80::1')
         self.assertEqual(list(instances.located(within=5)), [instance])
+
+    def test_a_device_announced_under_two_names_is_one_device(self):
+        address = 'fe80::5000:5eff:fe00:5301'
+        instances = mdns.Instances(SERVICE_TYPE)
+        for label, port in (('0a1b2c3d4e5f', 8770), ('f5e4d3c2b1a0', 8771)):
+            service = mdns.Service(SERVICE_TYPE, label, f'{label}.local', address, port,
+                                   'flags=1019')
+            instances.feed(service.response(), 'fe80::1')
+        instances._heard[f'0a1b2c3d4e5f.{SERVICE_TYPE}'] -= 1
+        self.assertEqual(len(instances.located()), 2)
+        self.assertEqual(instances.devices(), {address: (address, 8771)})
+
+    def test_what_was_stored_says_which_files_are_one_live_photo(self):
+        heard = Heard()
+        incoming = engine.Incoming(heard, argparse.Namespace(dest='folder'))
+        names = [transfer.Stored('IMG_1.MOV', 'IMG_1.pvt'),
+                 transfer.Stored('IMG_1.jpg', 'IMG_1.pvt'), transfer.Stored('note.txt')]
+        incoming.stored(engine.Accepted('r1', None), names)
+        stored = heard.wait('stored')
+        self.assertEqual(stored['names'], ['IMG_1.MOV', 'IMG_1.jpg', 'note.txt'])
+        self.assertEqual(stored['live'], [['IMG_1.jpg', 'IMG_1.MOV']])
 
 
 if __name__ == '__main__':

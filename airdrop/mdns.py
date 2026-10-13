@@ -177,6 +177,17 @@ class Instances:
             out[name] = (self._addresses.get(host, source), port)
         return out
 
+    def devices(self, within=None):
+        """{address: (address, port)}: what located() gives, once for each
+        address. A device that starts announcing under a new instance name
+        does not take the old one back, so the name heard last stands."""
+        latest = {}
+        for name, (address, port) in self.located(within).items():
+            heard = self._heard.get(name, 0)
+            if address not in latest or heard > latest[address][0]:
+                latest[address] = (heard, port)
+        return {address: (address, port) for address, (_, port) in latest.items()}
+
 
 class Browser:
     """Asks one interface for a service type and keeps what answers."""

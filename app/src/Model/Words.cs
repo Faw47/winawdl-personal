@@ -35,10 +35,17 @@ public static class Words
     public static string Count(int count, string one, string many) =>
         count == 1 ? $"1 {one}" : string.Create(English, $"{count} {many}");
 
+    /// <summary>A sender announces a Live Photo as a folder named *.pvt.</summary>
+    private static bool IsLivePhoto(string name) =>
+        Path.GetExtension(name).Equals(".pvt", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>A file's name as shown, which for a Live Photo is its photo's.</summary>
+    public static string Title(string name) => IsLivePhoto(name) ? Path.GetFileNameWithoutExtension(name) : name;
+
     public static FileKind KindOf(string name)
     {
         var ending = Path.GetExtension(name);
-        if (PhotoEndings.Contains(ending)) return FileKind.Photo;
+        if (PhotoEndings.Contains(ending) || IsLivePhoto(name)) return FileKind.Photo;
         if (VideoEndings.Contains(ending)) return FileKind.Video;
         return ending.Equals(".url", StringComparison.OrdinalIgnoreCase) ? FileKind.Link : FileKind.File;
     }

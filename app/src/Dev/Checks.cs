@@ -223,6 +223,34 @@ public static class Checks
         world.Engine.Say(new { @event = "lost", id = "r2", reason = "nothing arrived" });
         Expect(model.Incoming[0].IsLost && Press(view, "Dismiss") && model.Incoming.Count == 0,
                "a transfer lost on the way in says so, and Dismiss removes it");
+
+        // A device that is announced again while a transfer to it runs.
+        world.Engine.Say(new { @event = "peer", id = "b", name = "Stand-in iPad", model = "iPad13,1" });
+        Press(view, "Stand-in iPad");
+        world.Engine.Say(new { @event = "peer_gone", id = "b" });
+        world.Engine.Say(new { @event = "peer", id = "b", name = "Stand-in iPad", model = "iPad13,1" });
+        Expect(model.Peers.Count == 1 && model.Peers[0].IsBusy,
+               "it is announced again mid-transfer -> the same plate, still sending");
+        world.Engine.Say(new { @event = "send", id = "s2", state = "failed", reason = "no_answer" });
+        Expect(model.Peers.Count == 1, "that transfer fails -> its plate stays, because the device is back");
+
+        // A Live Photo is one photo, on the way in and on the shelf.
+        world.Engine.Say(new { @event = "asked", id = "r3", sender = "Stand-in iPhone", files = new[] { new { name = "IMG_1.pvt", size = 0, type = "com.apple.private.live-photo-bundle" } }, links = 0, total = 0, waits = true });
+        Expect(model.Incoming[0].Headline == "Stand-in iPhone wants to send you a photo" && model.Incoming[0].Detail == "IMG_1",
+               $"a Live Photo is asked about -> \"{model.Incoming[0].Headline}\", \"{model.Incoming[0].Detail}\"");
+        var shelf = Path.Combine(Path.GetTempPath(), "winawdl-check-files");
+        world.Engine.Say(new
+        {
+            @event = "stored", id = "r3", folder = shelf, names = new[] { "IMG_1.MOV", "IMG_1.jpg", "note.txt" },
+            live = new[] { new[] { "IMG_1.jpg", "IMG_1.MOV" } },
+        });
+        Expect(model.Received.Select(file => file.Name).SequenceEqual(["IMG_1.jpg", "note.txt"]),
+               $"a Live Photo and a note are stored -> on the shelf: {string.Join(", ", model.Received.Select(file => file.Name))}");
+        var live = model.Received.FirstOrDefault(file => file.Name == "IMG_1.jpg");
+        live?.PlayVideo?.Execute(null);
+        Expect(live is { HasVideo: true, Hint: "IMG_1.jpg, a Live Photo" } && world.Desk.Opened.Last() == "open " + Path.Combine(shelf, "IMG_1.MOV"),
+               "the photo says it is a Live Photo, and Play the video opens its video (recorded)");
+        Expect(model.Received.First(file => file.Name == "note.txt") is { HasVideo: false, Hint: "note.txt" }, "any other file has no video to play");
     }
 
     private static void Supervisor(string logs)

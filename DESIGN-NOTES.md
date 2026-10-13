@@ -572,7 +572,7 @@ standing in for both daemons, and each state of the radio and of the engine
 against the screen it should put up. `--drive` opens the real window off
 screen, never activated, starts the real engine with `--loopback` and a
 second one as the other device, and presses each control through its
-automation peer, which is the interface a screen reader uses. 45 and 59
+automation peer, which is the interface a screen reader uses. 51 and 59
 checks pass.
 
 The first run with the radio was the owner's, on 2026-10-12, and what
@@ -597,6 +597,28 @@ had to be killed. Three things showed up:
   made here. The notice has not been seen with a phone yet.
 - A folder listing shows a log's size as it was when the file was opened.
   The logs do fill as the daemons run.
+
+The second run, on 2026-10-13, was of the installed copy: a Live Photo
+received and a 0.7 MB file sent. The owner saw two things, both fixed and
+neither tried on the air since:
+
+- The iPhone was listed twice for a moment around the send. The window keeps
+  one plate for each identifier the engine gives, and the engine gave a
+  receiver's mDNS instance name. The AWDL daemon's log has one peer for the
+  whole of that minute, so the phone was announced under two instance names
+  at once, from one address; the announcements themselves were not recorded.
+  A device that takes a new name says no goodbye for the old one, which then
+  stays for the 20 s above, and for a whole transfer if one is running. The
+  engine now names a receiver by its address, and of two instance names at
+  one address keeps the one announced last. A device announced again during
+  a transfer to it keeps its plate, which used to be replaced by a new one.
+- The Live Photo was two things on the shelf, its still and its video. They
+  are the two files it is stored as, and the window showed one for each
+  file. The engine now says which stored files are one Live Photo, from the
+  `.pvt` folder they came in and not from their names, so a photo and a video
+  that only share a name stay two. The window shows the still, which says it
+  is a Live Photo and can play its video. The request to send one, which
+  names that folder, reads as a photo and no longer as a file.
 
 Still untried through the window: a large transfer, and what a phone shows
 when its request is declined.

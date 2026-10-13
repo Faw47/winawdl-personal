@@ -213,6 +213,15 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(self.store(self.live_photo('IMG_1')), ['IMG_1-2.MOV', 'IMG_1-2.jpg'])
         self.assertEqual(self.read('IMG_1-2.jpg'), b'still')
 
+    def test_a_live_photo_says_which_two_files_it_is(self):
+        written = self.store(self.live_photo('IMG_1'))
+        self.assertEqual(transfer.live_photos(written), [['IMG_1.jpg', 'IMG_1.MOV']])
+
+    def test_a_photo_and_a_video_of_one_name_are_not_a_live_photo(self):
+        raw = archive(portable_member('./IMG_1.jpg', b'still'),
+                      portable_member('./IMG_1.MOV', b'video'))
+        self.assertEqual(transfer.live_photos(self.store(gzip.compress(raw))), [])
+
     def test_a_metadata_file_outside_a_live_photo_is_kept(self):
         raw = archive(portable_member('./metadata.plist', b'ordinary'))
         self.assertEqual(self.store(gzip.compress(raw)), ['metadata.plist'])

@@ -52,6 +52,10 @@ public sealed class FileItem : Observable
     public ICommand? Press { get; init; }
     public ICommand? Remove { get; init; }
     public ICommand? Reveal { get; init; }
+    /// <summary>Set on the still of a Live Photo: opens the video stored beside it.</summary>
+    public ICommand? PlayVideo { get; init; }
+    public bool HasVideo => PlayVideo is not null;
+    public string Hint => HasVideo ? $"{Name}, a Live Photo" : Name;
     public string RemoveName => $"Remove {Name}";
 
     public ImageSource? Thumbnail { get => _thumbnail; private set => Set(ref _thumbnail, value); }

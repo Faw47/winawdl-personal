@@ -47,6 +47,7 @@ MAX_NAME_UNITS = 255
 MAX_NAME_ATTEMPTS = 10000
 LIVE_PHOTO_FOLDER_SUFFIX = '.pvt'
 LIVE_PHOTO_METADATA = 'metadata.plist'
+LIVE_PHOTO_VIDEO_SUFFIX = '.mov'
 
 # Separators, what Windows forbids (a colon selects an alternate data stream),
 # control characters, and bidi overrides: "gpj.<U+202E>exe" shows as "exe.jpg".
@@ -530,6 +531,33 @@ def live_photo_folder(pathname):
     return None
 
 
+class Stored(str):
+    """The name a file was stored under. `live_photo` is the folder the two
+    files of a Live Photo came in, and None for any other file."""
+
+    def __new__(cls, name, live_photo=None):
+        stored = super().__new__(cls, name)
+        stored.live_photo = live_photo
+        return stored
+
+
+def live_photos(names):
+    """[still, video] for each Live Photo whose two files are among these
+    stored names. Two files that only share a stem are not one."""
+    folders = {}
+    for name in names:
+        folder = getattr(name, 'live_photo', None)
+        if folder:
+            folders.setdefault(folder, []).append(name)
+    pairs = []
+    for files in folders.values():
+        videos = [name for name in files if name.lower().endswith(LIVE_PHOTO_VIDEO_SUFFIX)]
+        stills = [name for name in files if name not in videos]
+        if len(videos) == 1 and len(stills) == 1:
+            pairs.append([stills[0], videos[0]])
+    return pairs
+
+
 def free_number(dest, stem):
     """The first number under which no file in dest has this stem, whatever
     its extension; 0 stands for the bare stem."""
@@ -578,7 +606,7 @@ def _extract(archive, dest, budget, created):
             for block in entry.blocks():
                 sink.write(block)
         mark_as_downloaded(os.path.join(dest, name))
-        written.append(name)
+        written.append(Stored(name, live_photo))
     return written
 
 

@@ -202,7 +202,7 @@ class Incoming(receiver.Watcher):
 
     def stored(self, token, names):
         self.events.say('stored', id=token.key, folder=token.folder or self.settings.dest,
-                        names=names)
+                        names=names, live=transfer.live_photos(names))
 
     def upload_failed(self, token, reason):
         self.events.say('lost', id=token.key, reason=reason)
@@ -364,7 +364,7 @@ class Looking:
                 self.events.say('looking', on=True, beacon=beacon.on, why=beacon.said)
                 while not stop.is_set():
                     browser.poll()
-                    self._reconcile(browser.instances.located(PEER_SILENCE_SECONDS),
+                    self._reconcile(browser.instances.devices(PEER_SILENCE_SECONDS),
                                     scope, stop)
         finally:
             browser.close()

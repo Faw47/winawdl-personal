@@ -365,7 +365,16 @@ public sealed class TableModel : Observable
 
     private void AddPeer(string id, string name, string model)
     {
-        if (Peers.FirstOrDefault(known => known.Id == id) is { } known) Peers.Remove(known);
+        if (Peers.FirstOrDefault(known => known.Id == id) is { } known)
+        {
+            // Announced again while a transfer to it runs: its plate carries on, and stays.
+            if (known.IsBusy)
+            {
+                known.Left = false;
+                return;
+            }
+            Peers.Remove(known);
+        }
         PeerModel? peer = null;
         peer = new PeerModel(id, name, model.Length > 0 ? model : null)
         {
@@ -490,7 +499,7 @@ public sealed class TableModel : Observable
         var total = Number(said, "total");
         var sender = Text(said, "sender");
         var waits = Flag(said, "waits");
-        var detail = names.Count == 1 ? names[0] : "";
+        var detail = names.Count == 1 ? Words.Title(names[0]) : "";
         if (total is > 0) detail += (detail.Length > 0 ? " · " : "") + Words.Size(total.Value);
         var item = new IncomingModel
         {
@@ -549,14 +558,23 @@ public sealed class TableModel : Observable
         if (Find(Text(said, "id")) is { } item) Incoming.Remove(item);
         var folder = Text(said, "folder");
         if (!said.TryGetProperty("names", out var names) || names.ValueKind != JsonValueKind.Array) return;
+        // A Live Photo is stored as a still and a video, and is one thing here: its still.
+        var videos = new Dictionary<string, string>();
+        if (said.TryGetProperty("live", out var live) && live.ValueKind == JsonValueKind.Array)
+            foreach (var pair in live.EnumerateArray())
+                if (pair.ValueKind == JsonValueKind.Array && pair.GetArrayLength() == 2)
+                    videos[pair[0].GetString() ?? ""] = pair[1].GetString() ?? "";
         foreach (var name in names.EnumerateArray().Select(name => name.GetString() ?? "").Reverse())
         {
+            if (videos.ContainsValue(name)) continue;
             var path = Path.Combine(folder, name);
+            var video = videos.TryGetValue(name, out var beside) ? Path.Combine(folder, beside) : null;
             Received.Insert(0, new FileItem(path, _desk)
             {
                 Turn = Turns[Received.Count % Turns.Length],
                 Press = new Command(() => _desk.Open(path)),
                 Reveal = new Command(() => _desk.Reveal(path)),
+                PlayVideo = video is null ? null : new Command(() => _desk.Open(video)),
             });
         }
         while (Received.Count > MostReceived) Received.RemoveAt(Received.Count - 1);
