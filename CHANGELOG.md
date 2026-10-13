@@ -25,6 +25,11 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
   the one it keeps time with. One transfer waited 22 s on a wrong choice
   there, and the cause is not yet known.
 
+- **Uninstalling from Windows.** Started by Windows' own Uninstall button, the
+  uninstaller no longer asks a second time, and it closes the app and its
+  radio itself where it used to refuse while they ran. The list of installed
+  apps shows the size and the date.
+
 The cards, always accepting and the icon's line were tried with an iPhone on
 2026-10-13, by the owner.
 

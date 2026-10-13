@@ -88,9 +88,11 @@ it, lets AirDrop through Windows Firewall from link-local addresses only, and
 adds a Start Menu entry. `install.ps1 -DryRun` says all that and does none of
 it.
 
-To take it off again, use "Installed apps" in Settings or `uninstall.cmd` in
-that folder. The card goes back to its own driver, the certificate stops
-being trusted, and the rules and the files go. Files you received stay.
+To take it off again, use Uninstall on winawdl in the Start Menu or under
+"Installed apps" in Settings, or `uninstall.cmd` in that folder. The app is
+closed first if it is running. The card goes back to its own driver, the
+certificate stops being trusted, and the rules and the files go. Files you
+received stay.
 
 No signature other than one made on your own PC is available to this
 project, which is why the driver is signed there and not before. The

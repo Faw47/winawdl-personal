@@ -51,9 +51,11 @@ To send to an iPhone, iPad or Mac, or to receive from one, set its AirDrop to
 Uninstall
 ---------
 
-"Installed apps" in Settings, or uninstall.cmd in C:\Program Files\winawdl.
-The card goes back to its own driver and Wi-Fi comes back. Files you received
-stay where they were stored.
+Right-click winawdl in the Start Menu and choose Uninstall, which opens
+"Installed apps" in Settings: winawdl is in that list, with its own Uninstall.
+uninstall.cmd in C:\Program Files\winawdl does the same. Either closes the
+app first if it is running. The card goes back to its own driver and Wi-Fi
+comes back. Files you received stay where they were stored.
 
 
 What is in here

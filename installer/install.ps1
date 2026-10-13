@@ -225,11 +225,16 @@ Step 'a shortcut, and an entry in the list of installed apps' {
   $entry = @{
     DisplayName = 'winawdl'; DisplayVersion = $Version; Publisher = 'winawdl project'
     InstallLocation = $Target; DisplayIcon = (Join-Path $Target 'winawdl.exe')
-    UninstallString = "`"$(Join-Path $Target 'uninstall.cmd')`""
+    # Windows asks before it runs this, so the uninstaller does not ask again.
+    UninstallString = "`"$(Join-Path $Target 'uninstall.cmd')`" /yes"
     URLInfoAbout = 'https://github.com/raph559/winawdl'
+    InstallDate = Get-Date -Format 'yyyyMMdd'
   }
   foreach ($name in $entry.Keys) { Set-ItemProperty $UninstallKey -Name $name -Value $entry[$name] }
   foreach ($name in 'NoModify', 'NoRepair') { Set-ItemProperty $UninstallKey -Name $name -Value 1 -Type DWord }
+  # The size the list of installed apps shows, in kilobytes.
+  $bytes = (Get-ChildItem $Target -Recurse -File | Measure-Object Length -Sum).Sum
+  Set-ItemProperty $UninstallKey -Name EstimatedSize -Value ([int][math]::Ceiling($bytes / 1KB)) -Type DWord
 }
 
 ''

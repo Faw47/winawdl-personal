@@ -39,14 +39,29 @@ $me = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]:
 if (-not $DryRun -and -not $me.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
   throw 'This needs administrator rights. Start uninstall.cmd, which asks Windows for them.'
 }
-if (Get-Process winawdl -ErrorAction SilentlyContinue) {
-  throw 'winawdl is running. Quit it from its icon in the notification area, then start again.'
-}
+$Programs = 'winawdl', 'awdld', 'winawdl_radio'
+$running = [bool](Get-Process $Programs -ErrorAction SilentlyContinue)
 
 "The Wi-Fi card now: $(Get-CardDriver)"
+if ($running) { 'winawdl is running, and will be closed first.' }
 if (-not $Yes -and -not $DryRun -and (Read-Host 'Take winawdl off this PC? (y/n)') -ne 'y') {
   'Nothing was changed.'
   exit 1
+}
+
+if ($running) {
+  'The app'
+  Step 'close it, and let it stop its radio' {
+    # The copy that runs the radio stops both daemons when the window's process ends.
+    Get-CimInstance Win32_Process -Filter "Name = 'winawdl.exe'" |
+      Where-Object { $_.CommandLine -notmatch '--radio' } |
+      ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    foreach ($second in 1..15) {
+      if (-not (Get-Process $Programs -ErrorAction SilentlyContinue)) { break }
+      Start-Sleep -Seconds 1
+    }
+    Get-Process $Programs -ErrorAction SilentlyContinue | Stop-Process -Force
+  }
 }
 
 'Driver'
