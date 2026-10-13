@@ -336,6 +336,34 @@ that wait from the sixth on, up to 2 s. Several copies in one aggregate
 therefore mean a fraction of a second spent off the channel. The capture
 keeps the whole TCP header for this: the timestamp option dates each copy.
 
+### The wrong sync master, once
+
+On 2026-10-13 a Live Photo was accepted in the window and the iPhone went on
+saying "Waiting" for 22 s. The engine answered the request at 16:56:51 and
+the upload began at 16:57:14; the next transfer, a minute later, began 32 ms
+after its answer. The AWDL daemon's log has the whole gap:
+
+- Until 16:56:48 the sync master was the iPhone itself.
+- From 16:56:50 it was a third device in range, which the daemon had heard
+  since it started. A fourth had appeared at 16:56:45.
+- For as long as that lasted not one data frame was received, while this
+  side sent about one every 2 s, which is what TCP sending the answer again
+  looks like.
+- At 16:57:13 the third device was dropped for having gone quiet, the sync
+  master became the fourth, and data flowed within the second.
+
+So the daemon kept time with a device the iPhone was not keeping time with,
+and what it sent missed the iPhone's listening windows. Why the iPhone
+stopped being chosen is not known: the log does not say what each device
+announced. Three causes fit. The iPhone may have taken the fourth device
+for its master, whose counter of 28 loses in OWL's election, which compares
+counters before metrics, to the third device's 2,919. It may have named
+this PC as its own sync master, which the election refuses so as not to
+make a loop. Or it may have stopped counting as a valid peer. Nothing was
+changed in the election. The daemon now logs, each time its sync master
+changes, what every peer last announced and how long ago it was heard, so
+that the next occurrence says which it was.
+
 ## The AirDrop layer
 
 `airdrop/` is the receiving half of omdrop, adapted for Windows. omdrop's

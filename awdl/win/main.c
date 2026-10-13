@@ -77,11 +77,39 @@ static int channel_from_number(int number, struct awdl_chan *chan) {
 	}
 }
 
+/* What each peer last said of its own place in the sync tree, which is all an
+ * election goes by. Logged when the sync master changes: a master the device
+ * being talked to does not share has cost a transfer 22 s. */
+static void print_candidates(const struct daemon_state *state) {
+	struct awdl_peer *peer;
+	uint64_t now = clock_time_us();
+	awdl_peers_it_t it = awdl_peers_it_new(state->awdl_state.peers.peers);
+	while (awdl_peers_it_next(it, &peer) == PEERS_OK) {
+		const struct awdl_election_state *said = &peer->election;
+		char follows[18], master[18];
+		snprintf(follows, sizeof(follows), "%s", ether_ntoa(&said->sync_addr));
+		snprintf(master, sizeof(master), "%s", ether_ntoa(&said->master_addr));
+		log_info("  %s%s follows %s under %s (met %u, ctr %u, height %u), itself (met %u, "
+			 "ctr %u), heard %llu ms ago",
+			 ether_ntoa(&peer->addr), peer->is_valid ? "" : " (not valid yet)", follows,
+			 master, said->master_metric, said->master_counter, said->height,
+			 said->self_metric, said->self_counter,
+			 (unsigned long long) ((now - peer->last_update) / 1000));
+	}
+	awdl_peers_it_free(it);
+}
+
 static void print_status(struct ev_loop *loop, ev_timer *timer, int revents) {
 	(void) loop;
 	(void) revents;
 	struct daemon_state *state = timer->data;
 	const struct awdl_stats *stats = &state->awdl_state.stats;
+	static struct ether_addr followed;
+	if (memcmp(&followed, &state->awdl_state.election.sync_addr, sizeof(followed))) {
+		followed = state->awdl_state.election.sync_addr;
+		log_info("sync master is now %s, chosen among:", ether_ntoa(&followed));
+		print_candidates(state);
+	}
 	char tree[256] = "";
 	char joined[48] = "";
 	awdl_election_tree_print(&state->awdl_state.election, tree, sizeof(tree));
