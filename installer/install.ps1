@@ -51,10 +51,12 @@ function Get-PublishedPackages {
 }
 
 function Get-PythonVersion {
+  # The Store's stand-in for python.exe answers on its error stream only, and
+  # Windows PowerShell ends a script over that unless told to carry on.
+  $ErrorActionPreference = 'Continue'
   foreach ($name in 'py', 'python') {
     $found = Get-Command $name -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $found) { continue }
-    # The Store's stand-in for python.exe prints nothing.
     $said = & $found.Source --version 2>$null
     if ("$said" -match 'Python (\d+)\.(\d+)') { return [version]"$($Matches[1]).$($Matches[2])" }
   }

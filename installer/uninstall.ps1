@@ -5,6 +5,9 @@
 # -DryRun says what would be done and changes nothing. -Yes asks no questions.
 param([switch]$Yes, [switch]$DryRun, [switch]$RemoveData)
 $ErrorActionPreference = 'Stop'
+# Started from the folder it removes, it would hold that folder open.
+Set-Location $env:SystemRoot
+[Environment]::CurrentDirectory = $env:SystemRoot
 
 $Target        = Join-Path $env:ProgramFiles 'winawdl'
 $HardwareId    = 'PCI\VEN_10EC&DEV_C852'
@@ -75,8 +78,10 @@ Step 'stop trusting the certificate it was signed with' {
   foreach ($store in $TrustStores) {
     Get-ChildItem "Cert:\LocalMachine\$store" | Where-Object { $_.Subject -eq $CertSubject } | Remove-Item
   }
-  # An install that was cut short may have left the key behind.
-  Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $CertSubject } | Remove-Item -DeleteKey
+  # An install that was cut short may have left the key behind. Remove-Item
+  # only knows -DeleteKey when it is given the certificate's path, not from a pipeline.
+  Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $CertSubject } |
+    ForEach-Object { Remove-Item "Cert:\CurrentUser\My\$($_.Thumbprint)" -DeleteKey }
 }
 
 'Firewall'
