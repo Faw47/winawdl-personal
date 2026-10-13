@@ -25,6 +25,11 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
   the one it keeps time with. One transfer waited 22 s on a wrong choice
   there, and the cause is not yet known.
 
+- **A setup program.** `winawdl-<version>-setup.exe` is a wizard, made with
+  Inno Setup, around the same steps as the zip's `install.cmd`: it says what
+  installing changes, fetches what the PC lacks if asked to, gives the card
+  back if a step fails, and leaves a normal uninstaller. Installed with it on
+  one PC, the app received a Live Photo.
 - **The uninstaller works.** Its first real run stopped half way, with the
   card given back and the firewall rules, the shortcut and the files left.
   It also could not remove its folder when started from it, and the

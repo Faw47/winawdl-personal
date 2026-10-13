@@ -765,8 +765,32 @@ of installed apps, whose Uninstall starts the uninstaller with `/yes`, since
 Windows has asked already, and the uninstaller closes the app and lets it
 stop its radio where it used to refuse while they ran.
 
-Not yet tried: a transfer on a copy installed by 0.3.0, the `winget` path,
-and any other PC.
+The same day a setup program replaced the zip's two launchers as the way in:
+one exe, made with Inno Setup 6, which the build of the installer compiles
+when that tool is there. It is a wizard around the same two scripts. Inno
+Setup copies the files, makes the shortcut and the entry in the list of
+installed apps, and removes them again; the scripts, started with `-Setup`,
+do what is particular to this project. Three things were needed for that:
+
+- Setup is a 32-bit program, and a 32-bit PowerShell is shown the other
+  Program Files and no `pnputil`. Each script starts itself again in the
+  64-bit PowerShell when it finds itself in a 32-bit one.
+- What the PC lacks is asked of `install.ps1 -Missing` before anything is
+  copied, so that the wizard and the zip's installer cannot disagree.
+- A failed step is undone: setup runs the uninstaller's part, so the card is
+  not left with a driver that does not work, and shows the end of the log,
+  which it keeps with the app's own.
+
+The owner ran it once, on a PC with nothing of winawdl installed. Windows
+shows the card on the new package, the certificate trusted and without its
+key, both rules, and one entry in the list; the app was started from the
+last page, the radio came up, and a Live Photo arrived. One fault: the
+script removed the Start Menu shortcut setup had just made, taking it for
+the leftover of an install from the zip, which puts its own in the same
+place. It no longer touches the shortcut.
+
+Not yet tried: setup over an earlier install, its uninstaller, a failing
+step, the `winget` path, and any other PC.
 
 ## Fallback: a small kernel driver
 

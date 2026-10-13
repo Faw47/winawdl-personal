@@ -73,31 +73,36 @@ All of it has run on one machine, with one card, against one iPhone.
 
 ### With the installer
 
-1. Download `winawdl-<version>-windows-x64.zip` from
-   [the releases](https://github.com/raph559/winawdl/releases) and unpack it
-   anywhere.
-2. Double-click `install.cmd`. Windows asks for administrator rights, then the
-   installer lists what it will change and waits for your answer.
-3. Start winawdl from the Start Menu and turn its Radio switch on. Windows
-   asks for administrator rights again, for the radio.
+1. Download `winawdl-<version>-setup.exe` from
+   [the releases](https://github.com/raph559/winawdl/releases) and start it.
+   It is not signed by a publisher Windows knows, so Windows may first show
+   "Windows protected your PC": More info, then Run anyway.
+2. Read the page that says what installing changes, and go on. Windows asks
+   for administrator rights at the start.
+3. Leave "Start winawdl" ticked on the last page, and turn the app's Radio
+   switch on. Windows asks for administrator rights again, for the radio.
 
-The installer stops, having changed nothing, on a PC without the card. It
-copies winawdl to `C:\Program Files\winawdl`, signs the driver there as
-described under [Before you run it](#before-you-run-it), gives the card to
-it, lets AirDrop through Windows Firewall from link-local addresses only, and
-adds a Start Menu entry. `install.ps1 -DryRun` says all that and does none of
-it.
+Setup stops, having changed nothing, on a PC without the card. It copies
+winawdl to `C:\Program Files\winawdl`, signs the driver there as described
+under [Before you run it](#before-you-run-it), gives the card to it, lets
+AirDrop through Windows Firewall from link-local addresses only, and adds a
+Start Menu entry. If one of those steps fails it gives the card back to its
+own driver and shows why.
 
 To take it off again, use Uninstall on winawdl in the Start Menu or under
-"Installed apps" in Settings, or `uninstall.cmd` in that folder. The app is
-closed first if it is running. The card goes back to its own driver, the
-certificate stops being trusted, and the rules and the files go. Files you
-received stay.
+"Installed apps" in Settings. The app is closed first if it is running. The
+card goes back to its own driver, the certificate stops being trusted, and
+the rules and the files go. Files you received stay.
+
+The same files also come as `winawdl-<version>-windows-x64.zip`, for whoever
+would sooner read what runs: unpack it and double-click `install.cmd`, and
+later `uninstall.cmd` in `C:\Program Files\winawdl`. `install.ps1 -DryRun`
+says what would be done and does none of it.
 
 No signature other than one made on your own PC is available to this
-project, which is why the driver is signed there and not before. The
-installer and its uninstaller have so far run on one PC, the one they were
-made on.
+project, which is why the driver is signed there and not before. Setup, the
+zip's installer and both uninstallers have so far run on one PC, the one
+they were made on.
 
 The radio also needs the right to lock pages in memory, which an elevated
 prompt had from the start on that PC. The installer says so when it is

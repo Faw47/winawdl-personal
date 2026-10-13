@@ -109,7 +109,17 @@ if (-not (Get-WifiCard)) {
   'winawdl drives that card and no other. Nothing was installed.'
   exit 1
 }
-if (Get-Process winawdl -ErrorAction SilentlyContinue) {
+$Programs = 'winawdl', 'awdld', 'winawdl_radio'
+if ($Setup) {
+  # Setup has had the app closed. The copy that runs its radio goes a moment later.
+  if (-not $DryRun) {
+    foreach ($second in 1..15) {
+      if (-not (Get-Process $Programs -ErrorAction SilentlyContinue)) { break }
+      Start-Sleep -Seconds 1
+    }
+    Get-Process $Programs -ErrorAction SilentlyContinue | Stop-Process -Force
+  }
+} elseif (Get-Process winawdl -ErrorAction SilentlyContinue) {
   throw 'winawdl is running. Quit it from its icon in the notification area, then start again.'
 }
 
@@ -238,10 +248,10 @@ Step 'two inbound rules, for link-local addresses only' {
 }
 
 if ($Setup) {
-  # An install made from the zip left an entry of its own in the list of installed apps.
+  # An install made from the zip left an entry of its own in the list of
+  # installed apps. Its shortcut is where the setup program has just put its own.
   'Earlier install'
-  Step 'take over from one made without the setup program' {
-    Remove-Item $Shortcut -ErrorAction SilentlyContinue
+  Step 'take over its entry in the list of installed apps, if one was made from the zip' {
     Remove-Item $UninstallKey -Recurse -ErrorAction SilentlyContinue
   }
   ''

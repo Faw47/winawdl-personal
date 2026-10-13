@@ -31,6 +31,9 @@ Before you install
 Install
 -------
 
+If you are reading this in C:\Program Files\winawdl, winawdl is installed
+already. From the zip:
+
 1. Unpack this folder anywhere.
 2. Double-click install.cmd. Windows asks for administrator rights, then the
    installer lists what it will change and waits for your answer.
@@ -53,8 +56,8 @@ Uninstall
 
 Right-click winawdl in the Start Menu and choose Uninstall, which opens
 "Installed apps" in Settings: winawdl is in that list, with its own Uninstall.
-uninstall.cmd in C:\Program Files\winawdl does the same. Either closes the
-app first if it is running. The card goes back to its own driver and Wi-Fi
+An install made from the zip also has uninstall.cmd in this folder, which
+does the same. Either closes the app first if it is running. The card goes back to its own driver and Wi-Fi
 comes back. Files you received stay where they were stored.
 
 
