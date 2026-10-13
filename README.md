@@ -46,6 +46,9 @@ All of it has run on one machine, with one card, against one iPhone.
   send to everyone can put files into your `Downloads` folder without being
   asked. The receiver opens nothing it stores. The app asks you first, unless
   its settings are changed to take everything.
+- A device you tell the app to always accept is known only by the name and
+  model it gives for itself. Another device in range that gives the same two
+  is accepted as well, without a question.
 - The card answers frames without waiting for Bluetooth, which shares its
   radio. Bluetooth devices may lose an occasional packet meanwhile.
 - While the sender looks for a receiver it advertises over Bluetooth as an
@@ -67,7 +70,9 @@ All of it has run on one machine, with one card, against one iPhone.
 - For a build from source: Visual Studio Build Tools 2022 with its bundled
   vcpkg, CMake, the Windows SDK, the Windows Driver Kit 10.0.26100, MinGW-w64
   GCC (the build script expects the one in `C:\Strawberry\c\bin`), the .NET
-  SDK 10, Python 3.10 or newer, and Git for Windows.
+  SDK 10, Python 3.10 or newer, and Git for Windows. Inno Setup 6 as well, to
+  make the setup program: without it `scripts\build-installer.ps1` makes the
+  zip alone.
 
 ## Install
 
@@ -216,6 +221,11 @@ prompt of its own.
 - **Closing** the window leaves the app in the notification area, still
   receiving, until it is quit from its icon there. Its settings turn that off.
 
+<img src="docs/cards.png" width="380" alt="Three cards in the corner of the screen: a photo that has arrived, with Open and Show in folder, and two requests with Decline and Accept">
+
+The cards as they show in the corner of the screen, with stand-in devices:
+what has arrived on top, and below it what waits for an answer.
+
 Over the air it has so far started and stopped the radio, sent files of up
 to 0.7 MB to an iPhone and received Live Photos of 6 MB from it, answered
 from the window and from the card on screen, with a device always accepted
@@ -289,7 +299,7 @@ either direction.
 | `awdl` | The AWDL daemon `awdld`: OWL's protocol core with a Windows I/O layer |
 | `airdrop` | The AirDrop receiver, adapted from [omdrop](https://github.com/brentkearney/omdrop-plugin): service announcement and the HTTPS endpoints senders talk to. A sender, which finds receivers and uploads to one. And the engine that runs both for the app |
 | `app` | The Windows app: a window over the receiver and the sender, which also starts and stops the two daemons |
-| `installer` | What installs a built copy on a PC and takes it off again: the scripts that go in a release's zip, which `scripts\build-installer.ps1` puts together |
+| `installer` | What installs a built copy on a PC and takes it off again: the two scripts that do it, the setup program around them (`winawdl.iss`, for Inno Setup), and the launchers that go in the zip instead. `scripts\build-installer.ps1` puts both together |
 | `tools`, `probes` | Small clients of the driver and one-off measurements |
 | `scripts` | Build, packaging, install and test helpers |
 | `deps` | Pinned vcpkg manifest for devourer's dependencies, and Wintun once fetched |

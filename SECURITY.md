@@ -14,12 +14,15 @@ While it runs, this project reads data from anyone in radio range:
 
 A flaw in any of those is worth reporting. So is a way for the receiver to
 store a file outside its folder, to overwrite one, or to open what it stored;
-a way past the app's question before a file is taken; a way for a program
-without administrator rights to reach the driver; and anything that leaves
-the card or its driver in a state the uninstall script does not undo.
+a way past the app's question before a file is taken; a way to make a
+press on one of its cards on screen do something other than it says; a way
+for a program without administrator rights to reach the driver; and anything
+that setup changes on a PC and uninstalling does not undo.
 
 [README.md](README.md#before-you-run-it) lists what the project does by
-design, such as taking files from everyone when told to. Those are not flaws.
+design, such as taking files from everyone when told to, or from any device
+that gives the name and model of one you chose to always accept. Those are
+not flaws.
 
 ## Reporting
 

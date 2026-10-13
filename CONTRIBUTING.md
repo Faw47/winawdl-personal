@@ -25,7 +25,20 @@ install: `.\scripts\build-installer.ps1 -AllowDirty` gathers a trial copy
 under `build\installer`, and `install.ps1 -DryRun` and `uninstall.ps1 -DryRun`
 in it say what they would do. Without `-DryRun` they do it, at once if the
 prompt is already elevated. Do not run one to see it refuse: check first
-which rights the prompt has.
+which rights the prompt has. With Inno Setup 6 installed the same script
+also compiles the setup program, `installer\winawdl.iss`, which is a wizard
+around those two scripts.
+
+A dry run skips every step that changes something, so it cannot show a fault
+in one, and three were found that way only when the installer was run for
+real. Two habits come from that:
+
+- Run the scripts with `powershell.exe`, which is Windows PowerShell 5.1 and
+  what the launchers and setup start, and also with the 32-bit one in
+  `SysWOW64`, since setup is a 32-bit program. PowerShell 7 does not behave
+  the same.
+- Try a step that removes or writes something on a throwaway folder first,
+  with a few lines that do only that step.
 
 `radio` and `awdl` build their test programs beside the daemons;
 `scripts\build-radio.ps1` and `scripts\build-awdl.ps1` list them.

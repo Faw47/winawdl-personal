@@ -13,6 +13,7 @@ body:
       label: Which part
       options:
         - Building
+        - Installing or uninstalling
         - The driver
         - The radio daemon
         - The AWDL daemon
@@ -54,5 +55,5 @@ body:
     id: logs
     attributes:
       label: Logs
-      description: What the script or the installer printed, or for the app the files in C:\ProgramData\winawdl\logs.
+      description: What the script printed, or the files in C:\ProgramData\winawdl\logs. The app's are there, and so is install.log, which setup writes.
       render: text
