@@ -119,6 +119,16 @@ public sealed class PeerModel(string id, string name, string? model) : Observabl
     public string Resting => Words.Name(Kind);
 }
 
+/// <summary>A device whose requests are accepted without asking, as settings lists it.</summary>
+public sealed class TrustedModel(KnownDevice device)
+{
+    public KnownDevice Device { get; } = device;
+    public string Name => Device.Name;
+    public string Glyph => Words.Glyph(Words.KindOfDevice(Device.Model.Length > 0 ? Device.Model : null));
+    public ICommand? Forget { get; init; }
+    public string ForgetName => $"Stop always accepting from {Name}";
+}
+
 public enum IncomingState { Asking, Receiving, Lost }
 
 /// <summary>Something a device wants to send here, from its request to its last byte.</summary>
@@ -128,15 +138,34 @@ public sealed class IncomingModel : Observable
     private double _progress;
     private string _status = "";
 
+    private bool _canAlways;
+
     public required string Id { get; init; }
     public required string Sender { get; init; }
     public required string What { get; init; }
     public required string Detail { get; init; }
+    public string Model { get; init; } = "";
+    public string Glyph => Words.Glyph(Words.KindOfDevice(Model.Length > 0 ? Model : null));
     public long? Total { get; set; }
     public RateMeter Rate { get; } = new();
     public ICommand? Accept { get; init; }
     public ICommand? Decline { get; init; }
     public ICommand? Dismiss { get; init; }
+    /// <summary>Accepts this request and every later one from its device.</summary>
+    public ICommand? Always { get; init; }
+    public string AlwaysLabel => $"Always accept from {Sender}";
+
+    /// <summary>The device gave a name and is not always accepted yet.</summary>
+    public bool CanAlways
+    {
+        get => _canAlways;
+        set
+        {
+            if (Set(ref _canAlways, value)) Changed(nameof(ShowsAlways));
+        }
+    }
+
+    public bool ShowsAlways => IsAsking && CanAlways;
 
     public IncomingState State
     {

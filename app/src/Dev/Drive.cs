@@ -540,6 +540,49 @@ public static class Drive
             Press("Close settings");
             Check(!_model.SettingsOpen && Named("Radio") is not null, "its Close button -> closed, and the table is in reach again");
 
+            Say("A request while the window is not in front, then a device that is always accepted");
+            var requests = new RequestWindow(_model, () => false) { Spot = new Point(-30000, -30000) };
+            var carded = false;
+            _model.Attention += _ => carded = requests.Announce();
+            var arrived = new List<string>();
+            _model.Arrived += arrived.Add;
+            _other.Tell(new { @do = "send", id = "x4", peer = meId, files = new[] { files[4] } });
+            Check(Until(() => _model.HasRequests), "it sends -> a request waits");
+            Pump(150);
+            Check(!carded || requests.IsVisible && !requests.IsActive,
+                  carded ? "the card window shows it, off screen here, without being activated"
+                         : "Windows takes no notices right now (a full-screen app or a presentation), so no card is shown");
+            var onCard = Stage.Controls((DependencyObject)requests.Content)
+                .FirstOrDefault(one => one.Line.Contains("\"Accept\"")).Control;
+            if (onCard is not null)
+            {
+                ((IInvokeProvider)UIElementAutomationPeer.CreatePeerForElement(onCard).GetPattern(PatternInterface.Invoke)).Invoke();
+                Pump(120);
+            }
+            else Press("Accept");
+            Check(Until(() => File.Exists(Path.Combine(elsewhere, Path.GetFileName(files[4]))), 30) && !requests.IsVisible,
+                  $"Accept {(onCard is null ? "in the window" : "on the card")} -> the file arrives, and the card window is gone");
+            Check(arrived.Count == 1, $"what arrived is said for a window that is out of sight: \"{arrived.LastOrDefault()}\"");
+
+            _other.Tell(new { @do = "send", id = "x5", peer = meId, files = new[] { files[1] } });
+            Check(Until(() => _model.HasRequests), "it sends again -> a request waits");
+            Press("Always accept from Other device");
+            Check(Until(() => File.Exists(Path.Combine(elsewhere, Path.GetFileName(files[1]))), 30) && _settings.AlwaysAccept.Count == 1,
+                  "Always accept from Other device -> this one arrives, and the device is remembered");
+            _other.Tell(new { @do = "send", id = "x6", peer = meId, files = new[] { files[3] } });
+            var questioned = false;
+            Check(Until(() =>
+            {
+                questioned |= _model.HasRequests;
+                return File.Exists(Path.Combine(elsewhere, Path.GetFileName(files[3])));
+            }, 30) && !questioned, "its next file arrives with no question: the engine was answered the moment it asked");
+            Press("Settings");
+            Shot("settings-always");
+            Press("Stop always accepting from Other device");
+            Check(_settings.AlwaysAccept.Count == 0, "Stop always accepting, in settings -> the device is forgotten");
+            Press("Close settings");
+            requests.Close();
+
             Say("The radio switch (the radio here is a stand-in: starting the real one asks Windows for administrator rights)");
             Press("Radio");
             Check(_model.Notices.Any(notice => notice.Contains("terminal")) && radio.Starts == 0,

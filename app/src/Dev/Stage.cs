@@ -150,6 +150,16 @@ public static class Stage
                 File.WriteAllLines(Path.Combine(folder, $"{name}.txt"), Controls(view).Select(one => one.Line));
             }
         }
+        if (only.Count == 0 || only.Contains("request-card"))
+        {
+            // A pale and a dark desktop behind each theme: the card does not choose what it lies on.
+            foreach (var (themeName, palette) in themes)
+                foreach (var (ground, backdrop) in new[] { ("pale", "#C9D6E2"), ("deep", "#20262E") })
+                {
+                    theme.Apply(palette);
+                    SaveRequestCard(app.Dispatcher, backdrop, Path.Combine(folder, $"request-card-{themeName}-on-{ground}.png"));
+                }
+        }
         if (only.Count == 0 || only.Contains("sizes"))
         {
             theme.Apply(Palette.Night(blue));
@@ -176,7 +186,8 @@ public static class Stage
         return 0;
     }
 
-    public sealed record World(ScriptedEngine Engine, ScriptedRadio Radio, ScriptedDesk Desk, TableModel Model);
+    public sealed record World(ScriptedEngine Engine, ScriptedRadio Radio, ScriptedDesk Desk, TableModel Model,
+                               AppSettings Settings);
 
     public static World NewWorld(Dispatcher dispatcher, string? folder = null)
     {
@@ -187,7 +198,7 @@ public static class Stage
         var model = new TableModel(engine, radio, desk, settings);
         model.StartTheEngine();
         model.SetVisible(true);
-        return new World(engine, radio, desk, model);
+        return new World(engine, radio, desk, model, settings);
     }
 
     private static MainView Build(Action<World> scene, Dispatcher dispatcher)
@@ -299,6 +310,51 @@ public static class Stage
             Devices(world);
             world.Model.SettingsOpen = true;
         });
+        yield return ("settings-always", world =>
+        {
+            Devices(world);
+            Asked(world, waits: true);
+            world.Model.Incoming[0].Always!.Execute(null);
+            world.Engine.Say(new { @event = "answered", id = "r1", how = "declined" });
+            world.Engine.Say(new
+            {
+                @event = "asked", id = "r2", sender = "Stand-in MacBook", model = "MacBookPro18,3",
+                files = Array.Empty<object>(), links = 1, waits = true,
+            });
+            world.Model.Incoming[0].Always!.Execute(null);
+            world.Engine.Say(new { @event = "answered", id = "r2", how = "declined" });
+            world.Model.SettingsOpen = true;
+        });
+    }
+
+    /// <summary>The card that shows a request outside the window, on a stand-in
+    /// for whatever is on the screen behind it.</summary>
+    private static void SaveRequestCard(Dispatcher dispatcher, string backdrop, string path)
+    {
+        var world = NewWorld(dispatcher);
+        Devices(world);
+        Asked(world, waits: true);
+        world.Engine.Say(new
+        {
+            @event = "asked", id = "r2", sender = "Stand-in MacBook", model = "MacBookPro18,3",
+            files = new[] { new { name = "IMG_0042.pvt", size = 0, type = "com.apple.private.live-photo-bundle" } },
+            links = 0, total = 0, waits = true,
+        });
+        var card = new RequestsView { DataContext = world.Model };
+        var screen = new Border
+        {
+            Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(backdrop)),
+            Child = new AdornerDecorator { Child = card }, Padding = new Thickness(0, 24, 0, 0),
+        };
+        // The cards are made by the first pass over the layout and measured by the second.
+        for (var pass = 0; pass < 2; pass++)
+        {
+            screen.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            screen.Arrange(new Rect(screen.DesiredSize));
+            screen.UpdateLayout();
+        }
+        WritePng(Bitmap(screen, screen.DesiredSize.Width, screen.DesiredSize.Height, Scale), path);
+        File.WriteAllLines(Path.ChangeExtension(path, ".txt"), Controls(card).Select(one => one.Line));
     }
 
     /// <summary>Files to hold and receive in the pictures: three drawn images, so
@@ -396,6 +452,8 @@ public static class Stage
                 var child = VisualTreeHelper.GetChild(parent, index);
                 // IsVisible would say no to everything: nothing drawn here is in a window.
                 if (child is UIElement { Visibility: not Visibility.Visible }) continue;
+                // A scroll bar's own parts are for the pointer: the keys scroll by moving focus.
+                if (child is System.Windows.Controls.Primitives.ScrollBar) continue;
                 if (child is Control control and (System.Windows.Controls.Primitives.ButtonBase or TextBox))
                 {
                     var name = System.Windows.Automation.AutomationProperties.GetName(control);

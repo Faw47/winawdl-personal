@@ -52,11 +52,22 @@ public interface IDesk
     double Now { get; }
 }
 
+/// <summary>A device whose requests are accepted without asking. The name and
+/// the model are what it says of itself: AirDrop gives a PC nothing sturdier.</summary>
+public sealed class KnownDevice
+{
+    public string Name { get; set; } = "";
+    public string Model { get; set; } = "";
+}
+
 public sealed class AppSettings
 {
     public string? Name { get; set; }
     public string? Folder { get; set; }
     public bool Ask { get; set; } = true;
+    public List<KnownDevice> AlwaysAccept { get; set; } = [];
+    /// <summary>A request shows on screen while the window is not in front.</summary>
+    public bool ShowRequests { get; set; } = true;
     public bool KeepInTray { get; set; } = true;
     public bool TrayNoticeShown { get; set; }
     public double[]? Window { get; set; }

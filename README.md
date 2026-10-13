@@ -192,6 +192,15 @@ prompt of its own.
   a device, or drop them on the device.
 - **Receiving.** A device that wants to send is shown with what it offers,
   to accept or decline. Received files appear at the bottom of the window.
+  While the window is not the one in front, the request shows as a card in
+  the corner of the screen, with the same two choices; its settings turn that
+  off.
+- **Always accepting a device.** A request also offers to accept everything
+  from its device from then on, and the settings list those devices. A device
+  is known only by the name and model it gives for itself, which is all
+  AirDrop tells a PC that is not among its contacts: another device nearby
+  giving the same two would be accepted too. What it sends is stored and
+  never opened.
 - **A device that stays away.** When the window says that a device nearby
   only answers devices it knows, set that device's AirDrop to "Everyone for
   10 Minutes".

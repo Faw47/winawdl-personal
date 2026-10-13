@@ -124,6 +124,9 @@ class Incoming(receiver.Watcher):
     def _open(self, sender_name, model, files, links, waits):
         with self._lock:
             key = next(self._keys)
+            if waits:
+                # Before the request is said: its answer may come back at once.
+                self._waiting[key] = {'made': threading.Event(), 'accept': False}
         sizes = [file['size'] for file in files]
         total = sum(sizes) if sizes and None not in sizes else None
         self.events.say('asked', id=key, sender=sender_name, model=model, files=files,
@@ -148,9 +151,8 @@ class Incoming(receiver.Watcher):
         return accepted
 
     def _decision(self, key, left):
-        slot = {'made': threading.Event(), 'accept': False}
         with self._lock:
-            self._waiting[key] = slot
+            slot = self._waiting[key]
         try:
             deadline = time.monotonic() + ASK_LONGEST_SECONDS
             while time.monotonic() < deadline:

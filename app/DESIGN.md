@@ -17,6 +17,10 @@ A change to the first part outranks anything in the second.
   that first stood in for one).
 - **Shell:** the most optimized one, which is a native window: one process,
   nothing downloaded, drag and drop that carries file paths.
+- **A request out of the window** (2026-10-13): winawdl's own card in the
+  corner of the screen, chosen over a Windows notification.
+- **Always accepting a device** (2026-10-13): offered on the request, with a
+  list in the settings.
 
 Dial: ENERGY 2 / RHYTHM 2 / MOTION 2
 
@@ -150,6 +154,26 @@ shows: `docs\logo.png`, and `docs\social-preview.png`, the card a link to the
 repository is drawn with. That card is the mark, the name, and one line set
 in the app's own type on its own table color, and nothing else.
 
+### Outside the window
+
+A request that arrives while the window is not the one in front is shown as
+the same raised card, in the corner of the screen above the taskbar, because
+that is where Windows puts what wants an answer. It is the app's own card
+and not a Windows notification: the build downloads nothing, and what would
+draw one is not in the box. Three things follow from being a guest on
+someone else's screen:
+
+- It says whose it is, with the app's mark and name, which the window never
+  has to.
+- It never takes the keyboard, and it is not shown while a full-screen app
+  or a presentation has the screen. The notification area says it then, as
+  it does when the card is turned off.
+- It holds Accept and Decline and nothing else. Always accepting a device is
+  a longer thought, and is offered in the window.
+
+It goes when the request is answered, when the sender stops waiting, and
+when the window comes to the front, where the request already is.
+
 ### Motion
 
 Every motion answers "where did it go?" or "did it take?".
@@ -161,6 +185,7 @@ Every motion answers "where did it go?" or "did it take?".
 | A plate or a request fills from the left during its transfer | how far along, on the thing it concerns |
 | A received file drops onto the shelf | it is yours now, and here |
 | A device or a request arrives by fading in and sliding a few pixels | the list changed, and which row |
+| The card in the corner of the screen comes up from the edge it sits against | something new is here, and it came from outside |
 | The settings slide in from the right | they lie over the table and go back the same way |
 | The thumb of a switch slides across | which way it went |
 

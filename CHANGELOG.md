@@ -3,6 +3,23 @@
 What each tagged state of the project holds. The measurements behind the
 numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
+## Not yet tagged
+
+- **A request on screen.** While the app's window is not the one in front, a
+  device that wants to send shows as a card in the corner of the screen, with
+  Accept and Decline. It does not take the keyboard, and stays away while a
+  full-screen app or a presentation has the screen. A setting turns it off.
+- **Always accept from a device.** A request offers to accept everything from
+  its device from then on. The settings list those devices and can forget
+  each. A device is known by the name and model it gives, which another
+  device could give too.
+- **What arrived is said** in the notification area when the window is out of
+  sight.
+- An answer that reached the engine the instant it asked was lost, and the
+  sender left waiting. Nothing answered that fast until now.
+
+Checked without a radio only. Not yet tried with a phone.
+
 ## 0.2.0, 2026-10-13
 
 - **An installer.** A zip with the programs already built, and `install.cmd`,

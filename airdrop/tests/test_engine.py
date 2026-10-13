@@ -129,6 +129,22 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(done, sorted(done))
         self.assertLessEqual(done[-1], len(data))
 
+    def test_an_answer_given_the_moment_it_is_asked_counts(self):
+        running, heard, _ = self.engine()
+        said = heard.say
+
+        def answer_at_once(event, **fields):
+            said(event, **fields)
+            if event == 'asked':
+                running.handle({'do': 'answer', 'id': fields['id'], 'accept': True})
+
+        heard.say = answer_at_once
+        thread, outcome = self.start_delivery(running.settings.port,
+                                              self.source_file('note.txt', b'now'))
+        self.assertEqual(heard.wait('stored')['names'], ['note.txt'])
+        thread.join()
+        self.assertEqual(outcome, [sender.SENT])
+
     def test_a_declined_ask_stores_nothing(self):
         running, heard, folder = self.engine()
         thread, outcome = self.start_delivery(running.settings.port,

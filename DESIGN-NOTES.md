@@ -622,6 +622,32 @@ once and the Live Photo as one photo.
   is a Live Photo and can play its video. The request to send one, which
   names that folder, reads as a photo and no longer as a file.
 
+Two things were then added, and so far checked without a radio only.
+
+A device can be always accepted. The window answers its requests itself,
+the moment the engine asks, so the engine and the terminal receiver are as
+they were. What marks a device is the name and the model its request
+carries, and nothing else would do. The identifier in a request is the
+sender's service name of the moment, which the run above showed changing
+within a minute. A sender's TLS certificate cannot be asked for without
+being verified, with Python's `ssl` as it is. The signed record a device
+with an Apple account sends could, but checking it is the work Contacts Only
+needs, and none of it is done. So another device that gives the same name
+and model is accepted too, and the settings say so where the list is. What
+it would gain is files stored in the receiving folder, never opened, within
+the share of the disk an upload may take. Answering at once found a fault:
+the engine said a request before it was ready for the answer, and an answer
+that came back in that gap was dropped and the sender left waiting.
+
+A request that arrives while the window is not in front shows as a card in
+the corner of the screen, with Accept and Decline. It is the app's own
+window and not a Windows notification: one with buttons is raised through
+the Windows Runtime, whose bindings for .NET are a package the SDK
+downloads, and this build downloads nothing. The card never takes the
+keyboard. It is not shown while a full-screen app or a presentation has the
+screen, as far as `SHQueryUserNotificationState` tells; that call does not
+report Do not disturb, which the card therefore ignores.
+
 Still untried through the window: a large transfer, and what a phone shows
 when its request is declined.
 

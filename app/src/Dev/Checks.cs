@@ -119,7 +119,7 @@ public static class Checks
         return view;
     }
 
-    private static bool Press(MainView view, string name)
+    private static bool Press(FrameworkElement view, string name)
     {
         view.UpdateLayout();
         var control = Stage.Controls(view).FirstOrDefault(one => one.Line.Contains($"\"{name}\"")).Control;
@@ -251,6 +251,129 @@ public static class Checks
         Expect(live is { HasVideo: true, Hint: "IMG_1.jpg, a Live Photo" } && world.Desk.Opened.Last() == "open " + Path.Combine(shelf, "IMG_1.MOV"),
                "the photo says it is a Live Photo, and Play the video opens its video (recorded)");
         Expect(model.Received.First(file => file.Name == "note.txt") is { HasVideo: false, Hint: "note.txt" }, "any other file has no video to play");
+
+        Always(app);
+        Requests(app);
+    }
+
+    private static object Ask(string id, string sender, string model, bool waits = true) => new
+    {
+        @event = "asked", id, sender, model, links = 0, total = 5, waits,
+        files = new[] { new { name = "a.jpg", size = 5, type = "public.jpeg" } },
+    };
+
+    /// <summary>A device whose requests are accepted without asking.</summary>
+    private static void Always(Application app)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        var view = Show(world);
+        var model = world.Model;
+        var saved = 0;
+        world.Settings.Save = () => saved++;
+        var attention = new List<string>();
+        var arrived = new List<string>();
+        model.Attention += attention.Add;
+        model.Arrived += arrived.Add;
+        world.Engine.Say(new { @event = "link", up = true });
+
+        world.Engine.Say(Ask("r1", "Stand-in iPhone", "iPhone14,2"));
+        Expect(model.Incoming[0].ShowsAlways && attention.Count == 1, "a request from a named device offers Always accept, and asks for attention");
+        Expect(Press(view, "Always accept from Stand-in iPhone") && world.Engine.Told.Last().Contains("\"id\":\"r1\",\"accept\":true"),
+               "Always accept from Stand-in iPhone -> this request is accepted");
+        Expect(world.Settings.AlwaysAccept is [{ Name: "Stand-in iPhone", Model: "iPhone14,2" }] && saved == 1 && model.Trusted.Count == 1,
+               "the device is remembered by its name and model, and that is written down");
+        world.Engine.Say(new { @event = "answered", id = "r1", how = "accepted" });
+
+        world.Engine.Say(Ask("r2", "Stand-in iPhone", "iPhone14,2"));
+        Expect(world.Engine.Told.Last().Contains("\"id\":\"r2\",\"accept\":true") && !model.Incoming[0].IsAsking && attention.Count == 1,
+               "its next request is accepted at once: no question, no call for attention");
+        world.Engine.Say(new { @event = "stored", id = "r2", folder = Path.GetTempPath(), names = new[] { "a.jpg" } });
+        Expect(arrived is ["Stand-in iPhone sent you a photo"], $"what it sent is said once it is stored: \"{arrived.LastOrDefault()}\"");
+
+        var told = world.Engine.Told.Count;
+        world.Engine.Say(Ask("r3", "Stand-in iPhone", "iPhone15,3"));
+        Expect(model.Incoming[0].IsAsking && world.Engine.Told.Count == told && attention.Count == 2,
+               "the same name from another model of device is asked about");
+        world.Engine.Say(new { @event = "answered", id = "r3", how = "declined" });
+        world.Engine.Say(Ask("r4", "", ""));
+        Expect(model.Incoming[0].IsAsking && !model.Incoming[0].ShowsAlways, "a device that gives no name cannot be always accepted");
+        world.Engine.Say(new { @event = "answered", id = "r4", how = "declined" });
+
+        model.SettingsOpen = true;
+        var listed = Stage.Controls(view).Select(one => one.Line).ToList();
+        Expect(listed.Any(line => line.Contains("\"Stop always accepting from Stand-in iPhone\"")),
+               "settings lists the device, with a way to stop");
+        Expect(Press(view, "Stop always accepting from Stand-in iPhone") && world.Settings.AlwaysAccept.Count == 0
+               && model.Trusted.Count == 0 && saved == 2, "Stop always accepting -> it is forgotten, and that is written down");
+        model.SettingsOpen = false;
+        world.Engine.Say(Ask("r5", "Stand-in iPhone", "iPhone14,2"));
+        Expect(model.Incoming[0].IsAsking && model.Incoming[0].ShowsAlways, "its next request is asked about again");
+
+        // Remembered across a restart: the model starts from what was written down.
+        var kept = new AppSettings { AlwaysAccept = [new KnownDevice { Name = "Stand-in iPad", Model = "iPad13,1" }] };
+        var again = new TableModel(world.Engine, world.Radio, world.Desk, kept);
+        Expect(again.Trusted is [{ Name: "Stand-in iPad" }], "a remembered device is listed when the app starts again");
+
+        // Taking everything asks nobody, so what arrives is said as well.
+        world = Stage.NewWorld(app.Dispatcher);
+        arrived.Clear();
+        world.Model.Arrived += arrived.Add;
+        world.Engine.Say(Ask("r1", "Stand-in Mac", "MacBookPro18,3", waits: false));
+        world.Engine.Say(new { @event = "stored", id = "r1", folder = Path.GetTempPath(), names = new[] { "a.jpg" } });
+        Expect(arrived is ["Stand-in Mac sent you a photo"], "with Take everything, what arrived is said too");
+    }
+
+    /// <summary>The card that shows a request while the window is not in front.</summary>
+    private static void Requests(Application app)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        var model = world.Model;
+        var card = new RequestsView { DataContext = model };
+        var host = new AdornerDecorator { Child = card };
+        void Lay()
+        {
+            host.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            host.Arrange(new Rect(host.DesiredSize));
+            host.UpdateLayout();
+        }
+
+        world.Engine.Say(new { @event = "link", up = true });
+        world.Engine.Say(Ask("r1", "Stand-in iPhone", "iPhone14,2"));
+        Lay();
+        var controls = Stage.Controls(card).Select(one => one.Line).ToList();
+        Expect(controls.Count == 2 && controls[0].Contains("\"Decline\"") && controls[1].Contains("\"Accept\"")
+               && controls.All(line => !line.Contains("NO FOCUS RING")),
+               $"a waiting request is a card with two presses: {string.Join(", ", controls)}");
+        Expect(Press(card, "Accept") && world.Engine.Told.Last().Contains("\"id\":\"r1\",\"accept\":true"), "Accept on the card -> the request is accepted");
+        world.Engine.Say(new { @event = "answered", id = "r1", how = "accepted" });
+        Lay();
+        Expect(Stage.Controls(card).Count == 0 && !model.HasRequests, "once answered, the card is gone while the transfer runs in the window");
+        world.Engine.Say(Ask("r2", "Stand-in iPhone", "iPhone14,2"));
+        Lay();
+        Expect(Press(card, "Decline") && world.Engine.Told.Last().Contains("\"id\":\"r2\",\"accept\":false"), "Decline on the card -> the request is declined");
+
+        // The window that holds the cards, kept off screen.
+        var inFront = false;
+        var window = new RequestWindow(model, () => inFront) { Spot = new Point(-30000, -30000) };
+        world.Settings.ShowRequests = false;
+        Expect(!window.Announce() && !window.IsVisible, "with the setting off, a request is not shown on screen and is said another way");
+        world.Settings.ShowRequests = true;
+        // What Announce answers also depends on Windows: a full-screen app would have it say no.
+        var announced = window.Announce();
+        Stage.Pump(app.Dispatcher, 80);
+        Expect(!announced || window.IsVisible && !window.IsActive && window.Left <= -29000,
+               announced ? "a request while the window is not in front -> the card window shows, without taking the keyboard"
+                         : "Windows takes no notices right now (a full-screen app or a presentation): nothing is shown");
+        inFront = true;
+        window.Reconsider();
+        Expect(!window.IsVisible, "the app's window comes to the front -> the card window goes: the request is there already");
+        inFront = false;
+        window.Reconsider();
+        Expect(!announced || window.IsVisible, "it leaves the front with the request still waiting -> the card window is back");
+        world.Engine.Say(new { @event = "answered", id = "r2", how = "left" });
+        Stage.Pump(app.Dispatcher, 80);
+        Expect(!window.IsVisible && !model.HasRequests, "the sender stops waiting -> the card window goes by itself");
+        window.Close();
     }
 
     private static void Supervisor(string logs)

@@ -60,10 +60,12 @@ public sealed class TableModel : Observable
         OpenProject = new Command(() => _desk.Open(Project));
         StartEngine = new Command(StartTheEngine);
         PanelAction = new Command(RunPanelAction);
+        foreach (var device in _settings.AlwaysAccept) Trusted.Add(Listed(device));
     }
 
     public ObservableCollection<PeerModel> Peers { get; } = [];
     public ObservableCollection<IncomingModel> Incoming { get; } = [];
+    public ObservableCollection<TrustedModel> Trusted { get; } = [];
     public ObservableCollection<FileItem> Held { get; } = [];
     public ObservableCollection<FileItem> Received { get; } = [];
     public ObservableCollection<string> Notices { get; } = [];
@@ -85,6 +87,8 @@ public sealed class TableModel : Observable
     public event Action<string>? Attention;
     /// <summary>Files have just been stored.</summary>
     public event Action? Landed;
+    /// <summary>What a device sent has just been stored; the window may be out of sight.</summary>
+    public event Action<string>? Arrived;
 
     public string Version { get; } =
         "winawdl " + (Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "");
@@ -498,31 +502,78 @@ public sealed class TableModel : Observable
         var links = (int)(Number(said, "links") ?? 0);
         var total = Number(said, "total");
         var sender = Text(said, "sender");
-        var waits = Flag(said, "waits");
+        var model = Text(said, "model");
+        var known = sender.Length > 0 && IsTrusted(sender, model);
+        var waits = Flag(said, "waits") && !known;
         var detail = names.Count == 1 ? Words.Title(names[0]) : "";
         if (total is > 0) detail += (detail.Length > 0 ? " · " : "") + Words.Size(total.Value);
         var item = new IncomingModel
         {
             Id = id,
             Sender = sender.Length > 0 ? sender : "A device nearby",
+            Model = model,
             What = Words.Things(names, links),
             Detail = detail,
             Total = total,
             Accept = new Command(() => Answer(id, true)),
             Decline = new Command(() => Answer(id, false)),
+            Always = new Command(() =>
+            {
+                Trust(sender, model);
+                Answer(id, true);
+            }),
             Dismiss = new Command(() =>
             {
                 if (Find(id) is { } shown) Incoming.Remove(shown);
             }),
+            CanAlways = waits && sender.Length > 0,
             State = waits ? IncomingState.Asking : IncomingState.Receiving,
             Status = waits ? detail : "Waiting for the files",
         };
         Incoming.Insert(0, item);
+        // The engine holds the request of a device that is always accepted, as it does any other.
+        if (known && Flag(said, "waits")) Answer(id, true);
         if (waits) Attention?.Invoke(item.Headline);
     }
 
     private void Answer(string id, bool accept) =>
         _engine.Tell(new() { ["do"] = "answer", ["id"] = id, ["accept"] = accept });
+
+    private bool IsTrusted(string name, string model) =>
+        _settings.AlwaysAccept.Any(device => device.Name == name && device.Model == model);
+
+    private TrustedModel Listed(KnownDevice device)
+    {
+        TrustedModel? listed = null;
+        listed = new TrustedModel(device)
+        {
+            Forget = new Command(() =>
+            {
+                _settings.AlwaysAccept.Remove(device);
+                _settings.Save();
+                Trusted.Remove(listed!);
+                Refresh();
+            }),
+        };
+        return listed;
+    }
+
+    private void Trust(string name, string model)
+    {
+        if (name.Length == 0 || IsTrusted(name, model)) return;
+        var device = new KnownDevice { Name = name, Model = model };
+        _settings.AlwaysAccept.Add(device);
+        _settings.Save();
+        Trusted.Add(Listed(device));
+        // Its other requests that wait no longer need the choice.
+        foreach (var waiting in Incoming.Where(waiting => waiting.Sender == name && waiting.Model == model))
+            waiting.CanAlways = false;
+        Refresh();
+    }
+
+    public bool HasTrusted => Trusted.Count > 0;
+    /// <summary>A request waits for an answer.</summary>
+    public bool HasRequests => Incoming.Any(item => item.IsAsking);
 
     private void Answered(string id, string how)
     {
@@ -555,7 +606,11 @@ public sealed class TableModel : Observable
 
     private void Stored(JsonElement said)
     {
-        if (Find(Text(said, "id")) is { } item) Incoming.Remove(item);
+        if (Find(Text(said, "id")) is { } item)
+        {
+            Incoming.Remove(item);
+            Arrived?.Invoke($"{item.Sender} sent you {item.What}");
+        }
         var folder = Text(said, "folder");
         if (!said.TryGetProperty("names", out var names) || names.ValueKind != JsonValueKind.Array) return;
         // A Live Photo is stored as a still and a video, and is one thing here: its still.
@@ -675,6 +730,17 @@ public sealed class TableModel : Observable
     }
 
     public bool TakeAll { get => !AskFirst; set => AskFirst = !value; }
+
+    public bool ShowRequests
+    {
+        get => _settings.ShowRequests;
+        set
+        {
+            _settings.ShowRequests = value;
+            _settings.Save();
+            Changed();
+        }
+    }
 
     public bool KeepInTray
     {

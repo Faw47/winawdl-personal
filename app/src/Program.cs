@@ -73,9 +73,16 @@ public static class Program
             settings.Save();
             tray.Say("winawdl is still receiving. Open it or quit it from this icon.");
         };
+        var requests = new RequestWindow(model, () => window.IsActive);
+        window.Activated += (_, _) => requests.Reconsider();
+        window.Deactivated += (_, _) => requests.Reconsider();
         model.Attention += headline =>
         {
-            if (!window.IsActive) tray.Say(headline);
+            if (!window.IsActive && !requests.Announce()) tray.Say(headline);
+        };
+        model.Arrived += what =>
+        {
+            if (!window.IsActive) tray.Say(what);
         };
 
         var waiting = new Thread(() =>

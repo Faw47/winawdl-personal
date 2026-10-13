@@ -77,15 +77,6 @@
         </DataTrigger>
       </Style.Triggers>
     </Style>
-
-    <Style x:Key="Figures" TargetType="TextBlock" BasedOn="{StaticResource Soft}">
-      <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
-      <Style.Triggers>
-        <Trigger Property="Text" Value="">
-          <Setter Property="Visibility" Value="Collapsed" />
-        </Trigger>
-      </Style.Triggers>
-    </Style>
   </UserControl.Resources>
 
   <UserControl.InputBindings>
@@ -134,6 +125,11 @@
                       <Button Style="{StaticResource AccentButton}" Content="Accept"
                               Command="{Binding Accept}" />
                     </StackPanel>
+                    <Button Style="{StaticResource TextButton}" HorizontalAlignment="Right" Margin="0,8,-8,-6"
+                            Command="{Binding Always}" AutomationProperties.Name="{Binding AlwaysLabel}"
+                            Visibility="{Binding ShowsAlways, Converter={StaticResource Shown}}">
+                      <TextBlock Text="{Binding AlwaysLabel}" TextTrimming="CharacterEllipsis" />
+                    </Button>
                     <Button Style="{StaticResource TextButton}" Content="Dismiss" HorizontalAlignment="Right"
                             Margin="0,6,-8,-6" Command="{Binding Dismiss}"
                             Visibility="{Binding IsLost, Converter={StaticResource Shown}}" />
@@ -416,6 +412,36 @@
                   </StackPanel>
                 </RadioButton>
               </StackPanel>
+
+              <StackPanel Visibility="{Binding HasTrusted, Converter={StaticResource Shown}}">
+                <TextBlock Style="{StaticResource Label}" Text="Always accepted" Margin="0,22,0,2" />
+                <ItemsControl ItemsSource="{Binding Trusted}" Focusable="False">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <DockPanel Margin="0,2,-4,0">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}"
+                                t:Plate.Glyph="&#xE711;" Command="{Binding Forget}"
+                                ToolTip="Stop always accepting" AutomationProperties.Name="{Binding ForgetName}" />
+                        <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource InkSoft}" Text="{Binding Glyph}" />
+                        <TextBlock Style="{StaticResource Body}" VerticalAlignment="Center" TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+                      </DockPanel>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Style="{StaticResource Soft}" Margin="0,6,0,0"
+                           Text="A device is known by the name and model it gives. Another device giving the same would be accepted too." />
+              </StackPanel>
+
+              <CheckBox Style="{StaticResource Tick}" Margin="0,22,0,0" IsChecked="{Binding ShowRequests}"
+                        AutomationProperties.Name="Show a request on screen">
+                <StackPanel>
+                  <TextBlock Text="Show a request on screen" TextWrapping="Wrap" />
+                  <TextBlock Style="{StaticResource Soft}"
+                             Text="A card with Accept and Decline, while winawdl is not the window in front." />
+                </StackPanel>
+              </CheckBox>
 
               <CheckBox Style="{StaticResource Tick}" Margin="0,16,0,0" IsChecked="{Binding KeepInTray}"
                         AutomationProperties.Name="Keep receiving when the window is closed">

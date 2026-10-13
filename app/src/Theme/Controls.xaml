@@ -23,6 +23,15 @@
     <Setter Property="FontSize" Value="13" />
     <Setter Property="FontWeight" Value="SemiBold" />
   </Style>
+  <!-- A line with numbers that change while it is read. Gone when it says nothing. -->
+  <Style x:Key="Figures" TargetType="TextBlock" BasedOn="{StaticResource Soft}">
+    <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
+    <Style.Triggers>
+      <Trigger Property="Text" Value="">
+        <Setter Property="Visibility" Value="Collapsed" />
+      </Trigger>
+    </Style.Triggers>
+  </Style>
   <Style x:Key="Name" TargetType="TextBlock" BasedOn="{StaticResource Body}">
     <Setter Property="FontSize" Value="17" />
     <Setter Property="LineHeight" Value="22" />
