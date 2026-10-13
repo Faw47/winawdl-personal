@@ -3,8 +3,19 @@
 # to the Wi-Fi card, lets AirDrop through the firewall and adds a Start Menu
 # entry. uninstall.ps1 undoes all of it.
 # -DryRun says what would be done and changes nothing. -Yes asks no questions.
-param([switch]$Yes, [switch]$DryRun)
+# The setup program uses two more. -Missing only lists what the PC still
+# lacks, one "winget id, tab, name" a line. -Setup says the setup program has
+# copied the files and makes the shortcut and the list entry itself.
+param([switch]$Yes, [switch]$DryRun, [switch]$Missing, [switch]$Setup)
 $ErrorActionPreference = 'Stop'
+# A 32-bit program that starts this is shown the 32-bit Program Files and no
+# pnputil, so it carries on in the 64-bit PowerShell.
+if (-not [Environment]::Is64BitProcess -and [Environment]::Is64BitOperatingSystem) {
+  $native = Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe'
+  $again = @($PSBoundParameters.Keys | ForEach-Object { "-$_" })
+  & $native -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @again
+  exit $LASTEXITCODE
+}
 
 $Source        = $PSScriptRoot
 $Target        = Join-Path $env:ProgramFiles 'winawdl'
@@ -18,7 +29,6 @@ $FirewallGroup = 'winawdl AirDrop'
 $ReceiverPort  = 8771
 $UninstallKey  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\winawdl'
 $Shortcut      = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\winawdl.lnk'
-$Version       = (Get-Content (Join-Path $Source 'VERSION') -TotalCount 1).Trim()
 # The oldest Windows the driver's INF accepts.
 $OldestBuild   = 19041
 
@@ -64,20 +74,26 @@ function Get-PythonVersion {
 
 # What has to be on the PC already, with the name winget knows each by.
 function Get-Missing {
-  $missing = @()
+  $lacking = @()
   if (-not (Test-Path (Join-Path $env:ProgramFiles 'dotnet\shared\Microsoft.WindowsDesktop.App\10.*'))) {
-    $missing += @{ Name = '.NET Desktop Runtime 10, which the app runs on'; Id = 'Microsoft.DotNet.DesktopRuntime.10' }
+    $lacking += @{ Name = '.NET Desktop Runtime 10, which the app runs on'; Id = 'Microsoft.DotNet.DesktopRuntime.10' }
   }
   $python = Get-PythonVersion
   if (-not $python -or $python -lt [version]'3.10') {
-    $missing += @{ Name = 'Python 3.10 or newer, which the AirDrop part runs on'; Id = 'Python.Python.3.14' }
+    $lacking += @{ Name = 'Python 3.10 or newer, which the AirDrop part runs on'; Id = 'Python.Python.3.14' }
   }
   if (-not (Test-Path (Join-Path $env:SystemRoot 'System32\vcruntime140_1.dll'))) {
-    $missing += @{ Name = 'the Visual C++ runtime, which the radio daemon uses'; Id = 'Microsoft.VCRedist.2015+.x64' }
+    $lacking += @{ Name = 'the Visual C++ runtime, which the radio daemon uses'; Id = 'Microsoft.VCRedist.2015+.x64' }
   }
-  $missing
+  $lacking
 }
 
+if ($Missing) {
+  Get-Missing | ForEach-Object { "$($_.Id)`t$($_.Name)" }
+  exit 0
+}
+
+$Version = (Get-Content (Join-Path $Source 'VERSION') -TotalCount 1).Trim()
 "winawdl $Version"
 if ($DryRun) { 'Dry run: nothing on this PC is changed.' }
 ''
@@ -97,19 +113,24 @@ if (Get-Process winawdl -ErrorAction SilentlyContinue) {
   throw 'winawdl is running. Quit it from its icon in the notification area, then start again.'
 }
 
-$missing = @(Get-Missing)
-if ($missing) {
+$lacking = @(Get-Missing)
+if ($lacking -and $Setup) {
+  # The setup program has asked about these already.
+  'Still not on this PC, and the app will not start without:'
+  $lacking | ForEach-Object { "  $($_.Name)" }
+  ''
+} elseif ($lacking) {
   'Not on this PC yet:'
-  $missing | ForEach-Object { "  $($_.Name)" }
+  $lacking | ForEach-Object { "  $($_.Name)" }
   $winget = Get-Command winget -ErrorAction SilentlyContinue
   if (-not $winget) {
     throw 'Install them, then start again.'
   }
-  $missing | ForEach-Object { "  winget install --id $($_.Id) -e" }
+  $lacking | ForEach-Object { "  winget install --id $($_.Id) -e" }
   if ($DryRun) {
     '  would: ask whether to run those now'
   } elseif ($Yes -or (Read-Host 'Run those now? Each asks for your agreement itself. (y/n)') -eq 'y') {
-    foreach ($one in $missing) {
+    foreach ($one in $lacking) {
       & $winget.Source install --id $one.Id -e
     }
     if (@(Get-Missing)) { throw 'Something is still missing. Install it, then start again.' }
@@ -214,6 +235,20 @@ Step 'two inbound rules, for link-local addresses only' {
   }
   New-NetFirewallRule @common -DisplayName 'winawdl AirDrop receiver' -Protocol TCP -LocalPort $ReceiverPort | Out-Null
   New-NetFirewallRule @common -DisplayName 'winawdl AirDrop discovery' -Protocol UDP -LocalPort 5353 | Out-Null
+}
+
+if ($Setup) {
+  # An install made from the zip left an entry of its own in the list of installed apps.
+  'Earlier install'
+  Step 'take over from one made without the setup program' {
+    Remove-Item $Shortcut -ErrorAction SilentlyContinue
+    Remove-Item $UninstallKey -Recurse -ErrorAction SilentlyContinue
+  }
+  ''
+  if ($DryRun) { 'Dry run done: nothing was changed.'; exit 0 }
+  "The Wi-Fi card now: $(Get-CardDriver)"
+  'Installed.'
+  exit 0
 }
 
 'Start Menu'

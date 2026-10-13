@@ -1,0 +1,19 @@
+Before you install
+
+winawdl is AirDrop on Windows, through the PC's own Wi-Fi card. It is research code: the project, its source and its notes are at https://github.com/raph559/winawdl
+
+- It works with one Wi-Fi card only, the Realtek RTL8852CE. Setup stops, having changed nothing, on a PC that has another.
+
+- Installing gives that card to winawdl's driver. Wi-Fi is down from then until you uninstall, so the PC needs another way onto the network.
+
+- The driver is signed on your PC, with a certificate setup makes there and adds to the PC's trusted roots and trusted publishers. Setup then deletes that certificate's private key, so nothing else can ever be signed with it.
+
+- AirDrop is let through Windows Firewall, from link-local addresses only (TCP 8771 and UDP 5353).
+
+- While the app runs with its radio on, Apple devices in range that send to everyone can ask to send you files. The app asks you before it takes any, unless you change that in its settings.
+
+- While the app's window is open it advertises over Bluetooth as an Apple device does before an AirDrop, and Apple devices in range that are visible to everyone turn their AWDL radio on for it.
+
+Uninstalling undoes all of it: the card goes back to its own driver, the certificate stops being trusted, and the firewall rules and the files go. Files you received stay where they were stored.
+
+winawdl is an independent project, not affiliated with or endorsed by Apple. AirDrop is a trademark of Apple Inc.

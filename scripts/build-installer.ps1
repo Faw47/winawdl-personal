@@ -99,4 +99,17 @@ if (Test-Path $zip) { Remove-Item $zip }
 Compress-Archive -Path $stage -DestinationPath $zip
 Get-Item $zip | Select-Object Name, Length
 "SHA-256 $((Get-FileHash $zip -Algorithm SHA256).Hash)"
+
+# The same folder as one setup program, where Inno Setup 6 is installed.
+$iscc = "${env:ProgramFiles(x86)}\Inno Setup 6", "$env:ProgramFiles\Inno Setup 6", "$env:LOCALAPPDATA\Programs\Inno Setup 6" |
+  ForEach-Object { Join-Path $_ 'ISCC.exe' } | Where-Object { Test-Path $_ } | Select-Object -First 1
+if ($iscc) {
+  & $iscc /Qp "/DVersion=$version" "/DStage=$stage" "/DOutput=$repo\build\installer" "$repo\installer\winawdl.iss"
+  if ($LASTEXITCODE -ne 0) { throw "Inno Setup could not compile the setup program ($LASTEXITCODE)" }
+  $setup = Get-Item "$repo\build\installer\winawdl-$version-setup.exe"
+  $setup | Select-Object Name, Length
+  "SHA-256 $((Get-FileHash $setup -Algorithm SHA256).Hash)"
+} else {
+  'No setup program was made: Inno Setup 6 is not on this PC ("winget install JRSoftware.InnoSetup").'
+}
 "Driver version $driverVersion, from commit $($commit.Substring(0, 7))$(if ($changed) { ' with uncommitted changes' })"

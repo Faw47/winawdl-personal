@@ -3,8 +3,18 @@
 # firewall rules, the Start Menu entry and the files. What was received stays
 # where it was stored. -RemoveData also deletes the app's settings and logs.
 # -DryRun says what would be done and changes nothing. -Yes asks no questions.
-param([switch]$Yes, [switch]$DryRun, [switch]$RemoveData)
+# -Setup is how the setup program's own uninstaller runs this: it removes the
+# shortcut, the list entry and the files itself.
+param([switch]$Yes, [switch]$DryRun, [switch]$RemoveData, [switch]$Setup)
 $ErrorActionPreference = 'Stop'
+# A 32-bit program that starts this is shown the 32-bit Program Files and no
+# pnputil, so it carries on in the 64-bit PowerShell.
+if (-not [Environment]::Is64BitProcess -and [Environment]::Is64BitOperatingSystem) {
+  $native = Join-Path $env:SystemRoot 'Sysnative\WindowsPowerShell\v1.0\powershell.exe'
+  $again = @($PSBoundParameters.Keys | ForEach-Object { "-$_" })
+  & $native -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath @again
+  exit $LASTEXITCODE
+}
 # Started from the folder it removes, it would hold that folder open.
 Set-Location $env:SystemRoot
 [Environment]::CurrentDirectory = $env:SystemRoot
@@ -90,11 +100,13 @@ Step 'remove the two rules' {
   Get-NetFirewallRule -Group $FirewallGroup -ErrorAction SilentlyContinue | Remove-NetFirewallRule
 }
 
-'Start Menu and files'
-Step "remove the shortcut, the entry in the list of installed apps, and $Target" {
-  Remove-Item $Shortcut -ErrorAction SilentlyContinue
-  Remove-Item $UninstallKey -Recurse -ErrorAction SilentlyContinue
-  if (Test-Path $Target) { Remove-Item $Target -Recurse -Force }
+if (-not $Setup) {
+  'Start Menu and files'
+  Step "remove the shortcut, the entry in the list of installed apps, and $Target" {
+    Remove-Item $Shortcut -ErrorAction SilentlyContinue
+    Remove-Item $UninstallKey -Recurse -ErrorAction SilentlyContinue
+    if (Test-Path $Target) { Remove-Item $Target -Recurse -Force }
+  }
 }
 if ($RemoveData) {
   Step 'remove the app''s settings, its certificate and its logs' {
