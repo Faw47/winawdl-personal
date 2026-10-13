@@ -10,9 +10,10 @@ Apple's AWDL radio protocol and AirDrop, receiving and sending, running
 natively on Windows, on the built-in Realtek RTL8852CE, with no USB adapter
 and no Linux VM.
 
-![The app: a device asking to send a photo, a transfer to a device under way, and the light theme with received files](docs/screenshot.png)
+![The app's window, with a request to accept, a transfer to an iPhone under way, received files and files in hand; beside it, in the corner of the screen, a card for a photo that has arrived and a card for the request](docs/screenshot.png)
 
-The devices and files in the picture are stand-ins from the app's own checks.
+The app draws this picture itself: the devices and files are stand-ins, and
+so is the desktop behind them.
 
 This is research code. Read [DESIGN-NOTES.md](DESIGN-NOTES.md) for the
 design, the measurements, the open risks and the safety notes before

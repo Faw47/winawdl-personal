@@ -154,6 +154,18 @@ shows: `docs\logo.png`, and `docs\social-preview.png`, the card a link to the
 repository is drawn with. That card is the mark, the name, and one line set
 in the app's own type on its own table color, and nothing else.
 
+The README's two pictures of the app are drawn the same way, after a change
+to a screen they show:
+
+```powershell
+.\build\app\winawdl\winawdl.exe --render readme docs
+```
+
+`docs\screenshot.png` is the window with the cards it shows outside itself,
+at one scale and placed as on a screen. Nothing of Windows is drawn in it
+but a plain ground and a strip where the taskbar would be.
+`docs\cards.png` is the cards alone, in the light theme.
+
 ### Outside the window
 
 A request that arrives while the window is not the one in front is shown as

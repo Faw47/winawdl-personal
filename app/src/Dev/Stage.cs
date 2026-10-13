@@ -127,6 +127,11 @@ public static class Stage
             Brand(docs);
             return 0;
         }
+        if (args is ["readme", var shown])
+        {
+            Readme(shown);
+            return 0;
+        }
         var folder = Directory.CreateDirectory(args[0]).FullName;
         var only = args.Skip(1).ToHashSet();
         var app = new Application();
@@ -329,7 +334,8 @@ public static class Stage
 
     /// <summary>The card that shows a request outside the window, on a stand-in
     /// for whatever is on the screen behind it.</summary>
-    private static void SaveRequestCard(Dispatcher dispatcher, string[] files, string backdrop, string path)
+    private static void SaveRequestCard(Dispatcher dispatcher, string[] files, string backdrop, string path,
+                                        bool listed = true)
     {
         var world = NewWorld(dispatcher);
         Devices(world);
@@ -365,7 +371,109 @@ public static class Stage
             screen.UpdateLayout();
         }
         WritePng(Bitmap(screen, screen.DesiredSize.Width, screen.DesiredSize.Height, Scale, dispatcher), path);
-        File.WriteAllLines(Path.ChangeExtension(path, ".txt"), Controls(card).Select(one => one.Line));
+        if (listed) File.WriteAllLines(Path.ChangeExtension(path, ".txt"), Controls(card).Select(one => one.Line));
+    }
+
+    /// <summary>The two pictures the README shows of the app, both of stand-in
+    /// devices and files: the window with its cards beside it on a stand-in for
+    /// a desktop, and the cards alone in the light theme.</summary>
+    private static void Readme(string folder)
+    {
+        Directory.CreateDirectory(folder);
+        var app = new Application();
+        var theme = Program.Dress(app);
+        Motion.Reduced = true;
+        var blue = Rgb.Hex("#0078D4");
+        var files = SampleFiles(Path.Combine(Path.GetTempPath(), "winawdl-readme-files"));
+
+        theme.Apply(Palette.Night(blue));
+        var world = NewWorld(app.Dispatcher);
+        Showcase(world, files);
+        WritePng(Desktop(world, app.Dispatcher), Path.Combine(folder, "screenshot.png"));
+
+        theme.Apply(Palette.Light(blue));
+        SaveRequestCard(app.Dispatcher, files, "#C9D6E2", Path.Combine(folder, "cards.png"), listed: false);
+    }
+
+    /// <summary>A little of everything at once: files received earlier, one
+    /// that has just arrived, a transfer on its way out, and a request waiting.</summary>
+    private static void Showcase(World world, string[] files)
+    {
+        var folder = Path.GetDirectoryName(files[0]);
+        Devices(world);
+        world.Engine.Say(new
+        {
+            @event = "stored", id = "earlier", folder, names = new[] { Path.GetFileName(files[2]), Path.GetFileName(files[3]) },
+        });
+        world.Model.Arrived += world.Model.Arrivals.Add;
+        world.Engine.Say(new
+        {
+            @event = "asked", id = "r0", sender = "Stand-in iPhone", model = "iPhone14,2", links = 0, waits = false,
+            files = new[] { new { name = Path.GetFileName(files[0]), size = 58_706, type = "public.png" } },
+        });
+        world.Engine.Say(new { @event = "stored", id = "r0", folder, names = new[] { Path.GetFileName(files[0]) } });
+        world.Model.Hold([files[1], files[4]]);
+        world.Model.SendTo(world.Model.Peers[0]);
+        world.Engine.Say(new { @event = "send", id = "s1", state = "sending", done = 0, total = 96_100_000 });
+        world.Desk.Now = 1;
+        world.Engine.Say(new { @event = "send", id = "s1", state = "sending", done = 12_900_000, total = 96_100_000 });
+        world.Engine.Say(new
+        {
+            @event = "asked", id = "r1", sender = "Stand-in MacBook", model = "MacBookPro18,3",
+            files = new[]
+            {
+                new { name = "IMG_0001.jpg", size = 4_200_000, type = "public.jpeg" },
+                new { name = "IMG_0002.jpg", size = 3_900_000, type = "public.jpeg" },
+                new { name = "IMG_0003.jpg", size = 4_900_000, type = "public.jpeg" },
+            },
+            links = 0, total = 13_000_000, waits = true,
+        });
+    }
+
+    /// <summary>The window and the cards it shows outside itself, placed as on
+    /// a screen: the cards in the corner, above a strip that stands in for the
+    /// taskbar. Nothing of Windows is drawn but that strip and a plain ground.</summary>
+    private static RenderTargetBitmap Desktop(World world, Dispatcher dispatcher)
+    {
+        const double width = 940, height = 916, taskbar = 44, windowWidth = 460, windowHeight = 816;
+        var window = Windowed(new MainView { DataContext = world.Model });
+        window.Width = windowWidth;
+        window.Height = windowHeight;
+        window.Clip = new RectangleGeometry(new Rect(0, 0, windowWidth, windowHeight), 8, 8);
+        var frame = new Border
+        {
+            Child = window, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(36, 28, 0, 0),
+            Effect = new System.Windows.Media.Effects.DropShadowEffect
+            {
+                BlurRadius = 44, ShadowDepth = 14, Direction = 270, Opacity = 0.55, Color = Colors.Black,
+            },
+        };
+        // Where the card window puts itself: 4 from the edge of the screen and from the taskbar.
+        var cards = new AdornerDecorator
+        {
+            Child = new RequestsView { DataContext = world.Model },
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
+            Margin = new Thickness(0, 0, 4, taskbar + 4),
+        };
+        var strip = new Border
+        {
+            Height = taskbar, VerticalAlignment = VerticalAlignment.Bottom,
+            Background = new SolidColorBrush(Color.FromRgb(0x17, 0x1B, 0x21)),
+        };
+        var screen = new Grid
+        {
+            Background = new LinearGradientBrush(Color.FromRgb(0x2A, 0x33, 0x40), Color.FromRgb(0x1C, 0x22, 0x2B), 90),
+            Children = { strip, frame, cards },
+        };
+        // The cards are made by the first pass over the layout and measured by the second.
+        for (var pass = 0; pass < 2; pass++)
+        {
+            screen.Measure(new Size(width, height));
+            screen.Arrange(new Rect(0, 0, width, height));
+            screen.UpdateLayout();
+        }
+        return Bitmap(screen, width, height, Scale, dispatcher);
     }
 
     /// <summary>Files to hold and receive in the pictures: three drawn images, so
@@ -417,7 +525,10 @@ public static class Stage
 
     /// <summary>The view as its window would show it, under a strip that stands
     /// in for the title bar Windows draws.</summary>
-    public static void Save(FrameworkElement view, double width, double height, string path)
+    public static void Save(FrameworkElement view, double width, double height, string path) =>
+        WritePng(Bitmap(Windowed(view), width, height, Scale, view.Dispatcher), path);
+
+    private static FrameworkElement Windowed(FrameworkElement view)
     {
         var caption = new TextBlock
         {
@@ -429,8 +540,7 @@ public static class Stage
         strip.SetResourceReference(Border.BackgroundProperty, "Table");
         DockPanel.SetDock(strip, Dock.Top);
         var window = new DockPanel { Children = { strip, view } };
-        var host = new AdornerDecorator { Child = window };
-        WritePng(Bitmap(host, width, height, Scale, view.Dispatcher), path);
+        return new AdornerDecorator { Child = window };
     }
 
     public static RenderTargetBitmap Bitmap(FrameworkElement element, double width, double height, double scale,
