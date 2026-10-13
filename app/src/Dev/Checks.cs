@@ -433,6 +433,21 @@ public static class Checks
         window.Close();
     }
 
+    /// <summary>What a log holds so far, read while its writer still has it open.</summary>
+    private static string Written(string path)
+    {
+        try
+        {
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(file);
+            return reader.ReadToEnd();
+        }
+        catch (IOException)
+        {
+            return "";
+        }
+    }
+
     private static void Supervisor(string logs)
     {
         // Ping stands in for both daemons: it runs until interrupted, and says so when it is.
@@ -473,7 +488,10 @@ public static class Checks
         ]);
         var spoken = Supervised(Environment.ProcessId, speaker, Forever("awdld"), stop =>
         {
-            Thread.Sleep(4000);
+            // PowerShell takes its time to start on a busy machine: wait for the line, not for a clock.
+            var waited = Stopwatch.StartNew();
+            while (waited.Elapsed.TotalSeconds < 25 && !Written(Path.Combine(logs, "radio.log")).Contains(dashed))
+                Thread.Sleep(200);
             stop.Set();
         });
         Expect(spoken.Code == 0 && File.ReadAllText(Path.Combine(logs, "radio.log")).Contains(dashed),
