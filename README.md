@@ -1,6 +1,4 @@
-<img src="docs/logo.png" width="104" align="right" alt="The winawdl icon: white rings spreading from a small tile, on blue">
-
-# winawdl
+<h1><img src="docs/logo.png" width="44" align="absmiddle" alt="The winawdl icon: white rings spreading from a small tile, on blue">&nbsp;winawdl</h1>
 
 [![checks](https://github.com/raph559/winawdl/actions/workflows/checks.yml/badge.svg)](https://github.com/raph559/winawdl/actions/workflows/checks.yml)
 [![release](https://img.shields.io/github/v/release/raph559/winawdl?include_prereleases&label=release)](https://github.com/raph559/winawdl/releases)
