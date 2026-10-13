@@ -572,7 +572,7 @@ standing in for both daemons, and each state of the radio and of the engine
 against the screen it should put up. `--drive` opens the real window off
 screen, never activated, starts the real engine with `--loopback` and a
 second one as the other device, and presses each control through its
-automation peer, which is the interface a screen reader uses. 51 and 59
+automation peer, which is the interface a screen reader uses. 87 and 69
 checks pass.
 
 The first run with the radio was the owner's, on 2026-10-12, and what
