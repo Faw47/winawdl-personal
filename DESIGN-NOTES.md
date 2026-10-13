@@ -599,8 +599,10 @@ had to be killed. Three things showed up:
   The logs do fill as the daemons run.
 
 The second run, on 2026-10-13, was of the installed copy: a Live Photo
-received and a 0.7 MB file sent. The owner saw two things, both fixed and
-neither tried on the air since:
+received and a 0.7 MB file sent. The owner saw two things. Both are fixed,
+and the same two transfers were repeated the same day with the fixes, a
+6.4 MB Live Photo in and a 0.7 MB file out: the owner saw the phone listed
+once and the Live Photo as one photo.
 
 - The iPhone was listed twice for a moment around the send. The window keeps
   one plate for each identifier the engine gives, and the engine gave a
