@@ -1,8 +1,6 @@
-<img src="docs/logo.png" width="96" align="right" alt="The winawdl icon: white rings spreading from a small tile, on blue">
-
-<br>
-
-# winawdl
+<!-- The icon is three of the heading's lines tall and the name is on the second, so the name sits at
+     its middle. The last break keeps the heading as tall as the icon, and its rule under both. -->
+<h1><img src="docs/logo.png" width="120" align="right" alt="The winawdl icon: white rings spreading from a small tile, on blue"><br>winawdl<br clear="right"></h1>
 
 [![checks](https://github.com/raph559/winawdl/actions/workflows/checks.yml/badge.svg)](https://github.com/raph559/winawdl/actions/workflows/checks.yml)
 [![release](https://img.shields.io/github/v/release/raph559/winawdl?include_prereleases&label=release)](https://github.com/raph559/winawdl/releases)
