@@ -3,7 +3,7 @@
 What each tagged state of the project holds. The measurements behind the
 numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
-## Not yet tagged
+## 0.3.0, not yet tagged
 
 - **A request on screen.** While the app's window is not the one in front, a
   device that wants to send shows as a card in the corner of the screen, with
@@ -21,7 +21,12 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 - An answer that reached the engine the instant it asked was lost, and the
   sender left waiting. Nothing answered that fast until now.
 
-Checked without a radio only. Not yet tried with a phone.
+- The AWDL daemon logs what each device nearby announced whenever it changes
+  the one it keeps time with. One transfer waited 22 s on a wrong choice
+  there, and the cause is not yet known.
+
+The cards, always accepting and the icon's line were tried with an iPhone on
+2026-10-13, by the owner.
 
 ## 0.2.0, 2026-10-13
 
