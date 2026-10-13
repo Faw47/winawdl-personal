@@ -273,7 +273,7 @@ public static class Checks
         var attention = new List<string>();
         var arrived = new List<string>();
         model.Attention += attention.Add;
-        model.Arrived += arrived.Add;
+        model.Arrived += arrival => arrived.Add(arrival.Headline);
         world.Engine.Say(new { @event = "link", up = true });
 
         world.Engine.Say(Ask("r1", "Stand-in iPhone", "iPhone14,2"));
@@ -317,7 +317,7 @@ public static class Checks
         // Taking everything asks nobody, so what arrives is said as well.
         world = Stage.NewWorld(app.Dispatcher);
         arrived.Clear();
-        world.Model.Arrived += arrived.Add;
+        world.Model.Arrived += arrival => arrived.Add(arrival.Headline);
         world.Engine.Say(Ask("r1", "Stand-in Mac", "MacBookPro18,3", waits: false));
         world.Engine.Say(new { @event = "stored", id = "r1", folder = Path.GetTempPath(), names = new[] { "a.jpg" } });
         Expect(arrived is ["Stand-in Mac sent you a photo"], "with Take everything, what arrived is said too");
@@ -373,6 +373,63 @@ public static class Checks
         world.Engine.Say(new { @event = "answered", id = "r2", how = "left" });
         Stage.Pump(app.Dispatcher, 80);
         Expect(!window.IsVisible && !model.HasRequests, "the sender stops waiting -> the card window goes by itself");
+
+        // What arrived, said on a card that leads to it.
+        var shelf = Path.Combine(Path.GetTempPath(), "winawdl-check-files");
+        world.Engine.Say(new { @event = "stored", id = "r1", folder = shelf, names = Array.Empty<string>() });
+        var arrivals = new List<ArrivalModel>();
+        model.Arrived += arrivals.Add;
+        world.Engine.Say(Ask("r3", "Stand-in iPhone", "iPhone14,2", waits: false));
+        world.Engine.Say(new { @event = "incoming", id = "r3", done = 2, total = 5 });
+        Expect(model.TrayText == "winawdl\nStand-in iPhone is sending you a photo: 40% of 5 bytes",
+               $"the notification area icon says what is arriving and how far along: \"{model.TrayText.Replace("\n", " / ")}\"");
+        world.Engine.Say(new { @event = "stored", id = "r3", folder = shelf, names = new[] { "IMG_1.jpg" } });
+        Expect(arrivals is [{ Headline: "Stand-in iPhone sent you a photo", Single: true, PressLabel: "Open" }]
+               && arrivals[0].Detail.StartsWith("IMG_1.jpg"), $"one file stored -> \"{arrivals.LastOrDefault()?.Headline}\", \"{arrivals.LastOrDefault()?.Detail}\"");
+        Expect(model.TrayText == "winawdl\nNot visible yet", $"with nothing moving the icon says how visible this PC is: \"{model.TrayText.Replace("\n", " / ")}\"");
+        var said = window.Announce(arrivals[0]);
+        Stage.Pump(app.Dispatcher, 80);
+        Expect(said == announced && (!said || window.IsVisible && model.Arrivals.Count == 1),
+               said ? "what arrived while the window is not in front -> a card for it" : "Windows takes no notices right now: no card");
+        if (!said) model.Arrivals.Add(arrivals[0]);
+        Lay();
+        controls = Stage.Controls(card).Select(one => one.Line).ToList();
+        Expect(controls.Count == 4 && controls[0].Contains("\"Open IMG_1.jpg\"") && controls[1].Contains("\"Dismiss\"")
+               && controls[2].Contains("\"Show in folder\"") && controls[3].Contains("\"Open\""),
+               $"the card is itself the press, and holds three more: {string.Join(", ", controls)}");
+        Expect(Press(card, "Open IMG_1.jpg") && world.Desk.Opened.Last() == "open " + Path.Combine(shelf, "IMG_1.jpg") && model.Arrivals.Count == 0,
+               "press the card -> the file is opened (recorded), and the card goes");
+        Stage.Pump(app.Dispatcher, 80);
+        Expect(!window.IsVisible, "with no card left, the card window goes");
+
+        world.Engine.Say(Ask("r4", "Stand-in iPhone", "iPhone14,2", waits: false));
+        world.Engine.Say(new { @event = "stored", id = "r4", folder = shelf, names = new[] { "a.jpg", "b.jpg" } });
+        Expect(arrivals.Last() is { Single: false, PressLabel: "Show in folder" }, "several files stored -> the card shows them in their folder");
+        model.Arrivals.Add(arrivals.Last());
+        Lay();
+        Expect(Press(card, "Show what arrived in its folder") && world.Desk.Opened.Last() == "reveal " + Path.Combine(shelf, "a.jpg"),
+               "press it -> the folder is opened on the first of them (recorded)");
+        model.Arrivals.Add(arrivals.Last());
+        Lay();
+        Expect(Press(card, "Dismiss") && model.Arrivals.Count == 0, "Dismiss -> the card goes, and nothing is opened");
+        model.Arrivals.Add(arrivals.Last());
+        inFront = true;
+        window.Reconsider();
+        Expect(model.Arrivals.Count == 0 && !window.IsVisible, "the app's window comes to the front -> the card goes: the files are on its shelf");
+
+        // Sending, as the icon says it.
+        var held = Stage.SampleFiles(shelf);
+        world.Engine.Say(new { @event = "peer", id = "a", name = "Stand-in iPad", model = "iPad13,1" });
+        model.Hold(held[..2]);
+        model.SendTo(model.Peers[0]);
+        Expect(model.TrayText == "winawdl\nWaiting for Stand-in iPad to accept", $"a send that waits: \"{model.TrayText.Replace("\n", " / ")}\"");
+        world.Engine.Say(new { @event = "send", id = "s1", state = "sending", done = 50, total = 200 });
+        Expect(model.TrayText == "winawdl\nSending to Stand-in iPad: 25% of 200 bytes", $"a send under way: \"{model.TrayText.Replace("\n", " / ")}\"");
+        world.Engine.Say(new { @event = "send", id = "s1", state = "sent" });
+        Expect(model.TrayText == "winawdl\nSent 2 files to Stand-in iPad", $"a send that got through: \"{model.TrayText.Replace("\n", " / ")}\"");
+        world.Engine.Say(Ask("r5", new string('n', 200), "iPhone14,2"));
+        Expect(model.TrayText.Length == TableModel.MostTrayText && model.TrayText.EndsWith('…'),
+               "a line too long for Windows is cut where Windows would cut it");
         window.Close();
     }
 

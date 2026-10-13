@@ -544,8 +544,13 @@ public static class Drive
             var requests = new RequestWindow(_model, () => false) { Spot = new Point(-30000, -30000) };
             var carded = false;
             _model.Attention += _ => carded = requests.Announce();
-            var arrived = new List<string>();
-            _model.Arrived += arrived.Add;
+            // What arrived is counted here: a folder may hold files of an earlier run.
+            var arrived = new List<ArrivalModel>();
+            _model.Arrived += arrival =>
+            {
+                arrived.Add(arrival);
+                requests.Announce(arrival);
+            };
             _other.Tell(new { @do = "send", id = "x4", peer = meId, files = new[] { files[4] } });
             Check(Until(() => _model.HasRequests), "it sends -> a request waits");
             Pump(150);
@@ -560,21 +565,32 @@ public static class Drive
                 Pump(120);
             }
             else Press("Accept");
-            Check(Until(() => File.Exists(Path.Combine(elsewhere, Path.GetFileName(files[4]))), 30) && !requests.IsVisible,
-                  $"Accept {(onCard is null ? "in the window" : "on the card")} -> the file arrives, and the card window is gone");
-            Check(arrived.Count == 1, $"what arrived is said for a window that is out of sight: \"{arrived.LastOrDefault()}\"");
+            Check(Until(() => arrived.Count == 1, 30) && File.Exists(arrived[0].File.Path),
+                  $"Accept {(onCard is null ? "in the window" : "on the card")} -> the file arrives: \"{arrived.LastOrDefault()?.Headline}\", \"{arrived.LastOrDefault()?.Detail}\"");
+            Pump(150);
+            var opens = Stage.Controls((DependencyObject)requests.Content)
+                .FirstOrDefault(one => one.Line.Contains($"\"{arrived[0].PressName}\"")).Control;
+            Check(!carded || opens is not null && requests.IsVisible,
+                  carded ? "the card window says so, on a card that is itself the press" : "with no card, the notification area says so");
+            if (opens is not null)
+            {
+                ((IInvokeProvider)UIElementAutomationPeer.CreatePeerForElement(opens).GetPattern(PatternInterface.Invoke)).Invoke();
+                Pump(150);
+                Check(_desk.Opened.Last() == "open " + arrived[0].File.Path && !requests.IsVisible,
+                      "press that card -> the file is opened (recorded), and the card window is gone");
+            }
 
             _other.Tell(new { @do = "send", id = "x5", peer = meId, files = new[] { files[1] } });
             Check(Until(() => _model.HasRequests), "it sends again -> a request waits");
             Press("Always accept from Other device");
-            Check(Until(() => File.Exists(Path.Combine(elsewhere, Path.GetFileName(files[1]))), 30) && _settings.AlwaysAccept.Count == 1,
+            Check(Until(() => arrived.Count == 2, 30) && _settings.AlwaysAccept.Count == 1,
                   "Always accept from Other device -> this one arrives, and the device is remembered");
             _other.Tell(new { @do = "send", id = "x6", peer = meId, files = new[] { files[3] } });
             var questioned = false;
             Check(Until(() =>
             {
                 questioned |= _model.HasRequests;
-                return File.Exists(Path.Combine(elsewhere, Path.GetFileName(files[3])));
+                return arrived.Count == 3;
             }, 30) && !questioned, "its next file arrives with no question: the engine was answered the moment it asked");
             Press("Settings");
             Shot("settings-always");
@@ -680,9 +696,13 @@ public static class Drive
             Check(Until(() => _model.Across == Across.Nearby && _model.Peers.Count == 1, 30), "Start it again -> the engine runs and the device is back");
 
             Say("The notification area icon");
-            using (new Tray(_window, () => { }))
+            using (var tray = new Tray(_window, () => { }, _model))
+            {
                 Pump(300);
-            Check(true, "the icon is created and removed without an error (its menu and its notice were not shown)");
+                Check(tray.Tip == _model.TrayText && tray.Tip.StartsWith("winawdl\n"),
+                      $"the icon is created, and says under the pointer: \"{tray.Tip.Replace("\n", " / ")}\"");
+            }
+            Check(true, "it is removed without an error (its menu and its notice were not shown)");
         }
     }
 }

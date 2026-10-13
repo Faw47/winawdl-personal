@@ -64,7 +64,7 @@ public static class Program
             window.Quitting = true;
             window.Close();
             app.Shutdown();
-        });
+        }, model);
         window.Closed += (_, _) => app.Shutdown();
         window.WentToTray += () =>
         {
@@ -80,9 +80,10 @@ public static class Program
         {
             if (!window.IsActive && !requests.Announce()) tray.Say(headline);
         };
-        model.Arrived += what =>
+        model.Arrived += arrival =>
         {
-            if (!window.IsActive) tray.Say(what);
+            if (!window.IsActive && !requests.Announce(arrival))
+                tray.Say(arrival.Headline, () => arrival.Press?.Execute(null));
         };
 
         var waiting = new Thread(() =>

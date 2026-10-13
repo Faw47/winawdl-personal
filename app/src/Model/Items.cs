@@ -129,6 +129,22 @@ public sealed class TrustedModel(KnownDevice device)
     public string ForgetName => $"Stop always accepting from {Name}";
 }
 
+/// <summary>What a device sent, once it is stored: a notice that leads to it.</summary>
+public sealed class ArrivalModel
+{
+    public required string Headline { get; init; }
+    public required string Detail { get; init; }
+    /// <summary>The first of the files, for its picture.</summary>
+    public required FileItem File { get; init; }
+    /// <summary>One file can be opened; several are shown in their folder.</summary>
+    public required bool Single { get; init; }
+    public ICommand? Press { get; init; }
+    public ICommand? Reveal { get; init; }
+    public ICommand? Dismiss { get; init; }
+    public string PressLabel => Single ? "Open" : "Show in folder";
+    public string PressName => Single ? $"Open {File.Name}" : "Show what arrived in its folder";
+}
+
 public enum IncomingState { Asking, Receiving, Lost }
 
 /// <summary>Something a device wants to send here, from its request to its last byte.</summary>

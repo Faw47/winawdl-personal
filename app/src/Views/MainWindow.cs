@@ -123,10 +123,14 @@ public sealed class Tray : IDisposable
     private readonly System.Windows.Forms.NotifyIcon _icon;
     private readonly MainWindow _window;
     private readonly ContextMenu _menu;
+    private readonly TableModel? _model;
+    private Action? _onNotice;
 
-    public Tray(MainWindow window, Action quit)
+    /// <summary>With a model, the icon says under the pointer what is moving.</summary>
+    public Tray(MainWindow window, Action quit, TableModel? model = null)
     {
         _window = window;
+        _model = model;
         _menu = new ContextMenu { Placement = PlacementMode.MousePoint };
         _menu.Items.Add(Item("Open winawdl", window.Surface));
         _menu.Items.Add(Item("Quit", quit));
@@ -136,8 +140,22 @@ public sealed class Tray : IDisposable
             if (click.Button == System.Windows.Forms.MouseButtons.Left) window.Surface();
             else ShowMenu();
         };
-        _icon.BalloonTipClicked += (_, _) => window.Surface();
+        _icon.BalloonTipClicked += (_, _) => (_onNotice ?? window.Surface)();
         SystemEvents.UserPreferenceChanged += OnPreferenceChanged;
+        if (model is not null)
+        {
+            model.PropertyChanged += OnModelChanged;
+            _icon.Text = model.TrayText;
+        }
+    }
+
+    /// <summary>What the icon says under the pointer.</summary>
+    public string Tip => _icon.Text;
+
+    private void OnModelChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        // Progress comes many times a second, and the line changes once a percent.
+        if (_model!.TrayText is var text && text != _icon.Text) _icon.Text = text;
     }
 
     private static MenuItem Item(string header, Action run)
@@ -171,11 +189,18 @@ public sealed class Tray : IDisposable
             SetForegroundWindow(source.Handle);
     }
 
-    public void Say(string text) => _icon.ShowBalloonTip(5000, "winawdl", text, System.Windows.Forms.ToolTipIcon.None);
+    /// <summary>Says `text` as a Windows notice. A press on it runs `onPress`,
+    /// or brings the window up when there is none.</summary>
+    public void Say(string text, Action? onPress = null)
+    {
+        _onNotice = onPress;
+        _icon.ShowBalloonTip(5000, "winawdl", text, System.Windows.Forms.ToolTipIcon.None);
+    }
 
     public void Dispose()
     {
         SystemEvents.UserPreferenceChanged -= OnPreferenceChanged;
+        if (_model is not null) _model.PropertyChanged -= OnModelChanged;
         _icon.Visible = false;
         _icon.Icon?.Dispose();
         _icon.Dispose();

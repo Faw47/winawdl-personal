@@ -13,8 +13,11 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
   its device from then on. The settings list those devices and can forget
   each. A device is known by the name and model it gives, which another
   device could give too.
-- **What arrived is said** in the notification area when the window is out of
-  sight.
+- **What arrived is said** on a card of its own when the window is not in
+  front. Pressing it opens the file, or shows several in their folder. It
+  leaves by itself after 10 seconds.
+- **The icon in the notification area says what is moving** under the
+  pointer: who is sending or receiving what, and how far along.
 - An answer that reached the engine the instant it asked was lost, and the
   sender left waiting. Nothing answered that fast until now.
 

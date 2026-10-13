@@ -9,20 +9,6 @@
   <UserControl.Resources>
     <BooleanToVisibilityConverter x:Key="Shown" />
 
-    <!-- A file as a thing: its own picture when Windows has one, a glyph for its kind when not. -->
-    <ControlTemplate x:Key="FileFace" TargetType="ContentControl">
-      <t:Raised x:Name="Surface" Radius="8" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
-                Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}">
-        <Grid>
-          <TextBlock Style="{StaticResource Glyph}" FontSize="22" Foreground="{DynamicResource InkSoft}"
-                     Text="{Binding Glyph}" />
-          <t:RoundClip Radius="8">
-            <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
-          </t:RoundClip>
-        </Grid>
-      </t:Raised>
-    </ControlTemplate>
-
     <Style x:Key="FileButton" TargetType="Button">
       <Setter Property="FocusVisualStyle" Value="{StaticResource FocusField}" />
       <Setter Property="Template">
@@ -435,11 +421,11 @@
               </StackPanel>
 
               <CheckBox Style="{StaticResource Tick}" Margin="0,22,0,0" IsChecked="{Binding ShowRequests}"
-                        AutomationProperties.Name="Show a request on screen">
+                        AutomationProperties.Name="Show requests and arrivals on screen">
                 <StackPanel>
-                  <TextBlock Text="Show a request on screen" TextWrapping="Wrap" />
+                  <TextBlock Text="Show requests and arrivals on screen" TextWrapping="Wrap" />
                   <TextBlock Style="{StaticResource Soft}"
-                             Text="A card with Accept and Decline, while winawdl is not the window in front." />
+                             Text="As cards in the corner, while winawdl is not the window in front." />
                 </StackPanel>
               </CheckBox>
 

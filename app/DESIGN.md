@@ -174,6 +174,19 @@ someone else's screen:
 It goes when the request is answered, when the sender stops waiting, and
 when the window comes to the front, where the request already is.
 
+What arrived is said the same way (the owner, 2026-10-13: a notice that
+opens the file when pressed). That card is raised and pressed as a whole,
+like a device's plate, because it is one thing leading to one place: a
+single file opens, several are shown in their folder. It carries the file's
+own picture, turned as files are in the window. It asks for nothing, so it
+leaves by itself after 10 seconds, stays while the pointer is on it, and
+has a cross for sooner. A request sits below it, nearest the corner: what
+waits for an answer comes first to hand.
+
+The icon in the notification area says under the pointer what is moving and
+how far along, in the words the window uses, and how visible the PC is when
+nothing moves (the owner, 2026-10-13).
+
 ### Motion
 
 Every motion answers "where did it go?" or "did it take?".

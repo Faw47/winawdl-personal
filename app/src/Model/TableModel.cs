@@ -15,6 +15,7 @@ public sealed class TableModel : Observable
 {
     public const string Project = "https://github.com/raph559/winawdl";
     private const int MostReceived = 24;
+    public const int MostTrayText = 127;
     private static readonly TimeSpan SentShownFor = TimeSpan.FromSeconds(4);
     private static readonly double[] Turns = [-2.5, 1.5, -1, 2, -1.5];
 
@@ -88,7 +89,7 @@ public sealed class TableModel : Observable
     /// <summary>Files have just been stored.</summary>
     public event Action? Landed;
     /// <summary>What a device sent has just been stored; the window may be out of sight.</summary>
-    public event Action<string>? Arrived;
+    public event Action<ArrivalModel>? Arrived;
 
     public string Version { get; } =
         "winawdl " + (Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "");
@@ -606,11 +607,8 @@ public sealed class TableModel : Observable
 
     private void Stored(JsonElement said)
     {
-        if (Find(Text(said, "id")) is { } item)
-        {
-            Incoming.Remove(item);
-            Arrived?.Invoke($"{item.Sender} sent you {item.What}");
-        }
+        var item = Find(Text(said, "id"));
+        if (item is not null) Incoming.Remove(item);
         var folder = Text(said, "folder");
         if (!said.TryGetProperty("names", out var names) || names.ValueKind != JsonValueKind.Array) return;
         // A Live Photo is stored as a still and a video, and is one thing here: its still.
@@ -619,21 +617,78 @@ public sealed class TableModel : Observable
             foreach (var pair in live.EnumerateArray())
                 if (pair.ValueKind == JsonValueKind.Array && pair.GetArrayLength() == 2)
                     videos[pair[0].GetString() ?? ""] = pair[1].GetString() ?? "";
+        var landed = new List<FileItem>();
         foreach (var name in names.EnumerateArray().Select(name => name.GetString() ?? "").Reverse())
         {
             if (videos.ContainsValue(name)) continue;
             var path = Path.Combine(folder, name);
             var video = videos.TryGetValue(name, out var beside) ? Path.Combine(folder, beside) : null;
-            Received.Insert(0, new FileItem(path, _desk)
+            landed.Insert(0, new FileItem(path, _desk)
             {
                 Turn = Turns[Received.Count % Turns.Length],
                 Press = new Command(() => _desk.Open(path)),
                 Reveal = new Command(() => _desk.Reveal(path)),
                 PlayVideo = video is null ? null : new Command(() => _desk.Open(video)),
             });
+            Received.Insert(0, landed[0]);
         }
         while (Received.Count > MostReceived) Received.RemoveAt(Received.Count - 1);
         Landed?.Invoke();
+        if (item is not null && landed.Count > 0) Arrived?.Invoke(Arrival(item, landed));
+    }
+
+    private ArrivalModel Arrival(IncomingModel from, List<FileItem> files)
+    {
+        var first = files[0];
+        var size = Words.Size(files.Sum(file => file.Bytes));
+        ArrivalModel? arrival = null;
+        void Leave() => Arrivals.Remove(arrival!);
+        arrival = new ArrivalModel
+        {
+            Headline = $"{from.Sender} sent you {from.What}",
+            Detail = files.Count == 1 ? $"{first.Name} · {size}" : size,
+            File = first,
+            Single = files.Count == 1,
+            Press = new Command(() =>
+            {
+                if (files.Count == 1) _desk.Open(first.Path);
+                else _desk.Reveal(first.Path);
+                Leave();
+            }),
+            Reveal = new Command(() =>
+            {
+                _desk.Reveal(first.Path);
+                Leave();
+            }),
+            Dismiss = new Command(Leave),
+        };
+        return arrival;
+    }
+
+    /// <summary>What arrived and is being said on screen, outside the window.</summary>
+    public ObservableCollection<ArrivalModel> Arrivals { get; } = [];
+
+    /// <summary>The line the notification area shows under the pointer: what
+    /// is moving and how far along, or how visible this PC is.</summary>
+    public string TrayText
+    {
+        get
+        {
+            var lines = new List<string>();
+            foreach (var item in Incoming)
+                lines.Add(item.IsReceiving && item.Status.Length > 0 ? $"{item.Headline}: {item.Status}" : item.Headline);
+            foreach (var peer in Peers.Where(peer => peer.IsBusy || peer.IsSent))
+                lines.Add(peer.State switch
+                {
+                    PeerState.Asking => $"Waiting for {peer.Name} to accept",
+                    PeerState.Sent => $"{peer.Status} to {peer.Name}",
+                    _ => $"Sending to {peer.Name}: {peer.Status}",
+                });
+            if (lines.Count == 0) lines.Add(Presence);
+            var text = "winawdl\n" + string.Join("\n", lines);
+            // Windows cuts what it shows there at 127 characters.
+            return text.Length <= MostTrayText ? text : text[..(MostTrayText - 1)] + "…";
+        }
     }
 
     /// <summary>Choosing files is the next thing to do: devices can be seen and

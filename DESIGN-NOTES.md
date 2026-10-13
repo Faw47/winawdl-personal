@@ -646,7 +646,10 @@ the Windows Runtime, whose bindings for .NET are a package the SDK
 downloads, and this build downloads nothing. The card never takes the
 keyboard. It is not shown while a full-screen app or a presentation has the
 screen, as far as `SHQueryUserNotificationState` tells; that call does not
-report Do not disturb, which the card therefore ignores.
+report Do not disturb, which the card therefore ignores. What arrived is
+said on a card too, which opens the file when pressed and leaves after
+10 s. The icon in the notification area says the state of each transfer
+under the pointer, cut at the 127 characters Windows shows there.
 
 Still untried through the window: a large transfer, and what a phone shows
 when its request is declined.

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Winawdl.Model;
 using Winawdl.Shell;
 using Winawdl.Theme;
@@ -43,17 +44,22 @@ public partial class RequestsView : UserControl
     }
 }
 
-/// <summary>Shows waiting requests in the corner of the screen while the app's
-/// own window is not the one in front. It never takes the keyboard.</summary>
+/// <summary>Shows waiting requests, and what has just arrived, in the corner of
+/// the screen while the app's own window is not the one in front. It never
+/// takes the keyboard.</summary>
 public sealed class RequestWindow : Window
 {
     private const double Gap = 4;
+    /// <summary>How long what arrived is said for, and how much longer each
+    /// time the pointer is still on it.</summary>
+    private static readonly TimeSpan ArrivalShownFor = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan HeldByPointer = TimeSpan.FromSeconds(2);
     private const int ExtendedStyle = -20, NoActivate = 0x08000000, ToolWindow = 0x00000080;
     private const int AcceptsNotifications = 5;
 
     private readonly TableModel _model;
     private readonly Func<bool> _inFront;
-    private bool _announced;
+    private bool _announced, _closed;
 
     /// <summary>`inFront` says whether the app's own window is the active one.</summary>
     public RequestWindow(TableModel model, Func<bool> inFront)
@@ -79,6 +85,9 @@ public sealed class RequestWindow : Window
         };
         SizeChanged += (_, _) => Place();
         model.PropertyChanged += OnModelChanged;
+        model.Arrivals.CollectionChanged += (_, _) => Reconsider();
+        // The model outlives this window when the app closes, and a closed window cannot be shown.
+        Closed += (_, _) => _closed = true;
     }
 
     /// <summary>Where the window goes, for a test that keeps it out of sight.
@@ -97,11 +106,40 @@ public sealed class RequestWindow : Window
         return true;
     }
 
-    /// <summary>The app's window came to the front or left it, or a request changed.</summary>
+    /// <summary>Something has arrived. False when it will not be said here.
+    /// It stays for a while, and for as long as the pointer is on the cards.</summary>
+    public bool Announce(ArrivalModel arrival)
+    {
+        if (!_model.ShowRequests || !WindowsTakesNotices()) return false;
+        _model.Arrivals.Add(arrival);
+        var leaving = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = ArrivalShownFor };
+        leaving.Tick += (_, _) =>
+        {
+            if (IsMouseOver && _model.Arrivals.Contains(arrival))
+            {
+                leaving.Interval = HeldByPointer;
+                return;
+            }
+            leaving.Stop();
+            _model.Arrivals.Remove(arrival);
+        };
+        leaving.Start();
+        return true;
+    }
+
+    /// <summary>The app's window came to the front or left it, or a card changed.</summary>
     public void Reconsider()
     {
+        if (_closed) return;
         if (!_model.HasRequests) _announced = false;
-        var wanted = _announced && _model.ShowRequests && !_inFront();
+        // In front, the window shows what arrived itself, on its shelf.
+        if (_inFront() && _model.Arrivals.Count > 0)
+        {
+            _model.Arrivals.Clear();
+            return;
+        }
+        var wanted = _model.ShowRequests && !_inFront()
+                     && (_announced && _model.HasRequests || _model.Arrivals.Count > 0);
         if (wanted && !IsVisible)
         {
             var scale = MainWindow.TextScaleInWindows();

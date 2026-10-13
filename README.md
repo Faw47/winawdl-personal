@@ -193,8 +193,10 @@ prompt of its own.
 - **Receiving.** A device that wants to send is shown with what it offers,
   to accept or decline. Received files appear at the bottom of the window.
   While the window is not the one in front, the request shows as a card in
-  the corner of the screen, with the same two choices; its settings turn that
-  off.
+  the corner of the screen, with the same two choices, and so does what has
+  arrived: pressing that card opens the file. Its settings turn the cards
+  off. The icon in the notification area says under the pointer how far a
+  transfer has got.
 - **Always accepting a device.** A request also offers to accept everything
   from its device from then on, and the settings list those devices. A device
   is known only by the name and model it gives for itself, which is all

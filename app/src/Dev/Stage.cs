@@ -157,7 +157,7 @@ public static class Stage
                 foreach (var (ground, backdrop) in new[] { ("pale", "#C9D6E2"), ("deep", "#20262E") })
                 {
                     theme.Apply(palette);
-                    SaveRequestCard(app.Dispatcher, backdrop, Path.Combine(folder, $"request-card-{themeName}-on-{ground}.png"));
+                    SaveRequestCard(app.Dispatcher, files, backdrop, Path.Combine(folder, $"request-card-{themeName}-on-{ground}.png"));
                 }
         }
         if (only.Count == 0 || only.Contains("sizes"))
@@ -329,10 +329,21 @@ public static class Stage
 
     /// <summary>The card that shows a request outside the window, on a stand-in
     /// for whatever is on the screen behind it.</summary>
-    private static void SaveRequestCard(Dispatcher dispatcher, string backdrop, string path)
+    private static void SaveRequestCard(Dispatcher dispatcher, string[] files, string backdrop, string path)
     {
         var world = NewWorld(dispatcher);
         Devices(world);
+        world.Model.Arrived += world.Model.Arrivals.Add;
+        world.Engine.Say(new
+        {
+            @event = "asked", id = "r0", sender = "Stand-in iPhone", model = "iPhone14,2", links = 0, waits = false,
+            files = new[] { new { name = Path.GetFileName(files[0]), size = 58_706, type = "public.png" } },
+        });
+        world.Engine.Say(new
+        {
+            @event = "stored", id = "r0", folder = Path.GetDirectoryName(files[0]),
+            names = new[] { Path.GetFileName(files[0]) },
+        });
         Asked(world, waits: true);
         world.Engine.Say(new
         {
@@ -353,7 +364,7 @@ public static class Stage
             screen.Arrange(new Rect(screen.DesiredSize));
             screen.UpdateLayout();
         }
-        WritePng(Bitmap(screen, screen.DesiredSize.Width, screen.DesiredSize.Height, Scale), path);
+        WritePng(Bitmap(screen, screen.DesiredSize.Width, screen.DesiredSize.Height, Scale, dispatcher), path);
         File.WriteAllLines(Path.ChangeExtension(path, ".txt"), Controls(card).Select(one => one.Line));
     }
 

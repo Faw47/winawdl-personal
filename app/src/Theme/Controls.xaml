@@ -118,6 +118,20 @@
     </Setter>
   </Style>
 
+  <!-- A file as a thing: its own picture when Windows has one, a glyph for its kind when not. -->
+  <ControlTemplate x:Key="FileFace" TargetType="ContentControl">
+    <t:Raised x:Name="Surface" Radius="8" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
+              Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}">
+      <Grid>
+        <TextBlock Style="{StaticResource Glyph}" FontSize="22" Foreground="{DynamicResource InkSoft}"
+                   Text="{Binding Glyph}" />
+        <t:RoundClip Radius="8">
+          <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+        </t:RoundClip>
+      </Grid>
+    </t:Raised>
+  </ControlTemplate>
+
   <!-- A raised surface that is not itself pressed: it holds text and buttons. -->
   <Style x:Key="RaisedCard" TargetType="ContentControl">
     <Setter Property="Focusable" Value="False" />
