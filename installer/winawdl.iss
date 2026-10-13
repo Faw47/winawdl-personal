@@ -86,8 +86,9 @@ var
   Command: String;
 begin
   ForceDirectories(LogFolder);
-  Command := Format('/c ""powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%s" %s > "%s\%s" 2>&1"',
-                    [Script, Arguments, LogFolder, LogName]);
+  { The list stays on the line of the call: a line that begins with a bracket is read as a section. }
+  Command := '/c ""powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "%s" %s > "%s\%s" 2>&1"';
+  Command := Format(Command, [Script, Arguments, LogFolder, LogName]);
   Result := Exec(ExpandConstant('{cmd}'), Command, '', SW_HIDE, ewWaitUntilTerminated, Code);
 end;
 
