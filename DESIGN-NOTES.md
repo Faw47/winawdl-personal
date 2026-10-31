@@ -200,6 +200,11 @@ The submodule is kept as upstream has it. The build copies its sources into
   phone busy sending data can go that long between the action frames this
   side catches, and was then dropped mid-transfer with its data. Its data
   frames now count too, as in Owly's specification (AWDL-17).
+- `0004-rx-flags-init.patch`. The radiotap flags OWL reads to drop a frame
+  with a bad checksum were left as the stack held them when the header has
+  no flags field. The radio daemon always writes one, so no session here
+  met it, but a test frame without one was dropped at random on Windows.
+  As in Owly's patch `owl-11`.
 
 It runs as its own process, `awdld`, for two reasons. OWL is GPL-3.0 and
 devourer is GPL-2.0, which cannot be linked into one program. And OWL is GNU C,
