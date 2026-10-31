@@ -74,6 +74,21 @@ class ReceiverTest(unittest.TestCase):
         self.assertEqual(answer['ReceiverModelName'], 'MacBookPro18,3')
         self.assertIn('ReceiverMediaCapabilities', answer)
 
+    def test_reference_bomb_is_rejected_before_logging_metadata(self):
+        # Under 1 MiB on the wire, but expands to >10 MiB of file names.
+        entry = {'FileName': 'A' * 60_000, 'FileSize': 1}
+        body = plistlib.dumps({'Files': [entry] * 200}, fmt=plistlib.FMT_BINARY)
+        self.assertLess(len(body), 1 << 20)
+        connection = self.connect()
+        with self.assertLogs(level='WARNING') as logs:
+            connection.request('POST', '/Ask', body=body,
+                               headers={'Content-Type': 'application/octet-stream'})
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            response.read()
+        self.assertTrue(any('undecodable' in line for line in logs.output))
+        self.assertFalse(any('ask from' in line for line in logs.output))
+
     def test_ask_then_upload_on_one_connection_stores_the_file(self):
         connection = self.connect()
         ask = {'SenderComputerName': 'Phone', 'Files': [{'FileName': 'a.txt'}]}

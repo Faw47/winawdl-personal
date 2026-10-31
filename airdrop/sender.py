@@ -7,6 +7,7 @@ import http.client
 import logging
 import os
 import plistlib
+import safeplist
 import secrets
 import socket
 import ssl
@@ -212,13 +213,16 @@ def post_plist(connection, path, value):
     connection.request('POST', path, body=plistlib.dumps(value, fmt=plistlib.FMT_BINARY),
                        headers={**HEADERS, 'Content-Type': 'application/octet-stream'})
     response = connection.getresponse()
-    return response.status, response.read()
+    body = response.read(transfer.MAX_METADATA_BYTES + 1)
+    if len(body) > transfer.MAX_METADATA_BYTES:
+        raise ValueError('peer response exceeds the metadata size limit')
+    return response.status, body
 
 
 def outline(body):
     """What a plist answer holds, for the trace."""
     try:
-        return transfer.outline(plistlib.loads(body))
+        return transfer.outline(safeplist.loads(body))
     except ValueError:
         return f'<{len(body)} bytes that are no plist>'
 
@@ -233,8 +237,12 @@ def receiver_identity(address, port, scope, context):
         status, body = post_plist(connection, '/Discover', {})
         if status != 200:
             return None
-        answer = plistlib.loads(body)
+        answer = safeplist.loads(body)
+        if not isinstance(answer, dict):
+            return None
         name = answer.get('ReceiverComputerName')
+        if not isinstance(name, str):
+            return None
         return (name, answer.get('ReceiverModelName')) if name else None
     except (OSError, http.client.HTTPException) as error:
         if refuses_certificate(error):

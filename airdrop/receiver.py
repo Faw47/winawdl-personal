@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import plistlib
+import safeplist
 import re
 import secrets
 import select
@@ -221,10 +222,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_ask(self, body):
         try:
-            ask = plistlib.loads(body)
+            ask = safeplist.loads(body)
         except Exception as error:
-            logging.error('ask: undecodable %d-byte body: %r', len(body), error)
-            ask = {}
+            logging.warning('ask: undecodable %d-byte body: %s',
+                            len(body), type(error).__name__)
+            self.reject(400, 'malformed or oversized Ask property list')
+            return
         if not isinstance(ask, dict):
             self.reject(400, 'Ask must contain a dictionary')
             return
