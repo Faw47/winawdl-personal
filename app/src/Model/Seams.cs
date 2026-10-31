@@ -65,6 +65,8 @@ public sealed class AppSettings
     public string? Name { get; set; }
     public string? Folder { get; set; }
     public bool Ask { get; set; } = true;
+    /// <summary>Ask Apple devices to preserve high-efficiency photo and video formats.</summary>
+    public bool OriginalMedia { get; set; }
     public List<KnownDevice> AlwaysAccept { get; set; } = [];
     /// <summary>A request shows on screen while the window is not in front.</summary>
     public bool ShowRequests { get; set; } = true;
