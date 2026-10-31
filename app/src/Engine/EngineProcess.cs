@@ -88,7 +88,11 @@ public sealed partial class EngineProcess(Dispatcher dispatcher, string? repo, I
         foreach (var argument in (string[])["-u", script, "--name", name, "--outdir", folder])
             start.ArgumentList.Add(argument);
         var keys = extraArguments.SkipWhile(argument => argument != "--keys").Skip(1).FirstOrDefault();
-        Identity.Ensure(keys ?? Identity.DefaultFolder);
+        var log = OpenLog();
+        Identity.Ensure(keys ?? Identity.DefaultFolder, message =>
+        {
+            lock (log) log.WriteLine(message);
+        });
         if (!ask) start.ArgumentList.Add("--take-all");
         if (contactsOnly) start.ArgumentList.Add("--contacts-only");
         // In one argument, so that an entry starting with a dash is not
@@ -96,7 +100,6 @@ public sealed partial class EngineProcess(Dispatcher dispatcher, string? repo, I
         foreach (var sender in knownSenders) start.ArgumentList.Add($"--known-sender={sender}");
         foreach (var argument in extraArguments) start.ArgumentList.Add(argument);
 
-        var log = OpenLog();
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
         process.ErrorDataReceived += (_, line) =>
         {

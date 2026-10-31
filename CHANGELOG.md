@@ -5,6 +5,12 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **The stored AirDrop key is protected on Windows.** The app and engine
+  encrypt it with a random passphrase that only the current Windows user
+  can unlock, and restrict the keys folder to that user. Existing keys
+  are encrypted on first use. A missing or damaged secret makes a new
+  identity and logs why. Other systems keep their existing key storage.
+
 - **Everyone for 10 minutes.** A third choice beside Everyone and the list:
   anyone can send for ten minutes, then only the people listed again, with
   the time it ends shown. If the app ends in the meantime it starts again

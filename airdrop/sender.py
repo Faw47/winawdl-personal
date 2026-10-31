@@ -185,7 +185,7 @@ def client_context(keys_dir):
     # for, and takes ours the same way.
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
-    context.load_cert_chain(certificate, key)
+    context.load_cert_chain(certificate, key, password=identity.key_password(keys_dir))
     return context
 
 

@@ -646,7 +646,7 @@ def tls_context(keys_dir, contacts_only=False):
     alone."""
     certificate, key = identity.ensure_self_signed(keys_dir)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain(certificate, key)
+    context.load_cert_chain(certificate, key, password=identity.key_password(keys_dir))
     context.verify_mode = ssl.CERT_NONE
     if contacts_only:
         context.load_verify_locations(cafile=contacts.APPLE_ROOT_CA)

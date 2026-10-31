@@ -1,5 +1,10 @@
 using System.Diagnostics;
 using System.IO;
+using System.Security.AccessControl;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
+using System.Text;
 using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
@@ -32,6 +37,7 @@ public static class Checks
         {
             Colors();
             Wording();
+            Identities(Path.Combine(folder, "identities-" + Guid.NewGuid().ToString("N")));
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Program.Dress(app).Apply(Palette.Light(Rgb.Hex("#0078D4")));
             Motion.Reduced = true;
@@ -52,6 +58,89 @@ public static class Checks
         if (ok) _passed++;
         else _failed++;
         _log.WriteLine($"{(ok ? "PASS" : "FAIL")}  {what}");
+    }
+
+    private static void Identities(string folder)
+    {
+        Directory.CreateDirectory(folder);
+        var certificate = Path.Combine(folder, Identity.Certificate);
+        var key = Path.Combine(folder, Identity.Key);
+        var secret = Path.Combine(folder, Identity.Secret);
+        using var pair = RSA.Create(2048);
+        var request = new CertificateRequest("CN=AirDrop receiver", pair, HashAlgorithmName.SHA256,
+                                            RSASignaturePadding.Pkcs1);
+        using var legacy = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1),
+                                                    DateTimeOffset.UtcNow.AddDays(1));
+        File.WriteAllText(certificate, legacy.ExportCertificatePem());
+        File.WriteAllText(key, pair.ExportPkcs8PrivateKeyPem());
+        Expect(Identity.Ensure(folder), "an existing plaintext identity migrates");
+        Expect(File.ReadAllText(key).Contains("BEGIN ENCRYPTED PRIVATE KEY") && File.Exists(secret),
+               "migration replaces the plaintext key with encrypted PEM and a protected secret");
+        if (!File.Exists(secret)) return;
+        string Password() => Encoding.ASCII.GetString(ProtectedData.Unprotect(File.ReadAllBytes(secret),
+                                                       null, DataProtectionScope.CurrentUser));
+        using (var migrated = X509Certificate2.CreateFromEncryptedPemFile(certificate, Password(), key))
+        {
+            using var migratedKey = migrated.GetRSAPrivateKey()!;
+            Expect(migrated.RawData.SequenceEqual(legacy.RawData) &&
+                   migratedKey.ExportSubjectPublicKeyInfo().SequenceEqual(pair.ExportSubjectPublicKeyInfo()),
+                   "migration keeps the certificate and RSA identity");
+        }
+        var before = File.ReadAllBytes(key);
+        Expect(Identity.Ensure(folder) && before.SequenceEqual(File.ReadAllBytes(key)),
+               "an encrypted identity is reused across starts");
+        var user = WindowsIdentity.GetCurrent().User!;
+        var access = new DirectoryInfo(folder).GetAccessControl();
+        Expect(access.AreAccessRulesProtected && access.GetAccessRules(true, true, typeof(SecurityIdentifier))
+                   .Cast<FileSystemAccessRule>().All(rule => rule.IdentityReference.Equals(user)),
+               "only the current user has access to the keys folder");
+        foreach (var path in new[] { key, secret, certificate })
+        {
+            var rules = new FileInfo(path).GetAccessControl().GetAccessRules(true, true, typeof(SecurityIdentifier));
+            Expect(rules.Cast<FileSystemAccessRule>().All(rule => rule.IdentityReference.Equals(user)),
+                   "stored identity files grant access only to the current user");
+        }
+        foreach (var damage in new[] { "missing", "corrupt", "wrong" })
+        {
+            var old = File.ReadAllText(certificate);
+            if (damage == "missing") File.Delete(secret);
+            else File.WriteAllBytes(secret, damage == "corrupt" ? [1, 2, 3] :
+                ProtectedData.Protect(Encoding.ASCII.GetBytes("wrong password"), null, DataProtectionScope.CurrentUser));
+            var reasons = new List<string>();
+            Expect(Identity.Ensure(folder, reasons.Add) && File.ReadAllText(certificate) != old,
+                   $"a {damage} secret replaces the unusable identity");
+            Expect(reasons.Any(reason => reason.Contains("cannot be loaded") && reason.Contains("new identity")),
+                   "identity recovery logs why it made a replacement");
+            using var recovered = X509Certificate2.CreateFromEncryptedPemFile(certificate, Password(), key);
+            Expect(recovered.HasPrivateKey, "the replacement identity decrypts");
+        }
+
+        // Exercise both implementations with each other's files, not a stand-in DPAPI blob.
+        var repo = Repo.Find() ?? throw new InvalidOperationException("the repository was not found");
+        var pythonFolder = Path.Combine(folder, "python");
+        var start = new ProcessStartInfo("python")
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        foreach (var argument in new[] { "-c",
+            "import sys; sys.path.insert(0, sys.argv[1]); import identity, receiver, sender; " +
+            "receiver.tls_context(sys.argv[2]); sender.client_context(sys.argv[2]); " +
+            "identity.ensure_self_signed(sys.argv[3])", Path.Combine(repo, "airdrop"), folder, pythonFolder })
+            start.ArgumentList.Add(argument);
+        using var process = Process.Start(start)!;
+        var errors = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(30_000))
+        {
+            process.Kill();
+            throw new TimeoutException("Python identity interoperability check did not finish");
+        }
+        Expect(process.ExitCode == 0, "Python loads the app's encrypted identity for both TLS roles");
+        _log.Write(errors.GetAwaiter().GetResult());
+        var pythonCertificate = Path.Combine(pythonFolder, Identity.Certificate);
+        var original = File.ReadAllBytes(pythonCertificate);
+        Expect(Identity.Ensure(pythonFolder) && original.SequenceEqual(File.ReadAllBytes(pythonCertificate)),
+               "the app reuses Python's encrypted identity");
     }
 
     /// <summary>The 48 accents Windows offers, and the extremes nobody offers.</summary>

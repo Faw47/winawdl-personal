@@ -37,7 +37,7 @@ class RefusingReceiver:
         certificate, key = identity.ensure_self_signed(keys_dir)
         trusted, _ = identity.ensure_self_signed(stranger_dir)
         self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        self.context.load_cert_chain(certificate, key)
+        self.context.load_cert_chain(certificate, key, password=identity.key_password(keys_dir))
         self.context.verify_mode = ssl.CERT_REQUIRED
         self.context.load_verify_locations(cafile=trusted)
         self.sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
