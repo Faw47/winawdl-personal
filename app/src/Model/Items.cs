@@ -80,6 +80,7 @@ public sealed class PeerModel(string id, string name, string? model) : Observabl
     public RateMeter Rate { get; private set; } = new();
     public string? SendId { get; set; }
     public IReadOnlyList<string> Sending { get; set; } = [];
+    public string SendingLink { get; set; } = "";
     /// <summary>It stopped announcing itself while a transfer to it was running.</summary>
     public bool Left { get; set; }
     public ICommand? Press { get; init; }
