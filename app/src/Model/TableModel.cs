@@ -431,7 +431,7 @@ public sealed class TableModel : Observable
         {
             ["do"] = "send", ["id"] = peer.SendId, ["peer"] = peer.Id,
             ["files"] = peer.Sending,
-            ["urls"] = link.Length > 0 ? [link] : [],
+            ["urls"] = link.Length > 0 ? new[] { link } : Array.Empty<string>(),
         });
         Refresh();
     }
