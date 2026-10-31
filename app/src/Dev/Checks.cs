@@ -447,7 +447,7 @@ public static class Checks
         Lay();
         controls = Stage.Controls(card).Select(one => one.Line).ToList();
         Expect(controls.Count == 4 && controls[0].Contains("\"Open IMG_1.jpg\"") && controls[1].Contains("\"Dismiss\"")
-               && controls[2].Contains("\"Show in folder\"") && controls[3].Contains("\"Open\""),
+               && controls[2].Contains("\"Show in Folder\"") && controls[3].Contains("\"Open\""),
                $"the card is itself the press, and holds three more: {string.Join(", ", controls)}");
         Expect(Press(card, "Open IMG_1.jpg") && world.Desk.Opened.Last() == "open " + Path.Combine(shelf, "IMG_1.jpg") && model.Arrivals.Count == 0,
                "press the card -> the file is opened (recorded), and the card goes");
@@ -456,7 +456,7 @@ public static class Checks
 
         world.Engine.Say(Ask("r4", "Stand-in iPhone", "iPhone14,2", waits: false));
         world.Engine.Say(new { @event = "stored", id = "r4", folder = shelf, names = new[] { "a.jpg", "b.jpg" } });
-        Expect(arrivals.Last() is { Single: false, PressLabel: "Show in folder" }, "several files stored -> the card shows them in their folder");
+        Expect(arrivals.Last() is { Single: false, PressLabel: "Show in Folder" }, "several files stored -> the card shows them in their folder");
         model.Arrivals.Add(arrivals.Last());
         Lay();
         Expect(Press(card, "Show what arrived in its folder") && world.Desk.Opened.Last() == "reveal " + Path.Combine(shelf, "a.jpg"),

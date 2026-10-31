@@ -510,8 +510,8 @@ public static class Drive
             _desk.PickedFolder = Path.Combine(folder, "no-such-folder");
             Press("Change folder");
             Check(Until(() => _model.HasFolderError) && _model.Folder == elsewhere, $"a folder that is not there -> \"{_model.FolderError}\"");
-            Press("Take everything");
-            Check(Until(() => !_model.AskFirst), "Take everything -> chosen");
+            Press("Accept Everything");
+            Check(Until(() => !_model.AskFirst), "Accept Everything -> chosen");
             _other.Tell(new { @do = "send", id = "x3", peer = meId, files = new[] { files[2] } });
             var prompted = false;
             Check(Until(() =>
@@ -519,8 +519,8 @@ public static class Drive
                 prompted |= _model.Incoming.Any(item => item.IsAsking);
                 return File.Exists(Path.Combine(elsewhere, "stand-in-dusk.png"));
             }, 30) && !prompted, "the other device sends -> the file is stored in the new folder with no request shown");
-            Press("Ask me first");
-            Check(Until(() => _model.AskFirst), "Ask me first -> chosen again");
+            Press("Ask First");
+            Check(Until(() => _model.AskFirst), "Ask First -> chosen again");
             Press("Keep receiving when the window is closed");
             Check(!_settings.KeepInTray, "untick Keep receiving -> the setting is off");
             Press("Keep receiving when the window is closed");

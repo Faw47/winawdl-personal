@@ -153,7 +153,7 @@ public sealed class ArrivalModel
     public ICommand? Press { get; init; }
     public ICommand? Reveal { get; init; }
     public ICommand? Dismiss { get; init; }
-    public string PressLabel => Single ? "Open" : "Show in folder";
+    public string PressLabel => Single ? "Open" : "Show in Folder";
     public string PressName => Single ? $"Open {File.Name}" : "Show what arrived in its folder";
 }
 

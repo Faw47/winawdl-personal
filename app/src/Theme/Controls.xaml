@@ -130,16 +130,15 @@
 
   <!-- A file as a thing: its own picture when Windows has one, a glyph for its kind when not. -->
   <ControlTemplate x:Key="FileFace" TargetType="ContentControl">
-    <t:Raised x:Name="Surface" Radius="8" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
-              Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}">
-      <Grid>
-        <TextBlock Style="{StaticResource Glyph}" FontSize="22" Foreground="{DynamicResource InkSoft}"
-                   Text="{Binding Glyph}" />
-        <t:RoundClip Radius="8">
-          <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
-        </t:RoundClip>
-      </Grid>
-    </t:Raised>
+    <Grid>
+      <Border CornerRadius="8" Background="{DynamicResource Well}" />
+      <TextBlock Style="{StaticResource Glyph}" FontSize="20" Foreground="{DynamicResource InkSoft}"
+                 Text="{Binding Glyph}" />
+      <t:RoundClip Radius="8">
+        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+      </t:RoundClip>
+      <Border CornerRadius="8" BorderBrush="{DynamicResource Outline}" BorderThickness="1" />
+    </Grid>
   </ControlTemplate>
 
   <!-- A raised surface that is not itself pressed: it holds text and buttons. -->
@@ -249,25 +248,32 @@
     </Setter>
   </Style>
 
+  <!-- An on/off switch as iOS draws one: the label on the left, the switch on
+       the right, the track filled with the accent when on. -->
   <Style TargetType="t:Switch">
     <Setter Property="FocusVisualStyle" Value="{StaticResource FocusButton}" />
     <Setter Property="FontFamily" Value="{StaticResource FontText}" />
     <Setter Property="FontSize" Value="14" />
     <Setter Property="Foreground" Value="{DynamicResource Ink}" />
-    <Setter Property="Padding" Value="4,6" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="t:Switch">
-          <StackPanel Orientation="Horizontal" Background="Transparent" Margin="{TemplateBinding Padding}">
-            <ContentPresenter VerticalAlignment="Center" Margin="0,0,10,0" />
-            <Grid Width="44" Height="24">
-              <Border CornerRadius="12" Background="{DynamicResource Well}"
-                      BorderBrush="{DynamicResource InkSoft}" BorderThickness="1" />
+          <DockPanel Background="Transparent" Margin="{TemplateBinding Padding}">
+            <Grid DockPanel.Dock="Right" Width="44" Height="24" Margin="12,0,0,0" VerticalAlignment="Center">
+              <Border CornerRadius="12" Background="{DynamicResource Well}" BorderBrush="{DynamicResource Outline}"
+                      BorderThickness="1" />
               <Border x:Name="PART_On" CornerRadius="12" Background="{DynamicResource Accent}" Opacity="0" />
-              <Ellipse x:Name="PART_Thumb" Width="14" Height="14" Margin="5,0" HorizontalAlignment="Left"
-                       Fill="{DynamicResource InkSoft}" />
+              <Ellipse x:Name="PART_Thumb" Width="18" Height="18" Margin="3,0" HorizontalAlignment="Left"
+                       Fill="{DynamicResource InkSoft}">
+                <Ellipse.Effect>
+                  <DropShadowEffect BlurRadius="4" ShadowDepth="1" Direction="270" Opacity="0.25" />
+                </Ellipse.Effect>
+              </Ellipse>
             </Grid>
-          </StackPanel>
+            <ContentPresenter VerticalAlignment="Center" />
+          </DockPanel>
           <ControlTemplate.Triggers>
             <Trigger Property="IsEnabled" Value="False">
               <Setter Property="Opacity" Value="0.5" />
