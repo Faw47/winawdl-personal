@@ -19,16 +19,18 @@ static void check(int condition, const char *label) {
 		++failures;
 }
 
-/* An empty radiotap header, then a plain data frame from `from` to us, cut
- * off after its MAC header: what follows does not matter here. */
+/* A radiotap header with the flags field alone, as the radio daemon writes
+ * it, then a plain data frame from `from` to us, cut off after its MAC
+ * header: what follows does not matter here. */
 static void receive_data(struct awdl_state *state, const struct ether_addr *from) {
-	uint8_t wire[8 + 24] = {0};
+	uint8_t wire[9 + 24] = {0};
 	struct buf *out[AWDL_MAX_AMSDU_SUBFRAMES];
 	struct buf **cursor = out;
-	wire[2] = 8; /* radiotap length */
-	wire[8] = 0x08; /* frame control: data */
-	memcpy(wire + 8 + 4, &self, 6);
-	memcpy(wire + 8 + 10, from, 6);
+	wire[2] = 9; /* radiotap length */
+	wire[4] = 0x02; /* present: flags */
+	wire[9] = 0x08; /* frame control: data */
+	memcpy(wire + 9 + 4, &self, 6);
+	memcpy(wire + 9 + 10, from, 6);
 	const struct buf *frame = buf_new_const(wire, sizeof(wire));
 	awdl_rx(frame, &cursor, state);
 	buf_free(frame);

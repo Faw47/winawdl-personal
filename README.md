@@ -29,7 +29,8 @@ installing anything.
 | Sending | Files have gone into the iPhone's Photos at 9 to 14 MB/s |
 | The app | One window over both. Through it the radio has been started and stopped, and Live Photos of 6 MB received from the iPhone and small files sent to it, with requests answered from a card on screen. Large transfers through it have not been tried |
 | The installer | A setup program that signs the driver on the PC it runs on, binds the card, and undoes both when uninstalled. It has run in full on the PC it was made on, and on no other |
-| Not there | Contacts Only, in either direction. Any card but the RTL8852CE |
+| Contacts Only | Receiving only from the people you list, as Apple proves who a sender is. Written and tested against stand-in Apple certificates, not yet with an iPhone |
+| Not there | Sending to a device set to Contacts Only. Any card but the RTL8852CE |
 
 All of it has run on one machine, with one card, against one iPhone.
 
@@ -49,7 +50,8 @@ All of it has run on one machine, with one card, against one iPhone.
   its settings are changed to take everything.
 - A device you tell the app to always accept is known only by the name and
   model it gives for itself. Another device in range that gives the same two
-  is accepted as well, without a question.
+  is accepted as well, without a question. To accept only people whose
+  identity Apple vouches for, use "Only the people listed here" instead.
 - The card answers frames without waiting for Bluetooth, which shares its
   radio. Bluetooth devices may lose an occasional packet meanwhile.
 - While the sender looks for a receiver it advertises over Bluetooth as an
@@ -216,6 +218,15 @@ prompt of its own.
   AirDrop tells a PC that is not among its contacts: another device nearby
   giving the same two would be accepted too. What it sends is stored and
   never opened.
+- **Only the people you list.** The settings choose who can send: everyone,
+  or only the people listed there by the email address or phone number of
+  their Apple ID. With the list, a sender must present the record Apple signs
+  for its account and the certificate that goes with it, and one of the
+  record's addresses must be on the list; anyone else is refused before you
+  are asked, and is not shown this PC if its record says who it is. Nothing
+  is asked of Apple to check this: its public certificates come with
+  winawdl. Requests from people on the list are still asked about, unless
+  the settings take everything. An empty list lets nobody send.
 - **A device that stays away.** When the window says that a device nearby
   only answers devices it knows, set that device's AirDrop to "Everyone for
   10 Minutes".
@@ -286,8 +297,13 @@ rules. A 144.5 MB video went at 14.5 MB/s and a 24.5 MB one at 9 to
 `awdl-run.ps1`: the rate of outgoing data frames follows what the receiver
 acknowledges (`-DataRate` fixes it), the receiver is asked to take those
 frames in aggregates (`-NoAggregate`), and the card is handed frames fast
-enough to fill them (`-NoQuickSubmit`). Contacts Only is not implemented in
-either direction.
+enough to fill them (`-NoQuickSubmit`).
+
+`airdrop-receive.ps1` and `receiver.py` take `--contacts-only` with
+`--known-senders FILE`, a file of Apple ID emails and phone numbers, one a
+line. Sending to a device that is set to Contacts Only needs an identity
+Apple issued for your own account, which this project has no way to obtain,
+so only devices set to Everyone can be sent to.
 
 ## How it fits together
 

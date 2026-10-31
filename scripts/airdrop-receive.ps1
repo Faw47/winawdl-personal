@@ -1,6 +1,7 @@
 # Starts the AirDrop receiver; scripts\awdl-run.ps1 must already be running.
 # Arguments are passed on, for example: --name "Study PC" --outdir D:\Drops
 # --redact prints no names, addresses or account folders.
+# --contacts-only --known-senders FILE accepts only the Apple IDs in FILE.
 $ErrorActionPreference = 'Stop'
 
 $repo = Split-Path $PSScriptRoot -Parent

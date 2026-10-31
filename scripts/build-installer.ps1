@@ -31,7 +31,8 @@ $files = @(
   @('build\app\winawdl\winawdl.deps.json', ''), @('build\app\winawdl\winawdl.runtimeconfig.json', ''),
   @('installer\install.ps1', ''), @('installer\install.cmd', ''), @('installer\uninstall.ps1', ''),
   @('installer\uninstall.cmd', ''), @('installer\README.txt', ''),
-  @('airdrop\*.py', 'airdrop'), @('scripts\airdrop-beacon.ps1', 'scripts'),
+  @('airdrop\*.py', 'airdrop'), @('airdrop\apple-ca\*.pem', 'airdrop\apple-ca'),
+  @('scripts\airdrop-beacon.ps1', 'scripts'),
   @('build\radio\Release\winawdl_radio.exe', 'radio'),
   @('build\awdl\awdld.exe', 'awdl'), @('build\awdl\wintun.dll', 'awdl'),
   @('driver\regproxy\winawdl_regproxy.inf', 'driver'), @('driver\regproxy\build\winawdl_regproxy.dll', 'driver')

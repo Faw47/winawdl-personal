@@ -101,6 +101,11 @@ public partial class MainView : UserControl
         if (e.Key == Key.Enter) Model?.CommitName();
     }
 
+    private void OnSenderKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter) Model?.AddSender.Execute(null);
+    }
+
     private void OnModelChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (Model is not { } model || model.SettingsOpen == _sheetShown) return;

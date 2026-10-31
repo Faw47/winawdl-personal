@@ -62,7 +62,8 @@ public sealed partial class EngineProcess(Dispatcher dispatcher, string? repo, I
             .Select(folder => Path.Combine(folder.Trim('"'), program))
             .FirstOrDefault(File.Exists);
 
-    public void Start(string name, string folder, bool ask)
+    public void Start(string name, string folder, bool ask, bool contactsOnly,
+                      IReadOnlyList<string> knownSenders)
     {
         Stop();
         var script = repo is null ? null : Path.Combine(repo, "airdrop", "engine.py");
@@ -89,6 +90,10 @@ public sealed partial class EngineProcess(Dispatcher dispatcher, string? repo, I
         var keys = extraArguments.SkipWhile(argument => argument != "--keys").Skip(1).FirstOrDefault();
         Identity.Ensure(keys ?? Identity.DefaultFolder);
         if (!ask) start.ArgumentList.Add("--take-all");
+        if (contactsOnly) start.ArgumentList.Add("--contacts-only");
+        // In one argument, so that an entry starting with a dash is not
+        // taken for an option.
+        foreach (var sender in knownSenders) start.ArgumentList.Add($"--known-sender={sender}");
         foreach (var argument in extraArguments) start.ArgumentList.Add(argument);
 
         var log = OpenLog();

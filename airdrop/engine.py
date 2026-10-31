@@ -10,6 +10,7 @@ Commands: {"do": "look", "on": true}, {"do": "send", "id": ..., "peer": ...,
 "accept": true}, {"do": "set", "name": ..., "folder": ..., "ask": ...},
 {"do": "quit"}. The end of the input is a quit as well."""
 import argparse
+import contacts
 import contextlib
 import errno
 import http.client
@@ -81,11 +82,14 @@ class Settings:
         self.port = args.port
         self.flags = args.flags
         self.max_receive_percent = args.max_receive_percent
+        self.contacts_only = args.contacts_only
+        self.known_senders = list(args.known_senders)
         self.redact = False
         self.interface_index = 0
 
     def public(self):
-        return {'name': self.name, 'folder': self.dest, 'ask': self.ask}
+        return {'name': self.name, 'folder': self.dest, 'ask': self.ask,
+                'contacts_only': self.contacts_only, 'known_senders': self.known_senders}
 
 
 class Accepted:
@@ -526,7 +530,8 @@ class Engine:
         self.settings = Settings(args)
         self.alias = args.iface
         self.loopback = args.loopback
-        self.context = receiver.tls_context(args.keys)
+        self.keys = args.keys
+        self.context = receiver.tls_context(args.keys, self.settings.contacts_only)
         self.incoming = Incoming(events, self.settings)
         self.receiving = Receiving(events, self.settings, self.incoming, self.context,
                                    args.loopback)
@@ -588,7 +593,35 @@ class Engine:
                 refused['folder'] = str(error)
         if 'ask' in command:
             self.settings.ask = bool(command['ask'])
+        if 'known_senders' in command:
+            senders = command['known_senders']
+            if isinstance(senders, list) and all(isinstance(s, str) and contacts.normalize(s)
+                                                 for s in senders):
+                self.settings.known_senders = [s.strip() for s in senders]
+            else:
+                refused['known_senders'] = 'each an email address or a phone number'
+        if 'contacts_only' in command:
+            self.contacts_only(bool(command['contacts_only']))
         self.events.say('settings', refused=refused, **self.settings.public())
+
+    def contacts_only(self, on):
+        """Only known senders, or everyone. The receiver asks senders for a
+        certificate in the first case and not in the second, which is set
+        when a connection is accepted, so it starts again with the other."""
+        if on == self.settings.contacts_only:
+            return
+        context = receiver.tls_context(self.keys, on)
+        with self._lock:
+            self.settings.contacts_only = on
+            self.context = context
+            self.receiving.context = context
+            if self.receiving.server:
+                self.receiving.stop()
+                # The link watch would start it too, and tries again if the
+                # port is not free yet.
+                found = self._found()
+                if found:
+                    self.receiving.start(*found)
 
     def handle(self, command):
         """Carry out one command; False for the one that ends the engine."""
@@ -612,6 +645,12 @@ class Engine:
         return True
 
 
+def known_sender(text):
+    if not contacts.normalize(text):
+        raise argparse.ArgumentTypeError('an email address or a phone number')
+    return text.strip()
+
+
 def fixed_peer(text):
     """A receiver to offer without looking: "[address]:port"."""
     address, _, port = text.rpartition(':')
@@ -630,6 +669,10 @@ def parse_args(argv):
                         default=receiver.valid_dir('~/Downloads'))
     parser.add_argument('--take-all', dest='ask', action='store_false',
                         help='store what anyone sends without asking')
+    parser.add_argument('--contacts-only', action='store_true',
+                        help='accept only the senders given with --known-sender')
+    parser.add_argument('--known-sender', dest='known_senders', action='append', default=[],
+                        type=known_sender, metavar='EMAIL_OR_PHONE')
     parser.add_argument('--max-receive-percent', type=receiver.valid_percent,
                         default=receiver.DEFAULT_MAX_RECEIVE_PERCENT)
     parser.add_argument('--iface', default=receiver.DEFAULT_INTERFACE)

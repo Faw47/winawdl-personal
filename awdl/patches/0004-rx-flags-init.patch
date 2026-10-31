@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: winawdl <winawdl@invalid>
+Date: Sat, 31 Oct 2026 07:42:56 +0000
+Subject: [PATCH] Start the radiotap flags at zero
+
+---
+ src/rx.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/rx.c b/src/rx.c
+index 829fc82..dfe1d32 100644
+--- a/src/rx.c
++++ b/src/rx.c
+@@ -503,7 +503,10 @@ int awdl_rx(const struct buf *frame, struct buf ***data_frame, struct awdl_state
+ 	uint16_t fc, qosc; /* frame and QoS control */
+ 	signed char rssi;
+ 	uint64_t tsft;
+-	uint8_t flags;
++	/* Set only when the radiotap header has a flags field: without one this
++	 * was whatever the stack held, and a frame could be dropped as corrupt
++	 * at random. As in Owly's patch owl-11. */
++	uint8_t flags = 0;
+ 
+ 	tsft = clock_time_us(); /* TODO Radiotap TSFT is more accurate but then need to access TSF in clock_time_us() */
+ 	if (radiotap_parse(frame, &rssi, &flags, NULL /* &tsft */) < 0)

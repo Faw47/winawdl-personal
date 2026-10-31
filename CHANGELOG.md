@@ -5,6 +5,13 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Contacts Only, for receiving.** The settings choose who can send:
+  everyone, or only the people listed there by their Apple ID's email
+  address or phone number. A sender must prove who it is with the record
+  and certificate Apple issues for its account; anyone else is refused
+  before you are asked, and most do not see this PC at all. Adapted from
+  omdrop. Not yet tried with an iPhone.
+
 - **The receiver's limits caught up with omdrop's.** Links are held to the
   disk budget an upload gets, and stored all or none. An Ask too large for
   any upload is refused before it is logged. Links with hidden characters or

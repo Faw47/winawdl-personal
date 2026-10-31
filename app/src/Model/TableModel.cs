@@ -28,6 +28,7 @@ public sealed class TableModel : Observable
     private bool _radioHasRun;
     private string _beaconWhy = "", _receivingProblem = "", _heldNotice = "", _radioNotice = "";
     private string _engineProblem = "", _engineDetail = "", _nameDraft = "", _nameError = "", _folderError = "";
+    private string _senderDraft = "", _senderError = "";
     private int _unwilling;
 
     public TableModel(IEngine engine, IRadio radio, IDesk desk, AppSettings settings)
@@ -62,11 +63,14 @@ public sealed class TableModel : Observable
         StartEngine = new Command(StartTheEngine);
         PanelAction = new Command(RunPanelAction);
         foreach (var device in _settings.AlwaysAccept) Trusted.Add(Listed(device));
+        AddSender = new Command(AddTheSender);
+        ShowSenders();
     }
 
     public ObservableCollection<PeerModel> Peers { get; } = [];
     public ObservableCollection<IncomingModel> Incoming { get; } = [];
     public ObservableCollection<TrustedModel> Trusted { get; } = [];
+    public ObservableCollection<SenderModel> KnownSenders { get; } = [];
     public ObservableCollection<FileItem> Held { get; } = [];
     public ObservableCollection<FileItem> Received { get; } = [];
     public ObservableCollection<string> Notices { get; } = [];
@@ -82,6 +86,7 @@ public sealed class TableModel : Observable
     public ICommand OpenLog { get; }
     public ICommand OpenProject { get; }
     public ICommand StartEngine { get; }
+    public ICommand AddSender { get; }
     public ICommand PanelAction { get; }
 
     /// <summary>Something wants an answer; the window may be out of sight.</summary>
@@ -103,7 +108,7 @@ public sealed class TableModel : Observable
         _engineProblem = "";
         if (!Directory.Exists(Folder)) _settings.Folder = null;
         ChangedAll();
-        _engine.Start(Name, Folder, _settings.Ask);
+        _engine.Start(Name, Folder, _settings.Ask, _settings.ContactsOnly, _settings.KnownSenders);
     }
 
     /// <summary>The window came into view or went out of it. Devices are only
@@ -364,8 +369,83 @@ public sealed class TableModel : Observable
         _settings.Name = Text(said, "name");
         _settings.Folder = Text(said, "folder");
         _settings.Ask = Flag(said, "ask");
+        AdoptSenders(said);
         _settings.Save();
         _nameDraft = Name;
+    }
+
+    /// <summary>Who may send, as the engine says it has it: the engine keeps
+    /// the old list when it refuses a new one.</summary>
+    private void AdoptSenders(JsonElement said)
+    {
+        if (said.TryGetProperty("contacts_only", out var only) && only.ValueKind is JsonValueKind.True or JsonValueKind.False)
+            _settings.ContactsOnly = only.GetBoolean();
+        if (!said.TryGetProperty("known_senders", out var senders) || senders.ValueKind != JsonValueKind.Array)
+            return;
+        var listed = senders.EnumerateArray()
+            .Where(sender => sender.ValueKind == JsonValueKind.String)
+            .Select(sender => sender.GetString() ?? "").ToList();
+        if (listed.SequenceEqual(_settings.KnownSenders)) return;
+        _settings.KnownSenders = listed;
+        ShowSenders();
+    }
+
+    private void ShowSenders()
+    {
+        KnownSenders.Clear();
+        foreach (var address in _settings.KnownSenders)
+            KnownSenders.Add(new SenderModel(address) { Forget = new Command(() => ForgetSender(address)) });
+    }
+
+    /// <summary>An identifier as Apple hashes it, for comparing two of them:
+    /// an email address lowercased, a phone number as its digits. Empty for
+    /// something that is neither.</summary>
+    private static string Identifier(string text)
+    {
+        text = text.Trim();
+        if (text.Contains('@'))
+        {
+            var at = text.IndexOf('@');
+            return at > 0 && at < text.Length - 1 && !text.Any(char.IsWhiteSpace) ? text.ToLowerInvariant() : "";
+        }
+        // A phone number may be written with spaces, dashes, dots, brackets
+        // and a leading plus, and nothing else.
+        if (text.Any(c => !char.IsAsciiDigit(c) && " +-.()".IndexOf(c) < 0)) return "";
+        var digits = new string(text.Where(char.IsAsciiDigit).ToArray());
+        return digits.Length >= 5 ? digits : "";
+    }
+
+    private void AddTheSender()
+    {
+        var wanted = SenderDraft.Trim();
+        var identifier = Identifier(wanted);
+        if (identifier.Length == 0)
+        {
+            _senderError = "Type an Apple ID email address or phone number.";
+        }
+        else if (_settings.KnownSenders.Any(listed => Identifier(listed) == identifier))
+        {
+            _senderError = "That one is on the list already.";
+        }
+        else
+        {
+            _senderError = "";
+            _senderDraft = "";
+            TellSenders([.. _settings.KnownSenders, wanted]);
+        }
+        ChangedAll();
+    }
+
+    private void ForgetSender(string address) =>
+        TellSenders(_settings.KnownSenders.Where(listed => listed != address).ToList());
+
+    private void TellSenders(List<string> senders)
+    {
+        _settings.KnownSenders = senders;
+        _settings.Save();
+        ShowSenders();
+        _engine.Tell(new() { ["do"] = "set", ["known_senders"] = senders });
+        ChangedAll();
     }
 
     private void AddPeer(string id, string name, string model)
@@ -788,6 +868,28 @@ public sealed class TableModel : Observable
 
     public bool TakeAll { get => !AskFirst; set => AskFirst = !value; }
 
+    /// <summary>Only the people on the list may send, as Apple proves them.</summary>
+    public bool OnlyKnownSenders
+    {
+        get => _settings.ContactsOnly;
+        set
+        {
+            if (_settings.ContactsOnly == value) return;
+            _settings.ContactsOnly = value;
+            _settings.Save();
+            _engine.Tell(new() { ["do"] = "set", ["contacts_only"] = value });
+            ChangedAll();
+        }
+    }
+
+    public bool AnyoneCanSend { get => !OnlyKnownSenders; set => OnlyKnownSenders = !value; }
+    public bool HasKnownSenders => KnownSenders.Count > 0;
+    /// <summary>The list is in force and empty, so nobody can send.</summary>
+    public bool NobodyCanSend => OnlyKnownSenders && !HasKnownSenders;
+    public string SenderDraft { get => _senderDraft; set => Set(ref _senderDraft, value); }
+    public string SenderError => _senderError;
+    public bool HasSenderError => _senderError.Length > 0;
+
     public bool ShowRequests
     {
         get => _settings.ShowRequests;
@@ -835,6 +937,8 @@ public sealed class TableModel : Observable
         _settings.Name = Text(said, "name");
         _settings.Folder = Text(said, "folder");
         _settings.Ask = Flag(said, "ask");
+        if (Refused("known_senders")) _senderError = "The list could not be changed. The old one stays.";
+        AdoptSenders(said);
         _settings.Save();
         if (!Refused("name")) _nameDraft = Name;
     }
