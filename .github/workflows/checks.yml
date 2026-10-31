@@ -1,6 +1,6 @@
-# What can be checked with no radio: the AirDrop layer over loopback, and the
-# app's own checks. The driver, the radio daemon and the AWDL daemon need the
-# Windows Driver Kit, vcpkg and the card, and are not built here.
+# What can be checked with no radio: the AirDrop layer over loopback, the AWDL
+# daemon's build and tests, and the app's own checks. The driver and the radio
+# daemon need the Windows Driver Kit, vcpkg and the card, and are not built here.
 name: checks
 
 on:
@@ -31,6 +31,38 @@ jobs:
           python -m ruff check airdrop
       - name: Tests, over loopback
         run: python -m unittest discover -s airdrop\tests
+
+  awdl:
+    name: AWDL daemon, with OWL patched
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v5
+      - name: OWL, without the vendor trees a recursive clone would pull
+        shell: pwsh
+        run: |
+          git submodule update --init upstream/owl
+          git -C upstream/owl submodule update --init radiotap
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          # Git for Windows stays on the path: the build applies OWL's patches with it.
+          path-type: inherit
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja
+      - name: Build, which applies awdl/patches
+        run: |
+          cmake -S awdl -B build/awdl -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/awdl
+      - name: Tests
+        run: |
+          set -e
+          for test in rx_amsdu_bounds_test election_order_test host_frame_test \
+                      tcp_merge_test frame_fixup_test service_bridge_test redact_test; do
+            echo "== $test"
+            ./build/awdl/$test.exe
+          done
 
   app:
     name: Windows app

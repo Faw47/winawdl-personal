@@ -15,12 +15,15 @@
 # -NoAggregate sends a peer every data frame on its own. -NoQuickSubmit hands
 # a frame to the card with four register accesses, not one, which leaves the
 # card too few frames waiting to build an aggregate from.
+# -TxPathPmac has the card take its antenna paths from the baseband's own
+# registers, which ends bring-ups whose acknowledgements never air on other
+# 8852C cards; it is not yet measured with two streams.
 param([ValidateSet(6, 44, 149)][int]$Channel = 44, [switch]$Detail, [switch]$Redact,
       [string]$Capture, [switch]$NoBlockAck, [ValidateSet(1, 2)][int]$Streams = 2,
       [switch]$LongGuard, [ValidateRange(0, 3000)][int]$Join = 400,
       [ValidateSet(0, 20, 40, 80)][int]$Width = 0,
       [ValidateRange(0, 62)][int]$Retries = 7, [string]$DataRate = 'auto',
-      [switch]$NoAggregate, [switch]$NoQuickSubmit)
+      [switch]$NoAggregate, [switch]$NoQuickSubmit, [switch]$TxPathPmac)
 $ErrorActionPreference = 'Stop'
 
 $repo  = Split-Path $PSScriptRoot -Parent
@@ -38,6 +41,7 @@ if ($Capture) {
   $radioArgs += '--capture', "`"$file`""
 }
 if ($NoBlockAck) { $radioArgs += '--no-block-ack' }
+if ($TxPathPmac) { $radioArgs += '--tx-path-pmac' }
 if ($NoAggregate) { $radioArgs += '--no-aggregate' }
 if ($NoQuickSubmit) { $radioArgs += '--no-quick-submit' }
 $radioProcess = Start-Process $radio -ArgumentList $radioArgs -PassThru -NoNewWindow

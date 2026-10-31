@@ -1,0 +1,296 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Joseph <162703152+josephnef@users.noreply.github.com>
+Date: Thu, 15 Oct 2026 22:04:10 +0300
+Subject: [PATCH] kestrel: park the EDCCA level on 5 GHz as on 6 GHz (#491)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+## The problem
+
+Host injection from an 8832CU goes silent on the upper 5 GHz channels.
+With the BB table's EDCCA level the MAC energy-detect TX gate latches
+busy on the receiver's own floor (-65..-69 dBm as the BB measures it, no
+DIG), the mechanism the 6 GHz path already parks
+(`src/kestrel/CLAUDE.md`). Measured on the bench (TX50UH injector, 20 ms
+gap, 8812CU witness, default configuration):
+
+| channel | witnessed of ~435 |
+|---|---|
+| 6 / 36 / 44 | 205 / 192 / 211 |
+| 52 / 60 / 64 | 226 / 92 / 12 |
+| 100 / 149 / 157 / 161 | 0 |
+
+SDR airtime on ch161 under a max-duty flood: 0.0% (ch44: +4% over idle);
+the injector stalls on bulk-OUT timeouts. The fixed TX-power knob (8 /
+14 / 20 dBm) changes nothing. `DEVOURER_CCA_GATES=0,1` (EDCCA gate alone
+cleared) restores ch64 / 100 / 161 to 220-226; `1,0` (primary alone)
+restores nothing. The tune log says it on every 5 GHz tune: `EDCCA band1
+pwdB fb=-67 ... busy=1`.
+
+## The change
+
+`kestrel_halbb_edcca_6g` becomes `kestrel_halbb_edcca_park(band_type,
+bw)` and the channel set calls it for 5 GHz as well as 6 GHz: the
+vendor's unlinked `EDCCA_NORMAL_MODE` level, its own level for an
+unassociated device, never busy. Preamble carrier sense stays on. 2.4
+GHz is untouched (floor -82 dBm, busy=0). Comments and the Kestrel notes
+carry the measurements; the compliance consequence the 6 GHz note
+already states now covers 5 GHz.
+
+## Measured after the change
+
+Default configuration, same setup: ch6 196/423, ch44 215/434, ch100
+227/440, ch161 224/437. Deferral still holds on ch161: a max-duty 6M
+injector sent 19063 frames in 8 s on a quiet channel, 7327 (7086
+witnessed) under a co-channel max-duty MCS1 flood with the gates on,
+15676 (10639) with `DEVOURER_DIS_CCA=1`. Linux build + `ctest` 83/83.
+
+One bench, one injecting unit (the second TX50UH on this bench does not
+host-inject at all, on any band, for an unrelated reason tracked in
+#490), near field.
+
+Part of #490.
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+---------
+
+Co-authored-by: Claude Fable 5.1 <noreply@anthropic.com>
+(cherry picked from commit 5b12c86447c168d975c89a341de76160ec74753f)
+---
+ hal/halbb/g6/kestrel_halbb_glue.c | 62 ++++++++++++++++++++++++++++---
+ hal/halbb/g6/kestrel_halbb_glue.h |  7 +++-
+ src/kestrel/CLAUDE.md             | 34 ++++++++++++-----
+ src/kestrel/HalKestrel.cpp        | 43 ++++++++++++++-------
+ 4 files changed, 116 insertions(+), 30 deletions(-)
+
+diff --git a/hal/halbb/g6/kestrel_halbb_glue.c b/hal/halbb/g6/kestrel_halbb_glue.c
+index 61e18cc..36941e5 100644
+--- a/hal/halbb/g6/kestrel_halbb_glue.c
++++ b/hal/halbb/g6/kestrel_halbb_glue.c
+@@ -14,6 +14,11 @@ struct kestrel_halbb_ctx {
+   int env_mntr_ready; /* lazy halbb_env_mntr init done */
+   int edcca_inited;
+   int edcca_cr_inited;
++  /* The BB table's EDCCA threshold CRs, captured before the first park so a
++   * later 2.4 GHz tune can put them back (level_p, level, ppdu, dwn, obss). */
++  int edcca_table_saved;
++  int edcca_parked;
++  unsigned int edcca_table[5];
+ };
+ 
+ struct kestrel_halbb_ctx *kestrel_halbb_create(struct kestrel_halbb_bridge *br,
+@@ -165,18 +170,20 @@ void halbb_diagnostic_event_notify(struct bb_info *bb, enum habb_fun_t type,
+  * vendor applies that regulatory threshold only under a chplan that demands
+  * it; its mode for an unassociated device is EDCCA_NORMAL_MODE, whose
+  * threshold is EDCCA_MAX (never busy) while not linked — that is what is
+- * programmed here, so 6 GHz TX defers on the preamble carrier sense (primary
+- * CCA, still on) and not on the uncalibrated energy floor. The regulatory
+- * 6 GHz energy-detect level is therefore not enforced by this driver.
++ * programmed here, so 5 and 6 GHz TX defer on the preamble carrier sense
++ * (primary CCA, still on) and not on the uncalibrated energy floor. The
++ * regulatory energy-detect levels for those bands are therefore not enforced
++ * by this driver.
+  * First call fills the EDCCA CR table (a vendor dm_init stage the minimal
+  * bring-up skips — without it every address is 0/mask 0 and writes land
+  * nowhere), the per-chip cap defaults and the one-shot init. */
+-void kestrel_halbb_edcca_6g(struct kestrel_halbb_ctx *ctx, unsigned char bw) {
++void kestrel_halbb_edcca_park(struct kestrel_halbb_ctx *ctx, unsigned char band_type,
++                              unsigned char bw) {
+   if (!ctx)
+     return;
+   struct bb_info *bb = &ctx->bb;
+   struct rtw_chan_def *cd = &bb->hal_com->band[0].cur_chandef;
+-  cd->band = BAND_ON_6G;
++  cd->band = band_type == 2 ? BAND_ON_6G : band_type == 1 ? BAND_ON_5G : BAND_ON_24G;
+   cd->bw = (enum channel_width)bw;
+   if (!ctx->edcca_inited) {
+     if (!ctx->edcca_cr_inited) {
+@@ -191,9 +198,54 @@ void kestrel_halbb_edcca_6g(struct kestrel_halbb_ctx *ctx, unsigned char bw) {
+     halbb_edcca_init(bb);
+     ctx->edcca_inited = 1;
+   }
++  if (!ctx->edcca_table_saved) {
++    struct bb_edcca_cr_info *cr = &bb->bb_cmn_hooker->bb_edcca_cr_i;
++    ctx->edcca_table[0] = halbb_get_reg_curr_phy(bb, cr->r_edcca_level_p, cr->r_edcca_level_p_m);
++    ctx->edcca_table[1] = halbb_get_reg_curr_phy(bb, cr->r_edcca_level, cr->r_edcca_level_m);
++    ctx->edcca_table[2] = halbb_get_reg_curr_phy(bb, cr->r_ppdu_level, cr->r_ppdu_level_m);
++    ctx->edcca_table[3] = halbb_get_reg_curr_phy(bb, cr->r_dwn_level, cr->r_dwn_level_m);
++    ctx->edcca_table[4] = halbb_get_reg_curr_phy(bb, cr->r_obss_level, cr->r_obss_level_m);
++    ctx->edcca_table_saved = 1;
++  }
+   bb->bb_edcca_i.edcca_mode = EDCCA_NORMAL_MODE;
+   bb->bb_link_i.is_linked = false; /* the unlinked branch: th_h = EDCCA_MAX */
+   halbb_edcca_thre_calc(bb);
++  ctx->edcca_parked = 1;
++}
++
++/* A 2.4 GHz tune after a parked 5/6 GHz one: put the BB table's threshold
++ * CRs back (the park rewrote them in place and nothing else does), so 2.4 GHz
++ * keeps the table level its carrier-sense measurement was taken with. Returns
++ * 1 when it restored something. */
++int kestrel_halbb_edcca_restore(struct kestrel_halbb_ctx *ctx, unsigned char bw) {
++  if (!ctx || !ctx->edcca_parked)
++    return 0;
++  struct bb_info *bb = &ctx->bb;
++  struct bb_edcca_cr_info *cr = &bb->bb_cmn_hooker->bb_edcca_cr_i;
++  struct rtw_chan_def *cd = &bb->hal_com->band[0].cur_chandef;
++  cd->band = BAND_ON_24G;
++  cd->bw = (enum channel_width)bw;
++  halbb_set_reg_curr_phy(bb, cr->r_edcca_level_p, cr->r_edcca_level_p_m, ctx->edcca_table[0]);
++  halbb_set_reg_curr_phy(bb, cr->r_edcca_level, cr->r_edcca_level_m, ctx->edcca_table[1]);
++  halbb_set_reg_curr_phy(bb, cr->r_ppdu_level, cr->r_ppdu_level_m, ctx->edcca_table[2]);
++  halbb_set_reg_curr_phy(bb, cr->r_dwn_level, cr->r_dwn_level_m, ctx->edcca_table[3]);
++  halbb_set_reg_curr_phy(bb, cr->r_obss_level, cr->r_obss_level_m, ctx->edcca_table[4]);
++  ctx->edcca_parked = 0;
++  return 1;
++}
++
++/* The EDCCA level CR as programmed (the table's 66 = -62 dBm, or the parked
++ * EDCCA_MAX), for the tune log. */
++unsigned int kestrel_halbb_edcca_level(struct kestrel_halbb_ctx *ctx) {
++  if (!ctx)
++    return 0;
++  struct bb_info *bb = &ctx->bb;
++  if (!ctx->edcca_cr_inited) {
++    halbb_cr_cfg_edcca_init(bb);
++    ctx->edcca_cr_inited = 1;
++  }
++  struct bb_edcca_cr_info *cr = &bb->bb_cmn_hooker->bb_edcca_cr_i;
++  return halbb_get_reg_curr_phy(bb, cr->r_edcca_level, cr->r_edcca_level_m);
+ }
+ 
+ /* One EDCCA hardware report (halbb_edcca_get_result): out[0..2] = pwdB of the
+diff --git a/hal/halbb/g6/kestrel_halbb_glue.h b/hal/halbb/g6/kestrel_halbb_glue.h
+index 790ae34..4f6f578 100644
+--- a/hal/halbb/g6/kestrel_halbb_glue.h
++++ b/hal/halbb/g6/kestrel_halbb_glue.h
+@@ -69,7 +69,12 @@ void kestrel_halbb_ctrl_tx_path(struct kestrel_halbb_ctx *ctx);
+ /* 6 GHz EDCCA threshold after a 6 GHz tune (the vendor's unlinked
+  * EDCCA_NORMAL_MODE level — see the definition); bw is the halbb
+  * channel_width enum. */
+-void kestrel_halbb_edcca_6g(struct kestrel_halbb_ctx *ctx, unsigned char bw);
++void kestrel_halbb_edcca_park(struct kestrel_halbb_ctx *ctx, unsigned char band_type,
++                              unsigned char bw);
++/* 2.4 GHz tune after a park: restore the table's threshold CRs. 1 = restored. */
++int kestrel_halbb_edcca_restore(struct kestrel_halbb_ctx *ctx, unsigned char bw);
++/* The EDCCA level CR as programmed. */
++unsigned int kestrel_halbb_edcca_level(struct kestrel_halbb_ctx *ctx);
+ /* EDCCA hardware report: pwdB fb/p20/s20, busy flags fb/p20/s20, pwdB path 0/1. */
+ void kestrel_halbb_edcca_report(struct kestrel_halbb_ctx *ctx, int out[8]);
+ 
+diff --git a/src/kestrel/CLAUDE.md b/src/kestrel/CLAUDE.md
+index 6bdda76..8879258 100644
+--- a/src/kestrel/CLAUDE.md
++++ b/src/kestrel/CLAUDE.md
+@@ -219,7 +219,7 @@ scheduler stalled and the bulk-OUT NAKed). Behavioural quirks beyond the
+ the firmware DIG biases the 5 GHz idle-noise measurement):
+ `docs/8852c-quirks.md`.
+ 
+-## 6 GHz: EDCCA parked, preamble CCA on
++## 5 and 6 GHz: EDCCA parked, preamble CCA on
+ 
+ With the carrier-sense TX default, injection on 6 GHz stalled after the first
+ frame on every 8852C in the lab (8852CU over USB, both 8852CE over PCIe):
+@@ -230,20 +230,34 @@ BB's own EDCCA report (`kestrel_halbb_edcca_report`, logged at every tune as
+ radio and both bands — no DIG runs here, so the energy measurement sits where
+ the table's gain leaves it. The BB table's EDCCA level is 66 (-62 dBm) with
+ an 8 dB hysteresis, so once anything trips it the -67 dBm floor keeps the
+-gate busy; on 5 GHz the floor flickers under the -70 dBm low level and TX
+-proceeds, on 6 GHz it does not. The vendor's regulatory 6 GHz threshold
+-(`CBP_6G` = 53, -75 dBm) is below the floor outright.
+-
+-What is programmed: at a 6 GHz tune the glue runs the vendor's EDCCA init
++gate busy. On 5 GHz the same floor (-65..-69 dBm on the 8832CU) latches it
++too, and more the higher the channel: with the table level, host injection
++from an 8832CU at a 20 ms gap reached an 8812CU witness at ~50% on ch6/36/44,
++52% on ch52, 21% on ch60, 3% on ch64 and 0 of ~435 frames on ch100/149/157/
++161, with 0.0% SDR airtime on ch161 and the injector stalling on bulk-OUT
++timeouts; clearing the EDCCA gate alone restored ch64-161 to the ch6 rate,
++clearing the primary gate alone restored nothing. The vendor's regulatory
++6 GHz threshold (`CBP_6G` = 53, -75 dBm) is below the floor outright.
++
++What is programmed: at a 5 or 6 GHz tune the glue runs the vendor's EDCCA init
+ (`halbb_cr_cfg_edcca_init` — a dm_init stage the minimal bring-up skips,
+ without which the EDCCA CR table is all zeros and the writes land nowhere —
+ plus `halbb_edcca_dev_hw_cap` and the hw→dev cap copy) and
+ `halbb_edcca_thre_calc` in `EDCCA_NORMAL_MODE` with `is_linked = false`,
+ which is the vendor's level for an unassociated device: `EDCCA_MAX`, never
+-busy. Primary carrier sense (preamble detect) stays on. 2.4/5 GHz keep the
+-table default the carrier-sense measurement was taken with. Consequence,
+-stated plainly: this driver does not enforce the 6 GHz energy-detect level
+-the FCC/ETSI LPI rules call for; the caller owns compliance, as everywhere.
++busy. Primary carrier sense (preamble detect) stays on and still defers
++(measured on ch161 after the change: a max-duty 8832CU injector under a
++co-channel MCS1 flood, gates on vs `DEVOURER_DIS_CCA=1`, numbers at the
++bring-up comment in `HalKestrel.cpp`). 2.4 GHz keeps the table default the
++carrier-sense measurement was taken with (floor -82 dBm, busy=0): the glue
++captures the table's threshold CRs before the first park and a 2.4 GHz tune
++after a parked band writes them back (measured: a fresh ch6 tune logs
++`level=66`, a 161->6->161->6 hop session logs 249 on 5 GHz and 66 again on
++each return to ch6, with the ch6 dwells witnessed). The tune log carries the
++programmed level.
++Consequence, stated plainly: this driver does not enforce the 5 GHz or 6 GHz
++energy-detect level the ETSI adaptivity and FCC/ETSI LPI rules call for; the
++caller owns compliance, as everywhere.
+ 
+ Two things fixed on the way that affect every band: the halbb glue now gives
+ the 8852C its own CR bank (`BB_AP2`, as `halbb_hw_cfg` picks from the
+diff --git a/src/kestrel/HalKestrel.cpp b/src/kestrel/HalKestrel.cpp
+index f139808..c2af885 100644
+--- a/src/kestrel/HalKestrel.cpp
++++ b/src/kestrel/HalKestrel.cpp
+@@ -2369,23 +2369,38 @@ void HalKestrel::vnd_bb_ctrl_bw_ch(uint8_t pri_ch, uint8_t center,
+                 : bw == CHANNEL_WIDTH_10 ? 7
+                                          : static_cast<uint8_t>(bw);
+   kestrel_halbb_ctrl_bw_ch(_halbb_ctx, pri_ch, center, hbw, band_type);
+-  /* 6 GHz: with the BB table's EDCCA level the MAC EDCCA gate latches busy
+-   * (measured: 1/300 delivered vs 300/300 with that one gate cleared, both
+-   * buses, both 8852CE cards and the 8852CU) because the receiver's own
+-   * floor as the BB measures it (-67..-69 dBm, every radio, every band)
+-   * sits inside the default's hysteresis band. Program the vendor's
+-   * unlinked EDCCA_NORMAL_MODE level (never busy) there; 2.4/5 GHz keep the
+-   * table default the carrier-sense TX measurement was taken with. The
+-   * report line is the per-band evidence (pwdB = the BB's energy reading). */
+-  if (band_type == 2)
+-    kestrel_halbb_edcca_6g(_halbb_ctx, hbw);
++  /* 5 and 6 GHz: with the BB table's EDCCA level the MAC EDCCA gate latches
++   * busy because the receiver's own floor as the BB measures it (-65..-69
++   * dBm, every radio; no DIG runs here) sits inside the default's hysteresis
++   * band. 6 GHz: 1/300 delivered vs 300/300 with that one gate cleared (both
++   * buses, both 8852CE cards and the 8852CU). 5 GHz, 8832CU, 8812CU witness,
++   * 20 ms gap: ch6/36/44 ~50% witnessed, ch52 52%, ch60 21%, ch64 3%,
++   * ch100/149/157/161 0 of ~435 with 0.0% SDR airtime and the injector
++   * stalling on bulk-OUT timeouts; clearing the EDCCA gate alone restores
++   * ch64-161 to the ch6 rate, clearing the primary gate alone restores
++   * nothing. Program the vendor's unlinked EDCCA_NORMAL_MODE level (never
++   * busy) on both bands — the vendor's own level for an unassociated device;
++   * preamble carrier sense stays on and still defers (ch161 after the change,
++   * max-duty 6M injector, 8 s: 19063 frames sent on a quiet channel; under a
++   * co-channel max-duty MCS1 flood 7327 sent / 7086 witnessed with the gates
++   * on vs 15676 / 10639 with DEVOURER_DIS_CCA=1). 2.4 GHz
++   * keeps the table default the carrier-sense TX measurement was taken with
++   * (its floor reads -82 dBm, busy=0). The report line is the per-band
++   * evidence (pwdB = the BB's energy reading). */
++  bool restored = false;
++  if (band_type == 2 || band_type == 1)
++    kestrel_halbb_edcca_park(_halbb_ctx, band_type, hbw);
++  else
++    restored = kestrel_halbb_edcca_restore(_halbb_ctx, hbw) != 0;
+   delay_us(5000);
+   int rpt[8] = {0};
+   kestrel_halbb_edcca_report(_halbb_ctx, rpt);
+-  _logger->info("Kestrel PHY: EDCCA band{} pwdB fb={} p20={} path0={} busy={}{}",
+-                band_type, rpt[0], rpt[1], rpt[6], rpt[3],
+-                band_type == 2 ? " (6 GHz: energy-detect parked at the vendor's "
+-                                 "unlinked level; preamble CCA stays on)"
++  _logger->info("Kestrel PHY: EDCCA band{} level={} pwdB fb={} p20={} path0={} busy={}{}",
++                band_type, kestrel_halbb_edcca_level(_halbb_ctx), rpt[0], rpt[1],
++                rpt[6], rpt[3],
++                band_type != 0 ? " (5/6 GHz: energy-detect parked at the vendor's "
++                                  "unlinked level; preamble CCA stays on)"
++                : restored     ? " (2.4 GHz: table level restored after a parked band)"
+                                : "");
+ }
+ 

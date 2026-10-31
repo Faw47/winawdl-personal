@@ -74,4 +74,8 @@ in `radio`, GPL-3.0-or-later in `awdl`, MIT everywhere else. `radio` and
 `awdl` must stay separate programs from each other and from the rest, since
 their licenses do not mix. Changes to devourer itself go to
 [the fork](https://github.com/raph559/devourer) on its `winawdl/pcie-windows`
-branch, or upstream.
+branch, or upstream. Until a change is there, it can live here as a patch:
+`radio/patches` for devourer and `awdl/patches` for OWL, made with
+`git format-patch` against the submodule's commit and applied by the build to
+a copy (`cmake/patched_copy.cmake`). When a submodule moves, drop the patches
+it now carries.

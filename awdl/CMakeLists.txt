@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# AWDL daemon: OWL's library and event core, unmodified, on a Windows I/O layer.
-# OWL is GNU C, hence a MinGW build apart from the MSVC radio side.
+# AWDL daemon: OWL's library and event core, with the fixes in patches/, on a
+# Windows I/O layer. OWL is GNU C, hence a MinGW build apart from the MSVC
+# radio side.
 cmake_minimum_required(VERSION 3.15)
 project(winawdl_awdl C)
 
@@ -10,7 +11,12 @@ get_filename_component(REPOSITORY "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 add_compile_options("-ffile-prefix-map=${REPOSITORY}=.")
 
 set(WINAWDL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
-set(OWL "${WINAWDL_ROOT}/upstream/owl")
+
+# OWL as upstream has it, copied into the build tree with patches/ applied.
+include("${WINAWDL_ROOT}/cmake/patched_copy.cmake")
+set(OWL "${CMAKE_CURRENT_BINARY_DIR}/owl")
+winawdl_patched_copy("${WINAWDL_ROOT}/upstream/owl" "${OWL}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches" src daemon radiotap)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)
@@ -87,3 +93,9 @@ add_executable(rx_amsdu_bounds_test tests/rx_amsdu_bounds_test.c compat/ether.c)
 target_link_libraries(rx_amsdu_bounds_test PRIVATE awdl)
 target_compile_options(rx_amsdu_bounds_test PRIVATE -Wall -Wextra -Werror)
 target_link_options(rx_amsdu_bounds_test PRIVATE -static)
+
+# Regression for the election order in patches/0002.
+add_executable(election_order_test tests/election_order_test.c compat/ether.c)
+target_link_libraries(election_order_test PRIVATE awdl)
+target_compile_options(election_order_test PRIVATE -Wall -Wextra -Werror)
+target_link_options(election_order_test PRIVATE -static)

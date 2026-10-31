@@ -127,9 +127,12 @@ int main(int argc, char *argv[]) {
 	const char *host_name = HOST_IF_NAME;
 	int streams = DEFAULT_STREAMS;
 	int short_guard_interval = 1;
+	/* The radio stays on one channel, as in Owly's fixed modes, which rank
+	 * by metric first too. -C ranks by counter first, as OWL does. */
+	int metric_first = 1;
 	int option;
 	winawdl_join_segments(DEFAULT_JOIN_WAIT_US);
-	while ((option = getopt(argc, argv, "c:nrs:lj:v")) != -1) {
+	while ((option = getopt(argc, argv, "c:nrs:lj:Cv")) != -1) {
 		if (option == 'c') {
 			channel = atoi(optarg);
 		} else if (option == 'n') {
@@ -142,13 +145,15 @@ int main(int argc, char *argv[]) {
 			short_guard_interval = 0;
 		} else if (option == 'j') {
 			winawdl_join_segments(atoi(optarg));
+		} else if (option == 'C') {
+			metric_first = 0;
 		} else if (option == 'v') {
 			if (log_level < LOG_TRACE)
 				log_level++;
 		} else {
 			fprintf(stderr,
-				"usage: %s [-c 6|44|149] [-n] [-r] [-s 1|2] [-l] [-j us] [-v] "
-				"[-v]\n",
+				"usage: %s [-c 6|44|149] [-n] [-r] [-s 1|2] [-l] [-j us] [-C] "
+				"[-v] [-v]\n",
 				argv[0]);
 			return EXIT_FAILURE;
 		}
@@ -177,6 +182,8 @@ int main(int argc, char *argv[]) {
 			     radio_client_width_mhz(winawdl_radio()));
 	/* The radio's RSSI scale is not calibrated, so do not gate peers on it. */
 	state.awdl_state.filter_rssi = 0;
+	state.awdl_state.election.metric_first = (uint8_t) metric_first;
+	log_info("sync master elected by %s first", metric_first ? "metric" : "counter");
 	log_info("AWDL address %s on channel %d", ether_ntoa(&state.io.if_ether_addr), channel);
 	if (state.io.host_ifindex)
 		log_info("host interface %s, index %d", state.io.host_ifname,

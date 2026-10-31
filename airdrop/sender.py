@@ -19,6 +19,7 @@ from typing import NamedTuple
 
 import cpio
 import identity
+import logline
 import mdns
 import netif
 import transfer
@@ -444,9 +445,7 @@ def run(settings, files, context, scope):
 
 def main(argv=None):
     settings = parse_args(argv)
-    logging.basicConfig(level=logging.DEBUG if settings.trace else logging.INFO,
-                        stream=sys.stdout,
-                        format='%(asctime)s %(levelname)s %(message)s')
+    logline.configure(logging.DEBUG if settings.trace else logging.INFO, sys.stdout)
     files = outgoing(settings.files)
     try:
         context = client_context(settings.keys)
