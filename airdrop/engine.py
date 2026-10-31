@@ -17,6 +17,7 @@ import http.client
 import itertools
 import json
 import logging
+import os
 import secrets
 import socket
 import sys
@@ -79,6 +80,7 @@ class Settings:
         self.model = args.model
         self.dest = args.dest
         self.ask = args.ask
+        self.original_media = os.environ.get('WINAWDL_ORIGINAL_MEDIA') == '1'
         self.port = args.port
         self.flags = args.flags
         self.max_receive_percent = args.max_receive_percent
@@ -477,7 +479,7 @@ class Sending:
         self._lock = threading.Lock()
         self._watches = {}
 
-    def start(self, key, peer_key, paths, scope):
+    def start(self, key, peer_key, paths, scope, urls=None):
         def failed(reason, detail=None):
             self.events.say('send', id=key, state='failed', reason=reason, detail=detail)
 
@@ -485,18 +487,28 @@ class Sending:
         if not peer or scope is None:
             failed('gone')
             return
+        if paths and urls:
+            failed('mixed_types', 'send files or links, not both')
+            return
         try:
-            files = sender.outgoing(paths)
+            if urls:
+                urls = sender.valid_links(urls)
+                files = []
+            elif paths:
+                files = sender.outgoing(paths)
+            else:
+                failed('not_a_file', 'no files or links selected')
+                return
         except sender.Unsendable as error:
             failed(error.kind, str(error))
             return
         except OSError as error:
             failed('unreadable', str(error))
             return
-        watch = SendWatch(self.events, key, sender.archive_bytes(files))
+        watch = SendWatch(self.events, key, 0 if urls else sender.archive_bytes(files))
         with self._lock:
             self._watches[key] = watch
-        threading.Thread(target=self._run, args=(watch, peer, files, scope),
+        threading.Thread(target=self._run, args=(watch, peer, files, scope, urls),
                          name='send', daemon=True).start()
 
     def cancel(self, key):
@@ -505,11 +517,15 @@ class Sending:
         if watch:
             watch.cancel()
 
-    def _run(self, watch, peer, files, scope):
+    def _run(self, watch, peer, files, scope, urls):
         watch.state('asking')
         try:
-            outcome = sender.deliver(peer.address, peer.port, scope, self.context,
-                                     self.settings.name, files, watch)
+            if urls:
+                outcome = sender.deliver_links(peer.address, peer.port, scope, self.context,
+                                               self.settings.name, urls, watch)
+            else:
+                outcome = sender.deliver(peer.address, peer.port, scope, self.context,
+                                         self.settings.name, files, watch)
             watch.state(outcome, done=watch.total if outcome == sender.SENT else None)
         except TimeoutError:
             watch.state('failed', reason='stalled' if watch.was_accepted else 'no_answer')
@@ -593,6 +609,8 @@ class Engine:
                 refused['folder'] = str(error)
         if 'ask' in command:
             self.settings.ask = bool(command['ask'])
+        if 'original_media' in command and type(command['original_media']) is bool:
+            self.settings.original_media = command['original_media']
         if 'known_senders' in command:
             senders = command['known_senders']
             if isinstance(senders, list) and all(isinstance(s, str) and contacts.normalize(s)
@@ -633,7 +651,8 @@ class Engine:
                 self.looking.look(bool(command.get('on')))
         elif do == 'send':
             self.sending.start(str(command.get('id')), command.get('peer'),
-                               [str(path) for path in command.get('files') or []], self.scope)
+                               [str(path) for path in command.get('files') or []], self.scope,
+                               [str(url) for url in command.get('urls') or []])
         elif do == 'cancel':
             self.sending.cancel(str(command.get('id')))
         elif do == 'answer':
