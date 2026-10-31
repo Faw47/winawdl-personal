@@ -301,8 +301,10 @@
             <Grid>
               <TextBlock x:Name="Hint" Margin="{TemplateBinding Padding}" Padding="2,0,0,0"
                          Style="{StaticResource Soft}" FontSize="14" VerticalAlignment="Center"
+                         TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"
                          Text="{TemplateBinding Tag}" Visibility="Collapsed" IsHitTestVisible="False" />
-              <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+              <!-- No margin here: the text view applies the box's Padding itself. -->
+              <ScrollViewer x:Name="PART_ContentHost"
                             VerticalScrollBarVisibility="Hidden" HorizontalScrollBarVisibility="Hidden" />
             </Grid>
           </Border>
