@@ -121,7 +121,7 @@ class Watcher:
     def upload_progress(self, token, done):
         pass
 
-    def stored(self, token, names):
+    def stored(self, token, names, folder=None):
         pass
 
     def upload_failed(self, token, reason):
@@ -195,6 +195,7 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     # What the watcher returned for the ask on this connection.
     accepted = None
+    receive_settings = None
     # Set once an Ask on this connection passed the Contacts Only check: an
     # Upload carries no record of its own, so only its Ask can vouch for it.
     known_sender = False
@@ -376,6 +377,12 @@ class Handler(BaseHTTPRequestHandler):
         if not self.known_sender_check(ask):
             return
         watcher = self.server.watcher
+        settings = self.server.settings
+        # Capture before waiting for consent. A later settings command must
+        # not move files from this Ask or change its disk budget mid-write.
+        self.receive_settings = (settings.dest, ask.get('SenderComputerName'),
+                                 getattr(settings, 'sender_folders', False),
+                                 settings.max_receive_percent)
         self.accepted = watcher.asked(ask, self.client_address[0], self.sender_left)
         if self.accepted is None:
             self.reject(DECLINED_STATUS, 'declined here')
@@ -395,10 +402,10 @@ class Handler(BaseHTTPRequestHandler):
                 urls.append(item)
             links = []
             if urls:
-                settings = self.server.settings
+                root, sender, separate, percent = self.receive_settings
                 try:
-                    links = transfer.store_links(urls, settings.dest,
-                                                 settings.max_receive_percent)
+                    with transfer.receive_destination(root, sender, separate) as dest:
+                        links = transfer.store_links(urls, dest, percent)
                 except transfer.UploadLimitError as error:
                     self.refuse_links(f'links: {error}')
                     return
@@ -407,7 +414,7 @@ class Handler(BaseHTTPRequestHandler):
                     return
             for stored in links:
                 logging.info('link stored as %s', stored)
-            watcher.stored(self.accepted, links)
+            watcher.stored(self.accepted, links, dest if urls else self.receive_settings[0])
         self.answer(self.identity_plist())
 
     def refuse_links(self, reason):
@@ -417,11 +424,9 @@ class Handler(BaseHTTPRequestHandler):
         self.reject(507, reason)
 
     def receive_archive(self, raw, budget, plan, deadline, tid, on_progress,
-                        approved_names=None):
+                        dest, approved_names=None):
         """Store the upload's files; returns their names and whether the body
         ended. An iPhone never ends the body of a video or a Live Photo."""
-        dest = self.server.settings.dest
-
         def expect_little_more():
             deadline.idle_seconds = transfer.END_MARKER_WAIT_SECONDS
             self.request.settimeout(deadline.idle_seconds)
@@ -450,6 +455,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_upload(self):
         settings = self.server.settings
+        root, sender, separate, percent = self.receive_settings or (
+            settings.dest, None, getattr(settings, 'sender_folders', False),
+            settings.max_receive_percent)
+        self.receive_settings = None
         if self.server.contacts_only and not self.known_sender:
             self.reject(403, 'contacts only: an upload no accepted Ask vouches for')
             return
@@ -474,20 +483,21 @@ class Handler(BaseHTTPRequestHandler):
         plan = None
         refused = None
         try:
-            budget = transfer.ReceiveBudget(settings.dest, settings.max_receive_percent)
-            plan = transfer.body_plan(self.headers, budget.byte_limit)
-            logging.info('upload %s: sender announces %s bytes; %d%% of %d '
-                         'free bytes allows %d', tid,
-                         self.headers.get('TotalBytes', 'no number of'),
-                         budget.percent, budget.free_bytes, budget.byte_limit)
-            if self.headers.get('Expect', '').lower() == '100-continue':
-                self.send_response_only(100)
-                self.end_headers()
-            with tempfile.TemporaryFile(dir=settings.dest) as raw:
-                written, ended = self.receive_archive(
-                    raw, budget, plan, deadline, tid,
-                    lambda done: watcher.upload_progress(token, done),
-                    approved_names=approved_names)
+            with transfer.receive_destination(root, sender, separate) as dest:
+                budget = transfer.ReceiveBudget(dest, percent)
+                plan = transfer.body_plan(self.headers, budget.byte_limit)
+                logging.info('upload %s: sender announces %s bytes; %d%% of %d '
+                             'free bytes allows %d', tid,
+                             self.headers.get('TotalBytes', 'no number of'),
+                             budget.percent, budget.free_bytes, budget.byte_limit)
+                if self.headers.get('Expect', '').lower() == '100-continue':
+                    self.send_response_only(100)
+                    self.end_headers()
+                with tempfile.TemporaryFile(dir=dest) as raw:
+                    written, ended = self.receive_archive(
+                        raw, budget, plan, deadline, tid,
+                        lambda done: watcher.upload_progress(token, done),
+                        approved_names=approved_names, dest=dest)
             logging.info('upload %s: stored %s', tid, ', '.join(written))
         except TimeoutError as error:
             expected = plan[1] if plan else None
@@ -516,7 +526,7 @@ class Handler(BaseHTTPRequestHandler):
             watcher.upload_failed(token, refused[1])
             self.reject(*refused)
             return
-        watcher.stored(token, written)
+        watcher.stored(token, written, dest)
         self.send_response(200)
         self.send_header('Content-Length', '0')
         # The upload is complete: close promptly so iOS shows "Sent", rather
@@ -579,6 +589,8 @@ def parse_args(argv):
     parser.add_argument('--max-receive-percent', type=valid_percent,
                         default=DEFAULT_MAX_RECEIVE_PERCENT,
                         help='largest transfer, as a percentage of free disk space')
+    parser.add_argument('--sender-folders', action='store_true',
+                        help='store each sender in a separate subfolder')
     parser.add_argument('--iface', default=DEFAULT_INTERFACE)
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
     parser.add_argument('--flags', type=lambda text: int(text, 0), default=DEFAULT_FLAGS,

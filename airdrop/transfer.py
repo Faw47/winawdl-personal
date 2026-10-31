@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import socket
+import stat
 import tempfile
 import threading
 import time
@@ -509,6 +510,65 @@ def fit_name(stem, ext):
     if not stem or name_units(stem + ext) > MAX_NAME_UNITS:
         return ''
     return stem + ext
+
+
+def sender_folder_name(name):
+    """One bounded Windows component, rather than a path or an archive name."""
+    name = unicodedata.normalize('NFC', name if isinstance(name, str) else '')
+    name = ''.join(ch for ch in name
+                   if not UNSAFE_CHAR.match(ch)
+                   and unicodedata.category(ch) not in ('Cc', 'Cf', 'Cs'))
+    name = re.sub(r'\.{2,}', '', name).strip().strip('. ')
+    if DEVICE_NAME.fullmatch(name.split('.', 1)[0].rstrip(' ')):
+        name = '_' + name
+    return fit_name(name, '') or 'Unknown Device'
+
+
+@contextlib.contextmanager
+def _hold_directory(path):
+    """On Windows, prevent replacement or a new reparse point while writing."""
+    handle = None
+    if os.name == 'nt':
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+        create = kernel.CreateFileW
+        create.argtypes = (wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
+                           wintypes.LPVOID, wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE)
+        create.restype = wintypes.HANDLE
+        close = kernel.CloseHandle
+        close.argtypes = (wintypes.HANDLE,)
+        close.restype = wintypes.BOOL
+        # FILE_LIST_DIRECTORY, OPEN_EXISTING, BACKUP_SEMANTICS |
+        # OPEN_REPARSE_POINT. Share reads only so the directory cannot be
+        # renamed, deleted or opened to change its reparse data.
+        handle = create(path, 1, 1, None, 3, 0x02200000, None)
+        if handle == wintypes.HANDLE(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        info = os.lstat(path)
+        if (not stat.S_ISDIR(info.st_mode)
+                or getattr(info, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
+            raise OSError('sender folder must be a directory, not a link or reparse point')
+        yield
+    finally:
+        if handle is not None:
+            close(handle)
+
+
+@contextlib.contextmanager
+def receive_destination(root, sender, separate):
+    """Hold a safe sender folder for all writes and failure cleanup of a transfer."""
+    if not separate:
+        yield root
+        return
+    root = os.path.realpath(root)
+    with _hold_directory(root):
+        dest = os.path.join(root, sender_folder_name(sender))
+        with contextlib.suppress(FileExistsError):
+            os.mkdir(dest)
+        with _hold_directory(dest):
+            yield dest
 
 
 def open_new(dest, name):

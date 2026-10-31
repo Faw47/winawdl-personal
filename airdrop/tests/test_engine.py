@@ -145,6 +145,45 @@ class EngineTest(unittest.TestCase):
         thread.join()
         self.assertEqual(outcome, [sender.SENT])
 
+    def test_sender_folders_set_and_ask_snapshot_report_the_actual_folder(self):
+        running, heard, folder = self.engine()
+        self.assertFalse(heard.wait('ready')['sender_folders'])
+        running.handle({'do': 'set', 'sender_folders': True})
+        self.assertTrue(heard.wait('settings')['sender_folders'])
+        thread, outcome = self.start_delivery(running.settings.port,
+                                              self.source_file('note.txt', b'hello'))
+        asked = heard.wait('asked')
+        other = tempfile.mkdtemp(dir=self.temp.name)
+        running.handle({'do': 'set', 'sender_folders': False, 'folder': other})
+        running.handle({'do': 'answer', 'id': asked['id'], 'accept': True})
+        stored = heard.wait('stored')
+        thread.join()
+        self.assertEqual(outcome, [sender.SENT])
+        self.assertTrue(os.path.samefile(stored['folder'], os.path.join(folder, 'Sender PC')))
+        with open(os.path.join(stored['folder'], 'note.txt'), 'rb') as source:
+            self.assertEqual(source.read(), b'hello')
+        self.assertEqual(os.listdir(other), [])
+        self.assertEqual(os.listdir(folder), ['Sender PC'])
+
+    def test_sender_folders_startup_and_links_use_the_sanitized_actual_folder(self):
+        running, heard, folder = self.engine('--sender-folders', '--take-all')
+        self.assertTrue(heard.wait('ready')['sender_folders'])
+        result = sender.deliver_links('::1', running.settings.port, LOOPBACK_SCOPE,
+                                      self.client_context, '../CoN.txt', ['https://example.com/'])
+        self.assertEqual(result, sender.SENT)
+        stored = heard.wait('stored')
+        self.assertTrue(os.path.samefile(stored['folder'], os.path.join(folder, '_CoN.txt')))
+        self.assertEqual(len(stored['names']), 1)
+        self.assertTrue(os.path.isfile(os.path.join(stored['folder'], stored['names'][0])))
+
+    def test_invalid_sender_folder_settings_are_refused(self):
+        running, heard, _ = self.engine()
+        for value in ('true', 1, None):
+            running.handle({'do': 'set', 'sender_folders': value})
+            said = heard.wait('settings')
+            self.assertFalse(said['sender_folders'])
+            self.assertIn('sender_folders', said['refused'])
+
     def test_a_declined_ask_stores_nothing(self):
         running, heard, folder = self.engine()
         thread, outcome = self.start_delivery(running.settings.port,

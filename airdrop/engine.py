@@ -82,6 +82,7 @@ class Settings:
         self.model = args.model
         self.dest = args.dest
         self.ask = args.ask
+        self.sender_folders = args.sender_folders
         self.original_media = os.environ.get('WINAWDL_ORIGINAL_MEDIA') == '1'
         self.port = args.port
         self.flags = args.flags
@@ -96,6 +97,7 @@ class Settings:
 
     def public(self):
         return {'name': self.name, 'folder': self.dest, 'ask': self.ask,
+                'sender_folders': self.sender_folders,
                 'contacts_only': self.contacts_only, 'known_senders': self.known_senders,
                 'everyone_until': self.everyone_until}
 
@@ -215,8 +217,8 @@ class Incoming(receiver.Watcher):
         shown = min(done, token.total) if token.total else done
         self.events.say('incoming', id=token.key, done=shown, total=token.total)
 
-    def stored(self, token, names):
-        self.events.say('stored', id=token.key, folder=token.folder or self.settings.dest,
+    def stored(self, token, names, folder=None):
+        self.events.say('stored', id=token.key, folder=folder or token.folder or self.settings.dest,
                         names=names, live=transfer.live_photos(names))
 
     def upload_failed(self, token, reason):
@@ -617,6 +619,11 @@ class Engine:
                 refused['folder'] = str(error)
         if 'ask' in command:
             self.settings.ask = bool(command['ask'])
+        if 'sender_folders' in command:
+            if type(command['sender_folders']) is bool:
+                self.settings.sender_folders = command['sender_folders']
+            else:
+                refused['sender_folders'] = 'a boolean'
         if 'original_media' in command and type(command['original_media']) is bool:
             self.settings.original_media = command['original_media']
         if 'known_senders' in command:
@@ -729,6 +736,8 @@ def parse_args(argv):
                         default=receiver.valid_dir('~/Downloads'))
     parser.add_argument('--take-all', dest='ask', action='store_false',
                         help='store what anyone sends without asking')
+    parser.add_argument('--sender-folders', action='store_true',
+                        help='store each sender in a separate subfolder')
     parser.add_argument('--contacts-only', action='store_true',
                         help='accept only the senders given with --known-sender')
     parser.add_argument('--known-sender', dest='known_senders', action='append', default=[],

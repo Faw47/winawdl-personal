@@ -63,7 +63,7 @@ public sealed partial class EngineProcess(Dispatcher dispatcher, string? repo, I
             .FirstOrDefault(File.Exists);
 
     public void Start(string name, string folder, bool ask, bool contactsOnly,
-                      IReadOnlyList<string> knownSenders)
+                      IReadOnlyList<string> knownSenders, bool senderFolders = false)
     {
         Stop();
         var script = repo is null ? null : Path.Combine(repo, "airdrop", "engine.py");
@@ -94,6 +94,7 @@ public sealed partial class EngineProcess(Dispatcher dispatcher, string? repo, I
             lock (log) log.WriteLine(message);
         });
         if (!ask) start.ArgumentList.Add("--take-all");
+        if (senderFolders) start.ArgumentList.Add("--sender-folders");
         if (contactsOnly) start.ArgumentList.Add("--contacts-only");
         // In one argument, so that an entry starting with a dash is not
         // taken for an option.

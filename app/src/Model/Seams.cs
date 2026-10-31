@@ -15,7 +15,8 @@ public interface IEngine
 
     /// <summary>Starts the engine. With contactsOnly, only the senders in
     /// knownSenders are accepted from the first connection on.</summary>
-    void Start(string name, string folder, bool ask, bool contactsOnly, IReadOnlyList<string> knownSenders);
+    void Start(string name, string folder, bool ask, bool contactsOnly, IReadOnlyList<string> knownSenders,
+               bool senderFolders = false);
     void Tell(Dictionary<string, object?> command);
     void Stop();
 }
@@ -86,6 +87,7 @@ public sealed class AppSettings
     public bool Ask { get; set; } = true;
     /// <summary>Ask Apple devices to preserve high-efficiency photo and video formats.</summary>
     public bool OriginalMedia { get; set; }
+    public bool SenderFolders { get; set; }
     public List<KnownDevice> AlwaysAccept { get; set; } = [];
     /// <summary>Only the people in KnownSenders may send, as Apple proves them.</summary>
     public bool ContactsOnly { get; set; }
