@@ -254,6 +254,7 @@ public static class Checks
 
         Always(app);
         Requests(app);
+        KnownSenders(app);
     }
 
     private static object Ask(string id, string sender, string model, bool waits = true) => new
@@ -295,6 +296,51 @@ public static class Checks
         world.Engine.Say(Ask("r3", "Stand-in iPad", "iPad13,1"));
         Expect(again.Incoming[0].IsAsking && world.Engine.Told.Count == told,
                "even a legacy saved sender is never automatically accepted");
+    }
+
+    /// <summary>Only the people listed may send: the setting reaches the engine
+    /// when it starts and when it changes, and the list takes only what Apple
+    /// can vouch for.</summary>
+    private static void KnownSenders(Application app)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        var model = world.Model;
+        model.SenderDraft = "not a person";
+        model.AddSender.Execute(null);
+        Expect(model.HasSenderError && world.Settings.KnownSenders.Count == 0,
+               "something that is neither an email address nor a phone number is not listed");
+        model.SenderDraft = "Friend@Example.com";
+        model.AddSender.Execute(null);
+        Expect(!model.HasSenderError && model.SenderDraft.Length == 0
+               && world.Engine.Told.Last().Contains("\"known_senders\":[\"Friend@Example.com\"]"),
+               "an email address is listed and the engine told");
+        model.SenderDraft = "friend@example.com";
+        model.AddSender.Execute(null);
+        Expect(model.HasSenderError && model.KnownSenders.Count == 1,
+               "the same address in other letters is not listed twice");
+        model.SenderDraft = "+1 (555) 010-9999";
+        model.AddSender.Execute(null);
+        Expect(model.KnownSenders.Count == 2, "a phone number is listed as typed");
+
+        Expect(!model.NobodyCanSend, "anyone can send until asked otherwise");
+        model.OnlyKnownSenders = true;
+        Expect(world.Settings.ContactsOnly
+               && world.Engine.Told.Last().Contains("\"contacts_only\":true"),
+               "choosing only the people listed tells the engine and is kept");
+        model.KnownSenders[0].Forget!.Execute(null);
+        model.KnownSenders[0].Forget!.Execute(null);
+        Expect(model.NobodyCanSend && world.Engine.Told.Last().Contains("\"known_senders\":[]"),
+               "with the list emptied nobody can send, and the window says so");
+
+        var kept = new AppSettings
+        {
+            Folder = Path.GetTempPath(), ContactsOnly = true, KnownSenders = ["friend@example.com"],
+        };
+        var engine = new ScriptedEngine();
+        var again = new TableModel(engine, world.Radio, world.Desk, kept);
+        again.StartTheEngine();
+        Expect(again.OnlyKnownSenders && again.KnownSenders is [{ Address: "friend@example.com" }],
+               "the choice and the list come back with the app, as the engine started with them");
     }
 
     /// <summary>The card that shows a request while the window is not in front.</summary>
@@ -485,7 +531,7 @@ public static class Checks
         var noRepo = new EngineProcess(System.Windows.Threading.Dispatcher.CurrentDispatcher, null, []);
         string? why = null;
         noRepo.Stopped += (reason, _) => why = reason;
-        noRepo.Start("x", Path.GetTempPath(), true);
+        noRepo.Start("x", Path.GetTempPath(), true, false, []);
         Expect(why == "no_engine", "an app that cannot find its engine says so and starts nothing");
     }
 }

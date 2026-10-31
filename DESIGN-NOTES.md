@@ -436,8 +436,9 @@ size, member count, read rate and free disk space. What changed:
 - A received link is stored as a `.url` file only if it has no control
   characters. A line break would let a sender add keys such as an icon path
   on a remote share, which Windows fetches when it draws the folder.
-- The identity is a self-signed certificate only. Contacts Only, the Apple
-  identity and omdrop's configuration file and panel are left out for now.
+- The identity is a self-signed certificate only. omdrop's Apple identity,
+  configuration file and panel are left out. Contacts Only, for receiving,
+  came later (see below).
 
 omdrop has since tightened its receiver, and the same limits apply here
 (omdrop 0.18.1 to 0.18.4, read 2026-10-31):
@@ -458,6 +459,47 @@ omdrop has since tightened its receiver, and the same limits apply here
 - Every log line goes through `logline.py`: control and invisible characters
   escaped, 32 KiB at most. A name with a line break in it could otherwise
   write a line of its own.
+
+### Contacts Only
+
+`airdrop/contacts.py` is omdrop's policy for receiving only from known
+senders, which needs no Apple account on this side. omdrop measured what a
+sender presents (2026-09-18): on `/Ask`, never on `/Discover`, a client
+certificate Apple issued for its Apple ID, with that ID's altDsID in its
+name; and in the Ask, a validation record Apple signed, holding the SHA-256
+of every email address and phone number verified for the ID, and the same
+altDsID. A transfer is accepted when the record is signed by Apple's
+record-signing certificate under the Application Integration 2 CA, the
+client certificate verifies to Apple Root CA and names the record's
+altDsID, and one of the hashes is on the list. The second check is what a
+replayed record fails: records are given to anyone who asks.
+
+- Everyone else is refused at `/Ask` with 403, before the owner is asked and
+  before a link is stored, and an `/Upload` no accepted Ask on its
+  connection vouches for is refused too.
+- `/Discover` carries the record but no certificate, so it cannot tell a
+  replay. It is withheld only from a sender its record identifies as not on
+  the list; one it cannot identify is answered, and refused at `/Ask`.
+- The receiver asks senders for a certificate only in this mode. One that
+  is presented is verified, and a sender whose certificate does not chain
+  to Apple, such as this project's own sender, then fails the handshake.
+  Visible to everyone, nothing is asked for. Changing the mode in the app
+  restarts the receiver with the other TLS setting.
+- OpenSSL does the verifying, as it makes the self-signed identity, with
+  the system's CAs left out (`-no-CApath -no-CAstore`).
+- `airdrop/apple-ca` holds Apple Root CA and the AAI and AAI2
+  intermediates, as omdrop ships them. The root's SHA-256 is the one Apple
+  publishes, and both intermediates verify against it. The AAI copy is the
+  one Apple re-issued after the first expired on 2026-10-21.
+
+The tests stand a throwaway root, intermediate and record signer in for
+Apple's, with real signatures, and run the receiver over TLS with client
+certificates. No iPhone has sent to it in this mode yet.
+
+Sending to a device set to Contacts Only is the other half and is not done:
+the sender would need a certificate and record Apple issued for its own
+Apple ID. omdrop takes them from a Mac, by disabling System Integrity
+Protection and reading them out of `sharingd` during a transfer.
 
 The receiver listens on every interface, because the adapter exists only while
 `awdld` runs, and drops any connection that did not arrive on `awdl0`.

@@ -399,6 +399,48 @@
                 </RadioButton>
               </StackPanel>
 
+              <TextBlock Style="{StaticResource Label}" Text="Who can send to this PC" Margin="0,22,0,2" />
+              <StackPanel>
+                <RadioButton Style="{StaticResource Choice}" Content="Everyone"
+                             IsChecked="{Binding AnyoneCanSend}" />
+                <RadioButton Style="{StaticResource Choice}" IsChecked="{Binding OnlyKnownSenders}"
+                             AutomationProperties.Name="Only the people listed here">
+                  <StackPanel>
+                    <TextBlock Text="Only the people listed here" />
+                    <TextBlock Style="{StaticResource Soft}"
+                               Text="Apple confirms who each sender is. Others cannot send, and most do not see this PC." />
+                  </StackPanel>
+                </RadioButton>
+              </StackPanel>
+              <ItemsControl ItemsSource="{Binding KnownSenders}" Focusable="False" Margin="0,6,0,0">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <DockPanel Margin="0,2,-4,0">
+                      <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}"
+                              t:Plate.Glyph="&#xE711;" Command="{Binding Forget}"
+                              ToolTip="Remove" AutomationProperties.Name="{Binding ForgetName}" />
+                      <TextBlock Style="{StaticResource Body}" VerticalAlignment="Center" TextWrapping="NoWrap"
+                                 TextTrimming="CharacterEllipsis" Text="{Binding Address}" />
+                    </DockPanel>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+              <TextBox x:Name="SenderBox" Style="{StaticResource Field}" Margin="0,8,0,0" MaxLength="254"
+                       Text="{Binding SenderDraft, UpdateSourceTrigger=PropertyChanged}" KeyDown="OnSenderKey"
+                       AutomationProperties.Name="Add someone by Apple ID email or phone number" />
+              <DockPanel Margin="0,6,0,0">
+                <Button DockPanel.Dock="Right" Style="{StaticResource RaisedButton}" Content="Add"
+                        Command="{Binding AddSender}" />
+                <TextBlock Style="{StaticResource Soft}" VerticalAlignment="Center" Margin="0,0,10,0"
+                           Text="An Apple ID email address or phone number." />
+              </DockPanel>
+              <TextBlock Style="{StaticResource Soft}" Foreground="{DynamicResource Ember}" Margin="0,6,0,0"
+                         Text="{Binding SenderError}"
+                         Visibility="{Binding HasSenderError, Converter={StaticResource Shown}}" />
+              <TextBlock Style="{StaticResource Soft}" Foreground="{DynamicResource Ember}" Margin="0,6,0,0"
+                         Text="Nobody is listed, so nobody can send."
+                         Visibility="{Binding NobodyCanSend, Converter={StaticResource Shown}}" />
+
               <StackPanel Visibility="{Binding HasTrusted, Converter={StaticResource Shown}}">
                 <TextBlock Style="{StaticResource Label}" Text="Inactive saved names" Margin="0,22,0,2" />
                 <ItemsControl ItemsSource="{Binding Trusted}" Focusable="False">

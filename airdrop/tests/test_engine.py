@@ -204,6 +204,34 @@ class EngineTest(unittest.TestCase):
                                      self.client_context),
             ('Study', 'MacBookPro18,3'))
 
+    def test_contacts_only_turns_away_a_sender_apple_does_not_vouch_for(self):
+        running, heard, _ = self.engine('--known-sender', 'friend@example.com')
+        identity = ('Receiver PC', 'MacBookPro18,3')
+        self.assertEqual(sender.receiver_identity('::1', running.settings.port, LOOPBACK_SCOPE,
+                                                  self.client_context), identity)
+        running.handle({'do': 'set', 'contacts_only': True})
+        said = heard.wait('settings')
+        self.assertEqual((said['contacts_only'], said['known_senders']),
+                         (True, ['friend@example.com']))
+        heard.wait('receiving', on=True)
+        # This sender's certificate is its own, so the handshake fails.
+        with self.assertRaises(sender.Unwilling):
+            sender.receiver_identity('::1', running.settings.port, LOOPBACK_SCOPE,
+                                     self.client_context)
+        running.handle({'do': 'set', 'contacts_only': False})
+        heard.wait('receiving', on=True)
+        self.assertEqual(sender.receiver_identity('::1', running.settings.port, LOOPBACK_SCOPE,
+                                                  self.client_context), identity)
+
+    def test_a_known_sender_must_be_an_email_or_a_phone_number(self):
+        running, heard, _ = self.engine()
+        running.handle({'do': 'set', 'known_senders': ['friend@example.com', '---']})
+        said = heard.wait('settings')
+        self.assertEqual(list(said['refused']), ['known_senders'])
+        self.assertEqual(said['known_senders'], [])
+        running.handle({'do': 'set', 'known_senders': [' +1 555 010 9999 ']})
+        self.assertEqual(heard.wait('settings')['known_senders'], ['+1 555 010 9999'])
+
     def pair(self):
         receiving, heard_there, folder = self.engine(name='Receiver PC')
         sending, heard_here, _ = self.engine(

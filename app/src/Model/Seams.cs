@@ -12,7 +12,9 @@ public interface IEngine
     /// with the last thing it wrote.</summary>
     event Action<string, string> Stopped;
 
-    void Start(string name, string folder, bool ask);
+    /// <summary>Starts the engine. With contactsOnly, only the senders in
+    /// knownSenders are accepted from the first connection on.</summary>
+    void Start(string name, string folder, bool ask, bool contactsOnly, IReadOnlyList<string> knownSenders);
     void Tell(Dictionary<string, object?> command);
     void Stop();
 }
@@ -66,6 +68,10 @@ public sealed class AppSettings
     public string? Folder { get; set; }
     public bool Ask { get; set; } = true;
     public List<KnownDevice> AlwaysAccept { get; set; } = [];
+    /// <summary>Only the people in KnownSenders may send, as Apple proves them.</summary>
+    public bool ContactsOnly { get; set; }
+    /// <summary>Apple ID emails and phone numbers, as typed.</summary>
+    public List<string> KnownSenders { get; set; } = [];
     /// <summary>A request shows on screen while the window is not in front.</summary>
     public bool ShowRequests { get; set; } = true;
     public bool KeepInTray { get; set; } = true;
