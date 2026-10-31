@@ -289,6 +289,27 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(sent['total'], cpio.archive_length(
             [('.', 0), ('./clip.mp4', len(data)), ('./note.txt', 5)]))
 
+    def test_one_engine_sends_a_web_link(self):
+        receiving, heard_there, folder, sending, heard_here, peer = self.pair()
+        sending.handle({'do': 'send', 'id': 's-link', 'peer': peer,
+                        'urls': ['https://example.org/page'], 'files': []})
+        asked = heard_there.wait('asked')
+        self.assertEqual(asked['links'], 1)
+        self.assertEqual(asked['files'], [])
+        receiving.handle({'do': 'answer', 'id': asked['id'], 'accept': True})
+        heard_here.wait('send', id='s-link', state='sent')
+        result = heard_there.wait('stored')
+        self.assertEqual(len(result['names']), 1)
+        with open(os.path.join(folder, result['names'][0]), 'rb') as f:
+            self.assertIn(b'URL=https://example.org/page', f.read())
+
+    def test_a_mixed_file_and_url_transfer_is_rejected(self):
+        _, _, _, sending, heard_here, peer = self.pair()
+        sending.handle({'do': 'send', 'id': 's-mixed', 'peer': peer,
+                        'files': ['x.txt'], 'urls': ['https://example.org']})
+        error = heard_here.wait('send', id='s-mixed', state='failed')
+        self.assertEqual(error['reason'], 'mixed_types')
+
     def test_a_cancelled_send_is_seen_to_leave(self):
         receiving, heard_there, _, sending, heard_here, peer = self.pair()
         sending.handle({'do': 'send', 'id': 's1', 'peer': peer,

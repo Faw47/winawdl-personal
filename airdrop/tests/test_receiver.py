@@ -78,6 +78,21 @@ class ReceiverTest(unittest.TestCase):
         self.assertEqual(answer['ReceiverModelName'], 'MacBookPro18,3')
         self.assertIn('ReceiverMediaCapabilities', answer)
 
+    def test_original_media_opt_in_advertises_version_three(self):
+        with mock.patch.dict(os.environ, {'WINAWDL_ORIGINAL_MEDIA': '1'}):
+            status, body = self.post_plist(self.connect(), '/Discover', {})
+        self.assertEqual(status, 200)
+        capabilities = plistlib.loads(body)['ReceiverMediaCapabilities']
+        self.assertEqual(__import__('json').loads(capabilities)['Version'], 3)
+        self.assertIn(b'public.heic', capabilities)
+
+    def test_legacy_media_remains_default(self):
+        with mock.patch.dict(os.environ, {'WINAWDL_ORIGINAL_MEDIA': ''}):
+            status, body = self.post_plist(self.connect(), '/Discover', {})
+        self.assertEqual(status, 200)
+        capabilities = plistlib.loads(body)['ReceiverMediaCapabilities']
+        self.assertEqual(__import__('json').loads(capabilities), {'Version': 1})
+
     def test_reference_bomb_is_rejected_before_logging_metadata(self):
         # Under 1 MiB on the wire, but expands to >10 MiB of file names.
         entry = {'FileName': 'A' * 60_000, 'FileSize': 1}
@@ -104,6 +119,7 @@ class ReceiverTest(unittest.TestCase):
         response = connection.getresponse()
         response.read()
         self.assertEqual(response.status, 200)
+        self.assertEqual(response.getheader('Connection'), 'close')
         with open(os.path.join(self.temp.name, 'a.txt'), 'rb') as stored:
             self.assertEqual(stored.read(), b'sent over TLS')
 
