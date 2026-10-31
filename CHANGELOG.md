@@ -15,6 +15,9 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 - **A crash anyone in range could cause is closed.** One data frame packing
   more than 16 subframes overran a buffer in OWL. The build now applies fixes
   in `awdl/patches` to OWL, whose submodule stays as upstream has it.
+- **A sending phone is no longer dropped mid-transfer** for want of action
+  frames: its data frames now count as hearing it, where OWL let it expire
+  after 2 s without an action frame.
 - **The sync master is chosen by metric first**, as Apple devices choose it.
   By counter, the daemon could keep time with a device the iPhone had left,
   as in the 22 s wait of 0.3.0. `awdld -C` goes back to OWL's order.

@@ -99,3 +99,9 @@ add_executable(election_order_test tests/election_order_test.c compat/ether.c)
 target_link_libraries(election_order_test PRIVATE awdl)
 target_compile_options(election_order_test PRIVATE -Wall -Wextra -Werror)
 target_link_options(election_order_test PRIVATE -static)
+
+# Regression for the peer refresh in patches/0003.
+add_executable(peer_heard_test tests/peer_heard_test.c compat/ether.c)
+target_link_libraries(peer_heard_test PRIVATE awdl)
+target_compile_options(peer_heard_test PRIVATE -Wall -Wextra -Werror)
+target_link_options(peer_heard_test PRIVATE -static)
