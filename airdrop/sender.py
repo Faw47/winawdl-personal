@@ -179,13 +179,12 @@ class Progress:
 
 
 def client_context(keys_dir):
-    certificate, key = identity.ensure_self_signed(keys_dir)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     # A receiver visible to everyone presents a certificate nothing vouches
     # for, and takes ours the same way.
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
-    context.load_cert_chain(certificate, key)
+    identity.load_cert_chain(context, keys_dir)
     return context
 
 
