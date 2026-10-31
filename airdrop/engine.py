@@ -16,6 +16,7 @@ import http.client
 import itertools
 import json
 import logging
+import os
 import secrets
 import socket
 import sys
@@ -77,6 +78,7 @@ class Settings:
         self.model = args.model
         self.dest = args.dest
         self.ask = args.ask
+        self.original_media = os.environ.get('WINAWDL_ORIGINAL_MEDIA') == '1'
         self.port = args.port
         self.flags = args.flags
         self.max_receive_percent = args.max_receive_percent
@@ -601,6 +603,8 @@ class Engine:
                 refused['folder'] = str(error)
         if 'ask' in command:
             self.settings.ask = bool(command['ask'])
+        if 'original_media' in command and type(command['original_media']) is bool:
+            self.settings.original_media = command['original_media']
         self.events.say('settings', refused=refused, **self.settings.public())
 
     def handle(self, command):
