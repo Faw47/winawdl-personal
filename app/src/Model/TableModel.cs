@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Windows.Input;
 
@@ -28,6 +29,7 @@ public sealed class TableModel : Observable
     private bool _radioHasRun;
     private string _beaconWhy = "", _receivingProblem = "", _heldNotice = "", _radioNotice = "";
     private string _engineProblem = "", _engineDetail = "", _nameDraft = "", _nameError = "", _folderError = "";
+    private string _linkDraft = "";
     private int _unwilling;
 
     public TableModel(IEngine engine, IRadio radio, IDesk desk, AppSettings settings)
@@ -243,7 +245,7 @@ public sealed class TableModel : Observable
     private void Refresh()
     {
         RefreshNotices();
-        foreach (var peer in Peers) peer.CanSend = Held.Count > 0;
+        foreach (var peer in Peers) peer.CanSend = Held.Count > 0 || ValidLink(LinkDraft);
         ChangedAll();
     }
 
@@ -295,6 +297,7 @@ public sealed class TableModel : Observable
             case "ready":
                 _engineUp = true;
                 AdoptSettings(said);
+                _engine.Tell(new() { ["do"] = "set", ["original_media"] = _settings.OriginalMedia });
                 _engine.Tell(new() { ["do"] = "look", ["on"] = _wantsLook });
                 break;
             case "link":
@@ -397,20 +400,38 @@ public sealed class TableModel : Observable
         else Peers.Remove(peer);
     }
 
+    private static bool ValidLink(string text)
+    {
+        var url = text.Trim();
+        return url.Length > 0 && Encoding.UTF8.GetByteCount(url) <= 8192
+            && !url.Any(char.IsWhiteSpace)
+            && Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+            && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps);
+    }
+
     public void SendTo(PeerModel peer, IEnumerable<string>? dropped = null)
     {
         if (peer.IsBusy) return;
         if (dropped is not null) Hold(dropped);
-        else if (Held.Count == 0) Hold(_desk.PickFiles());
-        if (Held.Count == 0) return;
+        var link = dropped is null && Held.Count == 0 ? LinkDraft.Trim() : "";
+        if (link.Length > 0 && !ValidLink(link))
+        {
+            HeldChanged("Enter a valid HTTP or HTTPS link.");
+            return;
+        }
+        if (link.Length == 0 && dropped is null && Held.Count == 0) Hold(_desk.PickFiles());
+        if (link.Length == 0 && Held.Count == 0) return;
         peer.SendId = $"s{++_sends}";
-        peer.Sending = Held.Select(file => file.Path).ToList();
+        peer.Sending = link.Length > 0 ? [] : Held.Select(file => file.Path).ToList();
+        peer.SendingLink = link;
         peer.Progress = 0;
         peer.State = PeerState.Asking;
         peer.Status = "Accept on the device to start";
         _engine.Tell(new()
         {
-            ["do"] = "send", ["id"] = peer.SendId, ["peer"] = peer.Id, ["files"] = peer.Sending,
+            ["do"] = "send", ["id"] = peer.SendId, ["peer"] = peer.Id,
+            ["files"] = peer.Sending,
+            ["urls"] = link.Length > 0 ? [link] : [],
         });
         Refresh();
     }
@@ -440,8 +461,14 @@ public sealed class TableModel : Observable
             case "sent":
                 peer.State = PeerState.Sent;
                 peer.Progress = 0;
-                peer.Status = $"Sent {Words.Count(peer.Sending.Count, "file", "files")}";
-                if (peer.Sending.SequenceEqual(Held.Select(file => file.Path)))
+                peer.Status = peer.SendingLink.Length > 0
+                    ? "Sent link"
+                    : $"Sent {Words.Count(peer.Sending.Count, "file", "files")}";
+                if (peer.SendingLink.Length > 0)
+                {
+                    if (LinkDraft.Trim() == peer.SendingLink) LinkDraft = "";
+                }
+                else if (peer.Sending.SequenceEqual(Held.Select(file => file.Path)))
                 {
                     Held.Clear();
                     HeldChanged("");
@@ -698,6 +725,12 @@ public sealed class TableModel : Observable
     public bool ChooseIsNext => Across == Across.Nearby && !Incoming.Any(item => item.IsAsking);
     public bool TableInReach => !SettingsOpen;
 
+    public string LinkDraft
+    {
+        get => _linkDraft;
+        set { if (Set(ref _linkDraft, value)) Refresh(); }
+    }
+
     public bool HasHeld => Held.Count > 0;
     public bool HoldsNothing => Held.Count == 0;
     public bool HasReceived => Received.Count > 0;
@@ -787,6 +820,20 @@ public sealed class TableModel : Observable
     }
 
     public bool TakeAll { get => !AskFirst; set => AskFirst = !value; }
+
+    public bool OriginalMedia
+    {
+        get => _settings.OriginalMedia;
+        set
+        {
+            if (_settings.OriginalMedia == value) return;
+            _settings.OriginalMedia = value;
+            _settings.Save();
+            if (_engineUp)
+                _engine.Tell(new() { ["do"] = "set", ["original_media"] = value });
+            Changed();
+        }
+    }
 
     public bool ShowRequests
     {
