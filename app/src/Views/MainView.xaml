@@ -190,11 +190,15 @@
                           Command="{Binding Press}" t:Plate.Progress="{Binding Progress}"
                           t:Plate.Glyph="{Binding Glyph}" AutomationProperties.Name="{Binding Name}">
                     <StackPanel Width="104">
+                      <!-- Two lines each at most, as AirDrop allows a name; a line's
+                           height is exactly the one given, or the second would not fit. -->
                       <TextBlock Style="{StaticResource Body}" FontSize="13" LineHeight="17" FontWeight="SemiBold"
-                                 TextAlignment="Center" TextWrapping="Wrap" MaxHeight="34"
-                                 TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+                                 LineStackingStrategy="BlockLineHeight" TextAlignment="Center"
+                                 TextWrapping="Wrap" MaxHeight="34" TextTrimming="CharacterEllipsis"
+                                 Text="{Binding Name}" />
                       <TextBlock TextAlignment="Center" Margin="0,2,0,0" Text="{Binding Status}"
-                                 TextWrapping="NoWrap" TextTrimming="CharacterEllipsis">
+                                 LineStackingStrategy="BlockLineHeight" TextWrapping="Wrap" MaxHeight="32"
+                                 TextTrimming="CharacterEllipsis">
                         <TextBlock.Style>
                           <Style TargetType="TextBlock" BasedOn="{StaticResource Caption}">
                             <Setter Property="Typography.NumeralAlignment" Value="Tabular" />
@@ -252,7 +256,8 @@
             <TextBlock Style="{StaticResource Label}" Text="Recent" VerticalAlignment="Center" />
           </DockPanel>
           <ContentControl Style="{StaticResource Card}" Padding="4">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="152" Focusable="False">
+            <!-- Three rows exactly: a fourth half shown reads as a mistake. -->
+            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="144" Focusable="False">
               <ItemsControl ItemsSource="{Binding Received}" Focusable="False">
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>

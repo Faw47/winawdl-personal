@@ -687,8 +687,8 @@ public static class Drive
             Process.GetProcessById(_engine.ProcessId!.Value).Kill(entireProcessTree: true);
             Check(Until(() => _model.Across == Across.EngineDown), $"the engine is killed -> \"{_model.PanelTitle}\": \"{_model.PanelBody}\"");
             Shot("engine-stopped");
-            Press("Start it again");
-            Check(Until(() => _model.Across == Across.Nearby && _model.Peers.Count == 1, 30), "Start it again -> the engine runs and the device is back");
+            Press("Start Again");
+            Check(Until(() => _model.Across == Across.Nearby && _model.Peers.Count == 1, 30), "Start Again -> the engine runs and the device is back");
 
             Say("The notification area icon");
             using (var tray = new Tray(_window, () => { }, _model))

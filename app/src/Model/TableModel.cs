@@ -154,16 +154,16 @@ public sealed class TableModel : Observable
     public string PanelTitle => Across switch
     {
         Across.EngineDown => _engineProblem,
-        Across.RadioStarting => "Starting the radio",
+        Across.RadioStarting => "Turning on AirDrop",
         Across.RadioProblem => _radio.Phase switch
         {
-            RadioPhase.Refused => "The radio stayed off",
+            RadioPhase.Refused => "AirDrop stayed off",
             RadioPhase.NotBuilt => _radio.FromSource
-                ? "The radio has not been built yet"
-                : "The radio's programs are missing",
-            _ => _radioHasRun ? "The radio stopped" : "The radio did not start",
+                ? "AirDrop has not been built yet"
+                : "AirDrop's programs are missing",
+            _ => _radioHasRun ? "AirDrop stopped" : "AirDrop did not start",
         },
-        _ => _radio.Phase == RadioPhase.Stopping ? "Stopping the radio" : "The radio is off",
+        _ => _radio.Phase == RadioPhase.Stopping ? "Turning off AirDrop" : "AirDrop is off",
     };
 
     public string PanelBody => Across switch
@@ -188,9 +188,9 @@ public sealed class TableModel : Observable
 
     public string PanelActionLabel => Across switch
     {
-        Across.EngineDown => "Start it again",
-        Across.RadioOff => _radio.Phase == RadioPhase.Stopping ? "" : "Turn on the radio",
-        Across.RadioProblem => _radio.Phase == RadioPhase.Refused ? "Turn on the radio" : "Try again",
+        Across.EngineDown => "Start Again",
+        Across.RadioOff => _radio.Phase == RadioPhase.Stopping ? "" : "Turn On AirDrop",
+        Across.RadioProblem => _radio.Phase == RadioPhase.Refused ? "Turn On AirDrop" : "Try Again",
         _ => "",
     };
 
