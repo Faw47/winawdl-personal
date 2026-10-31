@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
-/* Regression: valid A-MSDUs with 16/17 subframes must not overrun the caller. */
+/* Regression for patches/0001: A-MSDUs of up to 40 subframes must not overrun
+ * the caller's array of AWDL_MAX_AMSDU_SUBFRAMES frames. */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -49,8 +50,9 @@ static void probe(int n) {
     struct buf **cursor = out;
     int result = awdl_rx_data_amsdu(frame, &cursor, &self, &peer, &state);
     int expected = n <= AWDL_MAX_AMSDU_SUBFRAMES ? RX_OK : RX_UNEXPECTED_FORMAT;
-    if (result != expected || cursor != out + (n < AWDL_MAX_AMSDU_SUBFRAMES
-                                             ? n : AWDL_MAX_AMSDU_SUBFRAMES)
+    /* A refused A-MSDU gives back the frames it had made, so the caller,
+     * which frees only after RX_OK, leaks none. */
+    if (result != expected || cursor != out + (n <= AWDL_MAX_AMSDU_SUBFRAMES ? n : 0)
                            || out[AWDL_MAX_AMSDU_SUBFRAMES] != canary) {
         fprintf(stderr, "n=%d: result=%d cursor=%ld canary=%d\n", n, result,
                 (long)(cursor - out), out[AWDL_MAX_AMSDU_SUBFRAMES] == canary);

@@ -61,6 +61,13 @@ ZONE_MARK = b'[ZoneTransfer]\r\nZoneId=3\r\n'
 # A line break inside a stored link would add keys to the shortcut file, such
 # as an icon path on a remote share.
 LINK_BREAKING_CHAR = re.compile(r'[\x00-\x20\x7f-\x9f]')
+# Longest URL a links Ask may store, in UTF-8 bytes, as in omdrop.
+MAX_LINK_BYTES = 8192
+# Charged per stored link on top of its bytes: a file costs at least a
+# cluster, however short.
+LINK_FILE_ALLOWANCE = 4096
+# Held by a links Ask from its budget check through its last write.
+LINK_LOCK = threading.Lock()
 
 
 class RequestBodyError(ValueError):
@@ -465,9 +472,26 @@ def safe_name(name, fallback):
     stem, ext = os.path.splitext(name)
     if DEVICE_NAME.match(stem.split('.', 1)[0]):
         stem = '_' + stem
-    while len((stem + ext).encode('utf-16-le')) // 2 > MAX_NAME_UNITS and stem:
+    # An extension that alone is too long leaves no stem, and what is left
+    # would be hidden and still too long.
+    return fit_name(stem, ext) or fallback
+
+
+def name_units(name):
+    return len(name.encode('utf-16-le')) // 2
+
+
+def fit_name(stem, ext):
+    """stem + ext within MAX_NAME_UNITS, the stem cut to make room, or '' when
+    the extension leaves none."""
+    while name_units(stem + ext) > MAX_NAME_UNITS and stem:
         stem = stem[:-1]
-    return (stem + ext) or fallback
+    # A cut can end the stem in what Windows drops from the end of a name.
+    if not ext:
+        stem = stem.rstrip('. ')
+    if not stem or name_units(stem + ext) > MAX_NAME_UNITS:
+        return ''
+    return stem + ext
 
 
 def open_new(dest, name):
@@ -569,8 +593,12 @@ def free_number(dest, stem):
 
 
 def numbered(name, number):
+    """name, or stem-number.ext with the stem cut so that it still fits: a
+    name of the longest length would otherwise fail as too long, not as taken."""
+    if number == 0:
+        return name
     stem, ext = os.path.splitext(name)
-    return name if number == 0 else f'{stem}-{number}{ext}'
+    return fit_name(stem, f'-{number}{ext}') or f'file-{number}'
 
 
 class ApprovedFiles:
@@ -722,8 +750,24 @@ def store_upload(raw, dest, tid, receive_budget, approved=None):
 
 
 def is_web_link(item):
-    return (isinstance(item, str) and item.startswith(('http://', 'https://'))
-            and not LINK_BREAKING_CHAR.search(item))
+    """Whether item is a URL that is stored. A real one percent-encodes
+    whitespace and invisible characters, so one that holds them is refused,
+    as is one longer than omdrop's limit."""
+    if (not isinstance(item, str) or not item.startswith(('http://', 'https://'))
+            or LINK_BREAKING_CHAR.search(item)
+            or len(item.encode('utf-8', 'surrogatepass')) > MAX_LINK_BYTES
+            or any(ch.isspace() or unicodedata.category(ch) in ('Cf', 'Cs') for ch in item)):
+        return False
+    try:
+        urlsplit(item)
+    except ValueError:
+        return False
+    return True
+
+
+def link_shortcut(url):
+    """The bytes store_link writes for url."""
+    return f'[InternetShortcut]\r\nURL={url}\r\n'.encode()
 
 
 def store_link(url, dest):
@@ -731,8 +775,34 @@ def store_link(url, dest):
     stored name. The URL is written as a value and never opened here."""
     parts = urlsplit(url)
     stem = '-'.join(p for p in (parts.netloc, parts.path.rstrip('/').rsplit('/', 1)[-1]) if p)
-    name, f = open_new(dest, safe_name(stem, 'link') + '.url')
+    # The extension is part of the name that has to fit.
+    name, f = open_new(dest, fit_name(safe_name(stem, 'link'), '.url') or 'link.url')
     with f:
-        f.write(f'[InternetShortcut]\r\nURL={url}\r\n'.encode())
+        f.write(link_shortcut(url))
     mark_as_downloaded(os.path.join(dest, name))
     return name
+
+
+def store_links(urls, dest, percent):
+    """Store every URL of one Ask, or none: they are charged together against
+    the budget an upload gets, so links cannot fill the disk past what a file
+    transfer may. Raises UploadLimitError over that budget and OSError when a
+    write fails, having removed what this call wrote."""
+    need = sum(len(link_shortcut(url)) + LINK_FILE_ALLOWANCE for url in urls)
+    stored = []
+    # Two Asks checked against the same free bytes could together write past
+    # the reserve; the second waits and sees the first's files.
+    with LINK_LOCK:
+        budget = ReceiveBudget(dest, percent)
+        if need > budget.byte_limit:
+            raise UploadLimitError(
+                f'{len(urls)} link(s) need {need} bytes; {budget.byte_limit} allowed')
+        try:
+            for url in urls:
+                stored.append(store_link(url, dest))
+        except OSError:
+            for name in stored:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(os.path.join(dest, name))
+            raise
+    return stored

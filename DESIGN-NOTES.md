@@ -151,6 +151,26 @@ soon as its client has given its address and BSSID. Reception then narrows
 from every frame to those for the client, broadcast and multicast, which is
 all AWDL needs. The card may now answer while Bluetooth is transmitting.
 
+Upstream devourer found, on other 8852C cards, bring-ups in which the
+responder was armed and no acknowledgement ever aired: 3 to 6 sessions of
+every 12 to 15 (OpenIPC/devourer 8da7af2). The MAC attaches a choice of
+transmit antenna paths to each response, taken from state nothing sets, and
+in those bring-ups it named a path the chip lacks or mapped path A off its
+signal. Taking the choice from the baseband's own registers ended it: none
+of 123. Here that would show as a session whose retry share stays at 85%.
+`radio/patches/0003` carries the change, off unless `winawdl_radio` is given
+`--tx-path-pmac` (`scripts\awdl-run.ps1 -TxPathPmac`), because it applies to
+every frame sent and upstream measured one stream only, while the data
+frames here go at two. It may also be why the phone acknowledged nothing at
+HT MCS 15, a two-stream rate (see Sending): untried.
+
+`radio/patches/0001` (OpenIPC/devourer 5b12c86) sets the energy-detect level
+on 5 GHz to the vendor's own for a device with no link, as devourer already
+did on 6 GHz. With the level from the baseband's table, the transmit gate
+read the receiver's own noise as a busy channel from channel 52 up, and
+nothing was sent on 100 to 161 by another 8852C card. Channel 44 was
+unaffected there; 149 needs it. Carrier sense by preamble stays on.
+
 Also noted: the "LTE interface not ready" error devourer logs twice per
 bring-up is benign here. The register it polls, 0xDAF0, reads back the chip's
 unimplemented-register pattern on this card, and rtw89 never touches it on
@@ -159,10 +179,22 @@ the 8852C.
 ## The AWDL layer
 
 OWL is reused, not rewritten. Its protocol library (`src/`) and its event core
-(`daemon/core.c`) compile unmodified with MinGW-w64 GCC against small shims in
+(`daemon/core.c`) compile with MinGW-w64 GCC against small shims in
 `awdl/compat`: the BSD network headers it includes, a libev subset, and the
 libpcap calls `core.c` makes. Only OWL's `io.c` and `netutils.c`, which are
 Linux and macOS code, are replaced (`awdl/win`).
+
+The submodule is kept as upstream has it. The build copies its sources into
+`build\awdl\owl` and applies `awdl/patches` there, at every configure:
+
+- `0001-amsdu-bound.patch`. OWL writes each subframe of a received A-MSDU into
+  the caller's array of 16 without counting, so one data frame of 17
+  subframes, from anyone in range, wrote past the array on the stack. Owly
+  found it (its patch `owl-08`). An A-MSDU of more subframes is now refused
+  and the frames it had made are freed. A subframe too long for an Ethernet
+  frame is refused too: its copy failed silently and the frame went to the
+  host with whatever the buffer held before.
+- `0002-election-metric-first.patch`. See the next section but one.
 
 It runs as its own process, `awdld`, for two reasons. OWL is GPL-3.0 and
 devourer is GPL-2.0, which cannot be linked into one program. And OWL is GNU C,
@@ -300,8 +332,11 @@ On 5 GHz the radio daemon tunes the card wider than 20 MHz, and the daemon
 then leaves OWL's 40 MHz capabilities as they are. For that the
 MAC has to be told the width and where the primary 20 MHz lies, which
 devourer's `set_channel` did not do (see `set_channel_mac` in the fork). The
-capture labels these frames 20 MHz all the same: the width it records from
-the receive descriptor is not to be trusted.
+capture labelled these frames 20 MHz all the same. The cause was found
+upstream (OpenIPC/devourer 357f045): the 8852C keeps a received frame's width
+in three bits of the descriptor, dword 1 [31:29], where the 8852B has two,
+and devourer read it the 8852B way, halving every width. `radio/patches/0002`
+reads it right, so a capture from now on says what width the iPhone used.
 
 At 40 MHz an aggregate stops at about 64 KiB, the most an HT station can
 announce. Tuned to 80 MHz, the daemon therefore appends VHT capabilities to
@@ -310,6 +345,10 @@ the frames that carry OWL's HT ones, in the TLV an iPhone uses for its own
 iPhone then sends VHT MCS 9 in bursts of about 100 frames, at 31 us a frame.
 That is the 40 MHz rate: it does not send 80 MHz frames, for a reason not
 found. The card is tuned to 80 MHz all the same, so that it could take them.
+Upstream has since seen an iPhone send 80 MHz frames to another 8852C card,
+on channel 149, at VHT two-stream MCS 7 to 9 and about 45 MB/s. So the next
+capture here, now that it reads the width right, is worth taking on 149 as
+well as 44.
 
 What still separates this from two Apple devices: the iPhone keeps to
 40 MHz, about 30% of each cycle goes to the acknowledgement, and the iPhone
@@ -359,10 +398,19 @@ announced. Three causes fit. The iPhone may have taken the fourth device
 for its master, whose counter of 28 loses in OWL's election, which compares
 counters before metrics, to the third device's 2,919. It may have named
 this PC as its own sync master, which the election refuses so as not to
-make a loop. Or it may have stopped counting as a valid peer. Nothing was
-changed in the election. The daemon now logs, each time its sync master
-changes, what every peer last announced and how long ago it was heard, so
-that the next occurrence says which it was.
+make a loop. Or it may have stopped counting as a valid peer. The daemon now
+logs, each time its sync master changes, what every peer last announced and
+how long ago it was heard, so that the next occurrence says which it was.
+
+The first cause has evidence from elsewhere since. Owly, which began as OWL
+with patches, captured a dozen Apple devices choosing: a master with metric
+510 and counter 3214 gave way to one with metric 522 and counter 393, so they
+rank by metric first. By counter, its daemon stayed in a sync tree the iPhone
+had left and was never sent a frame, which is what was seen here. Owly ranks
+by metric first whenever its radio stays on one channel, as this one does.
+`awdl/patches/0002-election-metric-first.patch` adds that ranking to OWL, and
+`awdld` uses it unless started with `-C`. Not yet tried against an iPhone
+here; the log above will show whether a wrong master recurs.
 
 ## The AirDrop layer
 
@@ -385,6 +433,26 @@ size, member count, read rate and free disk space. What changed:
   on a remote share, which Windows fetches when it draws the folder.
 - The identity is a self-signed certificate only. Contacts Only, the Apple
   identity and omdrop's configuration file and panel are left out for now.
+
+omdrop has since tightened its receiver, and the same limits apply here
+(omdrop 0.18.1 to 0.18.4, read 2026-10-31):
+
+- An Ask is refused before anything is built from it if it names more than
+  512 files or items, the most an upload may hold. Its parts are checked for
+  type first, so a malformed one is answered rather than dropping the
+  connection.
+- A links Ask stores all its links or none. They are charged, with 4096
+  bytes each for the file, against the budget an upload gets, under one lock
+  so that two Asks cannot both spend the same free bytes, and over it the
+  sender is answered 507. A link longer than 8192 bytes, or holding Unicode
+  whitespace or an invisible character, is not stored.
+- A name that is numbered to avoid an earlier file is cut to still fit 255
+  characters; at the longest length it used to fail as too long.
+- A sender that leaves mid-upload is reported as having left. It used to be
+  reported as a storage failure, since a reset socket is an `OSError` too.
+- Every log line goes through `logline.py`: control and invisible characters
+  escaped, 32 KiB at most. A name with a line break in it could otherwise
+  write a line of its own.
 
 The receiver listens on every interface, because the adapter exists only while
 `awdld` runs, and drops any connection that did not arrive on `awdl0`.
@@ -847,6 +915,12 @@ package to the driver store does not take over the card on its own.
 - Build scripts do not rely on `vcvars64.bat`. They call `cl.exe` with
   explicit `INCLUDE` and `LIB`.
 - OWL is GPL-3.0 and devourer GPL-2.0. Keep them in separate processes.
+- Both submodules stay as upstream has them. The builds copy them into the
+  build tree and apply `awdl/patches` and `radio/patches` there, through
+  `cmake/patched_copy.cmake`, redoing it when the submodule's commit, its
+  uncommitted changes or a patch change. A patch that no longer applies
+  stops the configure: after moving a submodule, drop the patches upstream
+  now has and refresh the rest.
 
 ## Physical memory for DMA
 

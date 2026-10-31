@@ -21,6 +21,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import identity
+import logline
 import mdns
 import netif
 import original_media
@@ -126,7 +127,10 @@ class Receiver(ThreadingHTTPServer):
         # and one that stopped waiting is gone before its answer is written.
         if isinstance(sys.exc_info()[1], (ConnectionError, ssl.SSLEOFError, HandshakeFailed)):
             return
-        super().handle_error(request, client_address)
+        # Through the log rather than printed: an exception's text can carry
+        # what the sender sent, and the log escapes it.
+        logging.error('error serving [%s]:%s', client_address[0], client_address[1],
+                      exc_info=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -235,15 +239,27 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(ask, dict):
             self.reject(400, 'Ask must contain a dictionary')
             return
-        logging.debug('ask: %s', transfer.outline(ask))
         files = ask.get('Files') or []
-        if (not isinstance(files, list)
-                or any(not isinstance(f, dict) or not isinstance(f.get('FileName'), str)
-                       or not f['FileName'] for f in files)):
+        items = ask.get('Items') or []
+        if not isinstance(files, list) or not isinstance(items, list):
+            self.reject(400, 'Ask contains invalid Files or Items')
+            return
+        # Before anything is built from them: the lines below grow with the
+        # count, and no upload can hold more members than this.
+        if max(len(files), len(items)) > transfer.MAX_ARCHIVE_MEMBERS:
+            self.reject(413, f'Ask exceeds {transfer.MAX_ARCHIVE_MEMBERS}-item limit')
+            return
+        if any(not isinstance(f, dict) or not isinstance(f.get('FileName'), str)
+               or not f['FileName'] for f in files):
             self.reject(400, 'Ask contains invalid Files metadata')
             return
-        items = ask.get('Items') or []
+        logging.debug('ask: %s', transfer.outline(ask))
         kinds = ask.get('TransferType') or {}
+        if not isinstance(kinds, (dict, list)):
+            kinds = {}
+        kinds = [kind for kind in kinds if isinstance(kind, str)]
+        # The watcher reads the Ask too.
+        ask['TransferType'] = kinds
         sender = ask.get('SenderComputerName')
         names = [str(f.get('FileName')) for f in files]
         if self.server.settings.redact:
@@ -255,9 +271,6 @@ class Handler(BaseHTTPRequestHandler):
                      ','.join(kinds) or '?', len(files),
                      '; '.join(f"{name} {f.get('FileType')} {f.get('FileSize')}B"
                                for name, f in zip(names, files, strict=True)) or '-')
-        if len(items) > transfer.MAX_ARCHIVE_MEMBERS:
-            self.reject(413, f'Ask exceeds {transfer.MAX_ARCHIVE_MEMBERS}-item limit')
-            return
         watcher = self.server.watcher
         self.accepted = watcher.asked(ask, self.client_address[0], self.sender_left)
         if self.accepted is None:
@@ -269,16 +282,35 @@ class Handler(BaseHTTPRequestHandler):
         # A link transfer has no /Upload: the URL is in Items, so accepting
         # the Ask is the transfer. It is stored and never opened.
         if 'links' in kinds:
-            links = []
+            urls = []
             for item in items:
                 if not transfer.is_web_link(item):
-                    logging.warning('ask: ignoring non-web item %.80r', item)
+                    logging.warning('ask: ignoring item that is not a storable web link %.80r',
+                                    item)
                     continue
-                stored = transfer.store_link(item, self.server.settings.dest)
+                urls.append(item)
+            links = []
+            if urls:
+                settings = self.server.settings
+                try:
+                    links = transfer.store_links(urls, settings.dest,
+                                                 settings.max_receive_percent)
+                except transfer.UploadLimitError as error:
+                    self.refuse_links(f'links: {error}')
+                    return
+                except OSError as error:
+                    self.refuse_links(f'links: storage failed: {error}')
+                    return
+            for stored in links:
                 logging.info('link stored as %s', stored)
-                links.append(stored)
             watcher.stored(self.accepted, links)
         self.answer(self.identity_plist())
+
+    def refuse_links(self, reason):
+        self.server.watcher.upload_failed(self.accepted, reason)
+        self.accepted = None
+        self.approved_names = None
+        self.reject(507, reason)
 
     def receive_archive(self, raw, budget, plan, deadline, tid, on_progress,
                         approved_names=None):
@@ -357,6 +389,15 @@ class Handler(BaseHTTPRequestHandler):
             refused = 413, str(error)
         except transfer.RequestBodyError as error:
             refused = error.status, str(error)
+        except (ConnectionError, ssl.SSLError) as error:
+            # Socket errors are OSErrors too, but the disk is fine: the sender
+            # went away, and there is nobody to answer.
+            reason = (f'upload {tid}: the sender left after {deadline.transferred} '
+                      f'bytes: {error}')
+            logging.info('%s', reason)
+            watcher.upload_failed(token, reason)
+            self.close_connection = True
+            return
         except OSError as error:
             refused = 507, f'storage failed: {error}'
         except Exception as error:
@@ -490,9 +531,7 @@ def main(argv=None):
         # Both streams, so that an error report is covered as well as the log.
         sys.stdout = redact.Stream(sys.stdout, redactor.hide)
         sys.stderr = redact.Stream(sys.stderr, redactor.hide)
-    logging.basicConfig(level=logging.DEBUG if settings.trace else logging.INFO,
-                        stream=sys.stdout,
-                        format='%(asctime)s %(levelname)s %(message)s')
+    logline.configure(logging.DEBUG if settings.trace else logging.INFO, sys.stdout)
     try:
         context = tls_context(settings.keys)
     except identity.IdentityError as error:

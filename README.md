@@ -294,9 +294,9 @@ either direction.
 | Piece | What it does |
 |---|---|
 | `driver/regproxy` | User-mode (UMDF 2) driver bound to the card. Relays register accesses and stops the chip's DMA if its client dies |
-| `upstream/devourer` | Submodule: a fork of [devourer](https://github.com/OpenIPC/devourer), the user-space Realtek driver that runs the chip, with a Windows PCIe backend on its `winawdl/pcie-windows` branch |
+| `upstream/devourer` | Submodule: a fork of [devourer](https://github.com/OpenIPC/devourer), the user-space Realtek driver that runs the chip, with a Windows PCIe backend on its `winawdl/pcie-windows` branch. The build applies `radio/patches` to a copy: 8852C fixes from upstream the fork does not have yet |
 | `radio` | Programs built on that devourer, including the radio daemon `winawdl_radio` |
-| `upstream/owl` | Submodule: [OWL](https://github.com/seemoo-lab/owl), unmodified |
+| `upstream/owl` | Submodule: [OWL](https://github.com/seemoo-lab/owl), as upstream has it. The build applies `awdl/patches` to a copy |
 | `awdl` | The AWDL daemon `awdld`: OWL's protocol core with a Windows I/O layer |
 | `airdrop` | The AirDrop receiver, adapted from [omdrop](https://github.com/brentkearney/omdrop-plugin): service announcement and the HTTPS endpoints senders talk to. A sender, which finds receivers and uploads to one. And the engine that runs both for the app |
 | `app` | The Windows app: a window over the receiver and the sender, which also starts and stops the two daemons |

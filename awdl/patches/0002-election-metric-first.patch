@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: winawdl <winawdl@invalid>
+Date: Sat, 31 Oct 2026 06:55:01 +0000
+Subject: [PATCH] Let a node rank sync masters by metric first, as Apple
+ devices do
+
+---
+ src/election.c | 20 +++++++++++++++++---
+ src/election.h |  3 +++
+ 2 files changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/src/election.c b/src/election.c
+index fda2e9d..316944c 100644
+--- a/src/election.c
++++ b/src/election.c
+@@ -53,12 +53,26 @@ void awdl_election_state_init(struct awdl_election_state *state, const struct et
+ 	state->master_addr = *self;
+ 	state->sync_addr = *self;
+ 	state->self_addr = *self;
++	state->metric_first = 0;
+ 	awdl_election_reset_metric(state);
+ 	awdl_election_reset_self(state);
+ }
+ 
+-static int awdl_election_compare_master(const struct awdl_election_state *a, const struct awdl_election_state *b) {
+-	int result = compare(a->master_counter, b->master_counter);
++/* Upstream ranks masters by counter, then metric. Apple devices rank by
++ * metric: in a capture of a dozen of them (t4t5/owly, patch owl-04), a master
++ * with metric 510 and counter 3214 gave way to one with 522 and 393. Ranked by
++ * counter, a node can stay under a master the iPhone has left, and miss its
++ * listening windows. metric_first ranks as Apple's do. */
++static int awdl_election_compare_master(const struct awdl_election_state *a, const struct awdl_election_state *b,
++                                        int metric_first) {
++	int result;
++	if (metric_first) {
++		result = compare(a->master_metric, b->master_metric);
++		if (!result)
++			result = compare(a->master_counter, b->master_counter);
++		return result;
++	}
++	result = compare(a->master_counter, b->master_counter);
+ 	if (!result)
+ 		result = compare(a->master_metric, b->master_metric);
+ 	return result;
+@@ -86,7 +100,7 @@ void awdl_election_run(struct awdl_election_state *state, const struct awdl_peer
+ 		}
+ 		if (awdl_election_is_sync_master(peer_state, &state->self_addr))
+ 			continue; /* reject: do not allow cycles in sync tree */
+-		cmp_metric = awdl_election_compare_master(peer_state, master_state);
++		cmp_metric = awdl_election_compare_master(peer_state, master_state, state->metric_first);
+ 		if (cmp_metric < 0) {
+ 			continue; /* reject: lower top master metric */
+ 		} else if (cmp_metric == 0) {
+diff --git a/src/election.h b/src/election.h
+index 31a8b71..ad2215a 100644
+--- a/src/election.h
++++ b/src/election.h
+@@ -37,6 +37,9 @@ struct awdl_election_state {
+ 	uint32_t self_metric;
+ 	uint32_t master_counter;
+ 	uint32_t self_counter;
++	/* Read in a node's own state only: rank masters by metric before counter.
++	 * See awdl_election_compare_master(). */
++	uint8_t metric_first;
+ };
+ 
+ int awdl_election_is_sync_master(const struct awdl_election_state *state, const struct ether_addr *addr);
