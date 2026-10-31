@@ -159,10 +159,22 @@ the 8852C.
 ## The AWDL layer
 
 OWL is reused, not rewritten. Its protocol library (`src/`) and its event core
-(`daemon/core.c`) compile unmodified with MinGW-w64 GCC against small shims in
+(`daemon/core.c`) compile with MinGW-w64 GCC against small shims in
 `awdl/compat`: the BSD network headers it includes, a libev subset, and the
 libpcap calls `core.c` makes. Only OWL's `io.c` and `netutils.c`, which are
 Linux and macOS code, are replaced (`awdl/win`).
+
+The submodule is kept as upstream has it. The build copies its sources into
+`build\awdl\owl` and applies `awdl/patches` there, at every configure:
+
+- `0001-amsdu-bound.patch`. OWL writes each subframe of a received A-MSDU into
+  the caller's array of 16 without counting, so one data frame of 17
+  subframes, from anyone in range, wrote past the array on the stack. Owly
+  found it (its patch `owl-08`). An A-MSDU of more subframes is now refused
+  and the frames it had made are freed. A subframe too long for an Ethernet
+  frame is refused too: its copy failed silently and the frame went to the
+  host with whatever the buffer held before.
+- `0002-election-metric-first.patch`. See the next section but one.
 
 It runs as its own process, `awdld`, for two reasons. OWL is GPL-3.0 and
 devourer is GPL-2.0, which cannot be linked into one program. And OWL is GNU C,
@@ -359,10 +371,19 @@ announced. Three causes fit. The iPhone may have taken the fourth device
 for its master, whose counter of 28 loses in OWL's election, which compares
 counters before metrics, to the third device's 2,919. It may have named
 this PC as its own sync master, which the election refuses so as not to
-make a loop. Or it may have stopped counting as a valid peer. Nothing was
-changed in the election. The daemon now logs, each time its sync master
-changes, what every peer last announced and how long ago it was heard, so
-that the next occurrence says which it was.
+make a loop. Or it may have stopped counting as a valid peer. The daemon now
+logs, each time its sync master changes, what every peer last announced and
+how long ago it was heard, so that the next occurrence says which it was.
+
+The first cause has evidence from elsewhere since. Owly, which began as OWL
+with patches, captured a dozen Apple devices choosing: a master with metric
+510 and counter 3214 gave way to one with metric 522 and counter 393, so they
+rank by metric first. By counter, its daemon stayed in a sync tree the iPhone
+had left and was never sent a frame, which is what was seen here. Owly ranks
+by metric first whenever its radio stays on one channel, as this one does.
+`awdl/patches/0002-election-metric-first.patch` adds that ranking to OWL, and
+`awdld` uses it unless started with `-C`. Not yet tried against an iPhone
+here; the log above will show whether a wrong master recurs.
 
 ## The AirDrop layer
 

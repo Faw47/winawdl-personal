@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: winawdl <winawdl@invalid>
+Date: Sat, 31 Oct 2026 06:54:48 +0000
+Subject: [PATCH] Bound the frames one A-MSDU yields to the caller's array
+
+---
+ daemon/core.c |  3 +--
+ src/rx.c      | 35 +++++++++++++++++++++++++++++------
+ src/rx.h      |  4 ++++
+ 3 files changed, 34 insertions(+), 8 deletions(-)
+
+diff --git a/daemon/core.c b/daemon/core.c
+index 8b17ede..e49a219 100644
+--- a/daemon/core.c
++++ b/daemon/core.c
+@@ -110,11 +110,10 @@ void host_device_ready(struct ev_loop *loop, ev_io *handle, int revents) {
+ }
+ 
+ void awdl_receive_frame(uint8_t *user, const struct pcap_pkthdr *hdr, const uint8_t *buf) {
+-#define MAX_NUM_AMPDU 16 /* TODO lookup this constant from the standard */
+ 	struct daemon_state *state = (void *) user;
+ 	int result;
+ 	const struct buf *frame = buf_new_const(buf, hdr->caplen);
+-	struct buf *data_arr[MAX_NUM_AMPDU];
++	struct buf *data_arr[AWDL_MAX_AMSDU_SUBFRAMES];
+ 	struct buf **data = &data_arr[0];
+ 	result = awdl_rx(frame, &data, &state->awdl_state);
+ 	if (result == RX_OK) {
+diff --git a/src/rx.c b/src/rx.c
+index 9c0d68e..91878d4 100644
+--- a/src/rx.c
++++ b/src/rx.c
+@@ -374,9 +374,15 @@ int awdl_rx_data(const struct buf *frame, struct buf ***out, const struct ether_
+ 	read_be16(frame, 6, &ether_type);
+ 	buf_strip(frame, sizeof(struct awdl_data));
+ 
++	/* A payload longer than an Ethernet frame holds would fail to be copied
++	 * and the frame would go on with whatever the buffer held before. */
++	if (2 * ETHER_ADDR_LEN + 2 + buf_len(frame) > ETHER_MAX_LEN) {
++		log_warn("awdl_data: frame too long (%d bytes)", buf_len(frame));
++		return RX_UNEXPECTED_FORMAT;
++	}
++
+ 	**out = buf_new_owned(ETHER_MAX_LEN);
+ 
+-	/* TODO use checked write methods */
+ 	offset += write_ether_addr(**out, offset, dst);
+ 	offset += write_ether_addr(**out, offset, src);
+ 	offset += write_be16(**out, offset, ether_type);
+@@ -388,33 +394,50 @@ int awdl_rx_data(const struct buf *frame, struct buf ***out, const struct ether_
+ 	return RX_OK;
+ }
+ 
++/* The caller's array holds AWDL_MAX_AMSDU_SUBFRAMES frames, and nothing told
++ * this loop so: one A-MSDU with more subframes, from anyone in range, wrote
++ * past its end. A frame that fails part way now gives back what it made. */
+ int awdl_rx_data_amsdu(const struct buf *frame, struct buf ***out, const struct ether_addr *src __attribute__((unused)),
+                        const struct ether_addr *dst __attribute__((unused)), struct awdl_state *state) {
++	struct buf **start = *out;
++	int err = RX_TOO_SHORT;
+ 	/* Iterate over all subframes */
+ 	while (buf_len(frame) > 0) {
+ 		struct ether_addr src_a, dst_a;
+ 		uint16_t len_a;
+-		int err;
+ 		const struct buf *subframe;
++		if (*out - start >= AWDL_MAX_AMSDU_SUBFRAMES) {
++			log_warn("awdl_data: more than %d A-MSDU subframes", AWDL_MAX_AMSDU_SUBFRAMES);
++			err = RX_UNEXPECTED_FORMAT;
++			goto fail;
++		}
+ 		READ_ETHER_ADDR(frame, 0, &dst_a);
+ 		READ_ETHER_ADDR(frame, 6, &src_a);
+ 		READ_BE16(frame, 12, &len_a);
+ 		BUF_STRIP(frame, 14); /* strip subframe header */
+-		if (len_a > buf_len(frame))
+-			return RX_TOO_SHORT;
++		if (len_a > buf_len(frame)) {
++			err = RX_TOO_SHORT;
++			goto fail;
++		}
+ 		/* create subview of buf */
+ 		subframe = buf_new_const(buf_data(frame), len_a);
+ 		err = awdl_rx_data(subframe, out, &src_a, &dst_a, state);
+ 		buf_free(subframe);
+ 		if (err < 0)
+-			return err;
++			goto fail;
+ 		BUF_STRIP(frame, len_a); /* strip frame */
+ 		if (buf_len(frame) > 0)
+ 			BUF_STRIP(frame, (4 - ((14 + len_a) % 4)) % 4); /* strip padding */
+ 	}
+ 	return RX_OK;
+ wire_error:
+-	return RX_TOO_SHORT;
++	err = RX_TOO_SHORT;
++fail:
++	while (*out > start) {
++		(*out)--;
++		buf_free(**out);
++	}
++	return err;
+ }
+ 
+ static int radiotap_parse(const struct buf *frame, signed char *rssi, uint8_t *flags, uint64_t *tsft) {
+diff --git a/src/rx.h b/src/rx.h
+index 618993f..74dc3be 100644
+--- a/src/rx.h
++++ b/src/rx.h
+@@ -24,6 +24,10 @@
+ #include "version.h"
+ #include "state.h"
+ 
++/* The most data frames one received frame yields: what a caller's array of
++ * frames from awdl_rx() must hold. */
++#define AWDL_MAX_AMSDU_SUBFRAMES 16
++
+ enum RX_RESULT {
+ 	RX_IGNORE_PEER = 6,
+ 	RX_IGNORE_RSSI = 5,

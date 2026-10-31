@@ -12,6 +12,14 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
   numbered instead of failing. Log lines escape what a sender wrote.
 - A sender that cancels mid-upload is shown as having left, not as a failure
   to store.
+- **A crash anyone in range could cause is closed.** One data frame packing
+  more than 16 subframes overran a buffer in OWL. The build now applies fixes
+  in `awdl/patches` to OWL, whose submodule stays as upstream has it.
+- **The sync master is chosen by metric first**, as Apple devices choose it.
+  By counter, the daemon could keep time with a device the iPhone had left,
+  as in the 22 s wait of 0.3.0. `awdld -C` goes back to OWL's order.
+- `scripts\build-awdl.ps1` builds again: a test committed with the A-MSDU
+  check expected a fix that was not in the repository.
 
 ## 0.3.0, 2026-10-13
 
