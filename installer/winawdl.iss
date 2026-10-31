@@ -65,6 +65,11 @@ Name: "{autoprograms}\winawdl"; Filename: "{app}\winawdl.exe"; WorkingDir: "{app
 ; As the person who started setup, not as administrator: Explorer cannot drop files on a window that is.
 Filename: "{app}\winawdl.exe"; Description: "Start winawdl"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: SetUpWell
 
+[Registry]
+; The app alone opts in. Remove its value in the app's view, including if the
+; driver-removal script fails. This addresses the account running uninstall.
+Root: HKCU64; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "winawdl"; Flags: dontcreatekey uninsdeletevalue
+
 [Code]
 const
   CardKey = 'SYSTEM\CurrentControlSet\Enum\PCI';

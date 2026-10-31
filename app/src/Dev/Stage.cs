@@ -72,6 +72,25 @@ public sealed class ScriptedRadio : IRadio
     }
 }
 
+public sealed class ScriptedStartup : IStartup
+{
+    public bool Stored { get; set; }
+    public bool RefuseRead { get; set; }
+    public bool RefuseWrite { get; set; }
+    public bool IgnoreWrite { get; set; }
+    public int Writes { get; private set; }
+    public bool Enabled
+    {
+        get => RefuseRead ? throw new UnauthorizedAccessException() : Stored;
+        set
+        {
+            Writes++;
+            if (RefuseWrite) throw new UnauthorizedAccessException();
+            if (!IgnoreWrite) Stored = value;
+        }
+    }
+}
+
 /// <summary>Windows with the dialogs answered in advance and nothing opened.</summary>
 public sealed class ScriptedDesk(Dispatcher dispatcher) : IDesk
 {
@@ -156,6 +175,14 @@ public static class Stage
             {
                 theme.Apply(palette);
                 var view = Build(build, app.Dispatcher);
+                if (name.StartsWith("settings-startup-"))
+                {
+                    view.Measure(new Size(460, 688));
+                    view.Arrange(new Rect(0, 0, 460, 688));
+                    view.UpdateLayout();
+                    ((ScrollViewer)view.FindName("SettingsScroll")).ScrollToEnd();
+                    view.UpdateLayout();
+                }
                 Save(view, 460, 720, Path.Combine(folder, $"{name}-{themeName}.png"));
                 File.WriteAllLines(Path.Combine(folder, $"{name}.txt"), Controls(view).Select(one => one.Line));
             }
@@ -197,7 +224,7 @@ public static class Stage
     }
 
     public sealed record World(ScriptedEngine Engine, ScriptedRadio Radio, ScriptedDesk Desk, TableModel Model,
-                               AppSettings Settings);
+                               AppSettings Settings, ScriptedStartup Startup);
 
     public static World NewWorld(Dispatcher dispatcher, string? folder = null)
     {
@@ -205,10 +232,11 @@ public static class Stage
         var radio = new ScriptedRadio();
         var desk = new ScriptedDesk(dispatcher);
         var settings = new AppSettings { Name = "STUDY-PC", Folder = folder ?? Path.GetTempPath() };
-        var model = new TableModel(engine, radio, desk, settings);
+        var startup = new ScriptedStartup();
+        var model = new TableModel(engine, radio, desk, settings, startup);
         model.StartTheEngine();
         model.SetVisible(true);
-        return new World(engine, radio, desk, model, settings);
+        return new World(engine, radio, desk, model, settings, startup);
     }
 
     private static MainView Build(Action<World> scene, Dispatcher dispatcher)
@@ -318,6 +346,23 @@ public static class Stage
         yield return ("settings", world =>
         {
             Devices(world);
+            world.Model.SettingsOpen = true;
+        });
+        yield return ("settings-startup-off", world => world.Model.SettingsOpen = true);
+        yield return ("settings-startup-on", world =>
+        {
+            world.Startup.Stored = true;
+            world.Model.SettingsOpen = true;
+        });
+        yield return ("settings-startup-error", world =>
+        {
+            world.Startup.RefuseWrite = true;
+            world.Model.SettingsOpen = true;
+            world.Model.StartWithWindows = true;
+        });
+        yield return ("settings-startup-unreadable", world =>
+        {
+            world.Startup.RefuseRead = true;
             world.Model.SettingsOpen = true;
         });
         yield return ("settings-always", world =>

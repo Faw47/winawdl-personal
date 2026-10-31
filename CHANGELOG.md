@@ -5,6 +5,10 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Start with Windows.** A switch in Window settings opens winawdl in the
+  notification area when you sign in. It reads the Windows startup entry
+  when Settings opens, and uninstall removes that account's entry.
+
 - **The stored AirDrop key is protected on Windows.** The app and engine
   encrypt it with a random passphrase that only the current Windows user
   can unlock, and restrict the keys folder to that user. Existing keys

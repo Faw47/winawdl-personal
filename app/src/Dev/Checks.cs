@@ -12,6 +12,7 @@ using System.Windows.Documents;
 using Winawdl.Engine;
 using Winawdl.Model;
 using Winawdl.Radio;
+using Winawdl.Shell;
 using Winawdl.Theme;
 using Winawdl.Views;
 
@@ -35,13 +36,20 @@ public static class Checks
         _log = log;
         try
         {
-            Colors();
-            Wording();
-            Identities(Path.Combine(folder, "identities-" + Guid.NewGuid().ToString("N")));
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Program.Dress(app).Apply(Palette.Light(Rgb.Hex("#0078D4")));
             Motion.Reduced = true;
+            if (args.Skip(1).Contains("startup"))
+            {
+                Startup(app);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
+            Colors();
+            Wording();
+            Identities(Path.Combine(folder, "identities-" + Guid.NewGuid().ToString("N")));
             States(app);
+            Startup(app);
             Supervisor(Path.Combine(folder, "supervised"));
         }
         catch (Exception error)
@@ -51,6 +59,88 @@ public static class Checks
         }
         log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static void Startup(Application app)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        world.Model.SettingsOpen = true;
+        var view = Show(world);
+        Expect(Stage.Controls(view).Any(one => one.Line.Contains("Start with Windows")),
+               "Window settings offer Start with Windows");
+        var model = world.Model;
+        var saves = 0;
+        world.Settings.Save = () => saves++;
+        var commands = world.Engine.Told.Count;
+        Expect(!model.StartWithWindows && model.StartupAvailable && !model.HasStartupProblem,
+               "startup is off when the fake registry has no entry");
+        Expect(Press(view, "Start with Windows") && world.Startup.Stored && model.StartWithWindows,
+               "the startup switch writes the seam and reads back on");
+        Expect(Press(view, "Start with Windows") && !world.Startup.Stored && !model.StartWithWindows,
+               "turning startup off removes the fake entry");
+        world.Startup.Stored = true;
+        model.SettingsOpen = false;
+        model.SettingsOpen = true;
+        Expect(model.StartWithWindows, "reopening Settings reflects an entry enabled elsewhere");
+        world.Startup.Stored = false;
+        model.SettingsOpen = false;
+        model.SettingsOpen = true;
+        Expect(!model.StartWithWindows, "reopening Settings reflects an entry removed elsewhere");
+        world.Startup.RefuseWrite = true;
+        Expect(Press(view, "Start with Windows") && !model.StartWithWindows
+               && ((Theme.Switch)view.FindName("StartupSwitch")).IsChecked == false
+               && model.HasStartupProblem && !world.Startup.Stored,
+               "a denied write leaves the switch off and explains the failure");
+        world.Startup.RefuseWrite = false;
+        model.StartWithWindows = true;
+        Expect(model.StartWithWindows && !model.HasStartupProblem, "a later successful write clears the error");
+        world.Startup.RefuseWrite = true;
+        Expect(Press(view, "Start with Windows") && model.StartWithWindows
+               && ((Theme.Switch)view.FindName("StartupSwitch")).IsChecked == true
+               && model.HasStartupProblem && world.Startup.Stored,
+               "a denied removal leaves startup on and explains the failure");
+        world.Startup.RefuseWrite = false;
+        model.StartWithWindows = false;
+        world.Startup.IgnoreWrite = true;
+        model.StartWithWindows = true;
+        Expect(!model.StartWithWindows && model.HasStartupProblem,
+               "a write that was not kept is never reported as enabled");
+        world.Startup.RefuseRead = true;
+        model.SettingsOpen = false;
+        model.SettingsOpen = true;
+        Expect(!model.StartupAvailable && model.HasStartupProblem,
+               "a read error disables startup changes and explains how to retry");
+        world.Startup.RefuseRead = false;
+        model.SettingsOpen = false;
+        model.SettingsOpen = true;
+        Expect(model.StartupAvailable && !model.HasStartupProblem, "reopening Settings retries a denied read");
+        var command = WindowsStartup.CommandFor(@"C:\Program Files\winawdl\winawdl.exe");
+        Expect(command == "\"C:\\Program Files\\winawdl\\winawdl.exe\" --tray",
+               "the Run command quotes the absolute executable and carries only the tray flag");
+        foreach (var path in new[] { "winawdl.exe", "C:\\bad\"path\\winawdl.exe", "C:\\" + new string('a', 260) + ".exe" })
+        {
+            var refused = false;
+            try { WindowsStartup.CommandFor(path); }
+            catch (ArgumentException) { refused = true; }
+            Expect(refused, "an invalid or overlong Run command is refused before registry access");
+        }
+        Expect(!Program.ShouldSurface([WindowsStartup.TrayFlag]) && Program.ShouldSurface([])
+               && Program.ShouldSurface(["--engine", WindowsStartup.TrayFlag]),
+               "tray startup stays hidden; ordinary launches surface and engine arguments stay separate");
+        Expect(saves == 0 && world.Engine.Told.Count == commands,
+               "startup state is never saved in app settings or sent to the engine");
+        world.Settings.KeepInTray = false;
+        var window = new MainWindow(model, new ThemeService(app.Resources, app.Dispatcher), world.Settings)
+        {
+            Left = -30000, Top = -30000, ShowActivated = false, ShowInTaskbar = false,
+        };
+        Program.ShowAtStartup(window, [WindowsStartup.TrayFlag]);
+        Expect(!window.IsVisible && !world.Settings.KeepInTray && world.Engine.Told.Count > 0,
+               "tray startup never shows the window with close-to-tray off, while the engine is started");
+        Program.ShowAtStartup(window, []);
+        Expect(window.IsVisible, "an ordinary startup still shows the window");
+        window.Quitting = true;
+        window.Close();
     }
 
     private static void Expect(bool ok, string what)
@@ -447,7 +537,7 @@ public static class Checks
         world.Engine.Say(new { @event = "answered", id = "r2", how = "declined" });
 
         var kept = new AppSettings { AlwaysAccept = [new KnownDevice { Name = "Stand-in iPad", Model = "iPad13,1" }] };
-        var again = new TableModel(world.Engine, world.Radio, world.Desk, kept);
+        var again = new TableModel(world.Engine, world.Radio, world.Desk, kept, world.Startup);
         Expect(again.Trusted is [{ Name: "Stand-in iPad" }],
                "previously saved name-only entries remain visible to remove");
         told = world.Engine.Told.Count;
@@ -522,7 +612,7 @@ public static class Checks
             Folder = Path.GetTempPath(), ContactsOnly = true, KnownSenders = ["friend@example.com"],
         };
         var engine = new ScriptedEngine();
-        var again = new TableModel(engine, world.Radio, world.Desk, kept);
+        var again = new TableModel(engine, world.Radio, world.Desk, kept, world.Startup);
         again.StartTheEngine();
         Expect(again.OnlyKnownSenders && again.KnownSenders is [{ Address: "friend@example.com" }],
                "the choice and the list come back with the app, as the engine started with them");
