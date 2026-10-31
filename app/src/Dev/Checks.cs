@@ -42,6 +42,12 @@ public static class Checks
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Program.Dress(app).Apply(Palette.Light(Rgb.Hex("#0078D4")));
             Motion.Reduced = true;
+            if (args.Skip(1).Contains("compact"))
+            {
+                Compact(app);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("selection"))
             {
                 Selection(app, folder);
@@ -67,6 +73,7 @@ public static class Checks
             Startup(app);
             Explorer(app, folder);
             Selection(app, folder);
+            Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
         }
         catch (Exception error)
@@ -76,6 +83,39 @@ public static class Checks
         }
         log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static void Compact(Application app)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        Stage.Scenes([]).First(scene => scene.Name == "incoming-ask").Build(world);
+        var view = new MainView { DataContext = world.Model };
+        // Stage's 380 x 560 smallest window includes its 32-DIP caption strip.
+        view.Measure(new Size(380, 528));
+        view.Arrange(new Rect(0, 0, 380, 528));
+        view.UpdateLayout();
+        var across = (ScrollViewer)view.FindName("AcrossScroll");
+        var hand = (FrameworkElement)view.FindName("Hand");
+        var acrossBounds = across.TransformToAncestor(view).TransformBounds(new Rect(across.RenderSize));
+        var handBounds = hand.TransformToAncestor(view).TransformBounds(new Rect(hand.RenderSize));
+        _log.WriteLine($"Compact across={acrossBounds}, hand={handBounds}, viewport={across.ViewportHeight}, extent={across.ExtentHeight}");
+        Expect(handBounds.Top - acrossBounds.Bottom >= 16 && across.ViewportHeight > 0,
+               "the compact peer viewport keeps 16 DIPs clear above the drop well and retains scroll space");
+        var belowViewport = new Point(across.ActualWidth / 2, across.ActualHeight + 8);
+        Expect(VisualTreeHelper.HitTest(across, belowViewport) is null,
+               "compact peer content cannot receive input beyond its scroll viewport");
+        across.ScrollToEnd();
+        view.UpdateLayout();
+        Expect(across.VerticalOffset > 0 && across.VerticalOffset + across.ViewportHeight >= across.ExtentHeight - 1,
+               "the compact peer region scrolls to its final device controls");
+        var lastPeer = Stage.Controls(view).First(item => item.Line.Contains("\"Stand-in MacBook\"")).Control;
+        var peerBounds = lastPeer.TransformToAncestor(view).TransformBounds(new Rect(lastPeer.RenderSize));
+        Expect(peerBounds.Top >= acrossBounds.Top && peerBounds.Bottom <= acrossBounds.Bottom,
+               "the final peer tile is fully accessible after scrolling the compact viewport");
+        Expect(Stage.Controls(view).Any(item => item.Line.Contains("\"Choose Files…\""))
+               && Stage.Controls(view).Any(item => item.Line.Contains("\"Paste\"")),
+               "the compact drop well retains Choose Files and Paste controls");
+        world.Model.Dispose();
     }
 
     private static void Selection(Application app, string folder)

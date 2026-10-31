@@ -100,9 +100,9 @@
         </StackPanel>
       </Grid>
 
-      <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
-                    Focusable="False">
-        <StackPanel Margin="24,20,24,16" MaxWidth="600">
+      <ScrollViewer x:Name="AcrossScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                    Focusable="False" Margin="0,0,0,16">
+        <StackPanel Margin="24,20,24,0" MaxWidth="600">
           <!-- What devices want to send, as an alert: who, what, and the two answers. -->
           <ItemsControl ItemsSource="{Binding Incoming}" Focusable="False">
             <ItemsControl.ItemTemplate>

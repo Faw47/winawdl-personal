@@ -218,9 +218,13 @@ public static class Stage
         }
         if (only.Count == 0 || only.Contains("sizes"))
         {
-            theme.Apply(Palette.Night(blue));
             var busy = Scenes(files).First(scene => scene.Name == "incoming-ask").Build;
-            Save(Build(busy, app.Dispatcher), 380, 560, Path.Combine(folder, "size-smallest-dark.png"));
+            foreach (var (themeName, palette) in themes)
+            {
+                theme.Apply(palette);
+                Save(Build(busy, app.Dispatcher), 380, 560, Path.Combine(folder, $"size-smallest-{themeName}.png"));
+            }
+            theme.Apply(Palette.Night(blue));
             Save(Build(busy, app.Dispatcher), 900, 820, Path.Combine(folder, "size-wide-dark.png"));
         }
         if (only.Count == 0 || only.Contains("accents"))
