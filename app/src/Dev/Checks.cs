@@ -141,6 +141,70 @@ public static class Checks
         var original = File.ReadAllBytes(pythonCertificate);
         Expect(Identity.Ensure(pythonFolder) && original.SequenceEqual(File.ReadAllBytes(pythonCertificate)),
                "the app reuses Python's encrypted identity");
+        IdentityOverlap(folder, repo, pair, legacy);
+    }
+
+    private static void IdentityOverlap(string root, string repo, RSA pair, X509Certificate2 legacy)
+    {
+        foreach (var mode in new[] { "migration", "recovery", "receiver", "sender" })
+        {
+            var folder = Directory.CreateDirectory(Path.Combine(root, "overlap-" + mode)).FullName;
+            var certificate = Path.Combine(folder, Identity.Certificate);
+            var key = Path.Combine(folder, Identity.Key);
+            File.WriteAllText(certificate, legacy.ExportCertificatePem());
+            File.WriteAllText(key, pair.ExportPkcs8PrivateKeyPem());
+            if (mode != "migration")
+                Expect(Identity.Ensure(folder), "prepare encrypted identity for overlap check");
+            if (mode == "recovery") File.WriteAllBytes(Path.Combine(folder, Identity.Secret), [1, 2, 3]);
+            var before = File.ReadAllBytes(certificate);
+            var start = new ProcessStartInfo("python")
+            {
+                UseShellExecute = false, CreateNoWindow = true,
+                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
+            };
+            foreach (var argument in new[] { "-c",
+                "import sys; sys.path.insert(0, sys.argv[1]); from test_identity import overlap_worker; " +
+                "overlap_worker(*sys.argv[2:])", Path.Combine(repo, "airdrop", "tests"), folder,
+                mode is "migration" or "recovery" ? "publish" : mode }) start.ArgumentList.Add(argument);
+            using var process = Process.Start(start)!;
+            var errors = process.StandardError.ReadToEndAsync();
+            Task<bool>? ensure = null;
+            try
+            {
+                var paused = process.StandardOutput.ReadLineAsync();
+                if (!paused.Wait(15_000) || paused.Result != "paused")
+                    throw new InvalidOperationException("Python did not reach the overlap boundary");
+                using var attempting = new ManualResetEventSlim();
+                ensure = Task.Run(() => { attempting.Set(); return Identity.Ensure(folder); });
+                if (!attempting.Wait(5_000)) throw new TimeoutException("app identity check did not start");
+                Expect(!ensure.Wait(400), $"app waits for Python {mode} transaction");
+                process.StandardInput.WriteLine();
+                process.StandardInput.Flush();
+                if (!process.WaitForExit(15_000) || !ensure.Wait(15_000))
+                    throw new TimeoutException("identity overlap check did not finish");
+                Expect(process.ExitCode == 0 && ensure.Result, $"both {mode} transactions finish");
+                _log.Write(errors.GetAwaiter().GetResult());
+                var password = ProtectedData.Unprotect(File.ReadAllBytes(Path.Combine(folder, Identity.Secret)),
+                                                       null, DataProtectionScope.CurrentUser);
+                try
+                {
+                    using var loaded = X509Certificate2.CreateFromEncryptedPemFile(certificate,
+                        Encoding.ASCII.GetString(password), key);
+                    Expect(loaded.HasPrivateKey && (mode == "recovery" ?
+                        !before.SequenceEqual(File.ReadAllBytes(certificate)) :
+                        before.SequenceEqual(File.ReadAllBytes(certificate))),
+                        $"overlapping {mode} leaves the expected loadable identity");
+                }
+                finally { CryptographicOperations.ZeroMemory(password); }
+            }
+            finally
+            {
+                if (!process.HasExited) process.Kill();
+                process.WaitForExit(5_000);
+                if (ensure is not null && !ensure.Wait(15_000))
+                    throw new TimeoutException("app identity transaction remained blocked");
+            }
+        }
     }
 
     /// <summary>The 48 accents Windows offers, and the extremes nobody offers.</summary>

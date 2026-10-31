@@ -15,6 +15,43 @@ import receiver  # noqa: E402
 import sender  # noqa: E402
 
 
+def overlap_worker(folder, mode):
+    """A real separate process, stopped at the vulnerable publication/load boundary."""
+    def pause():
+        print('paused', flush=True)
+        if not sys.stdin.readline():
+            raise RuntimeError('overlap check did not release the writer')
+
+    if mode == 'publish':
+        atomic = identity._atomic
+
+        def publish(path, data):
+            atomic(path, data)
+            if Path(path).name == identity.SECRET:
+                pause()
+        identity._atomic = publish
+    elif mode in ('receiver', 'sender'):
+        password = identity.key_password
+        calls = 0
+
+        def read_password(keys):
+            nonlocal calls
+            result = password(keys)
+            calls += 1
+            if calls == 2:  # validation first, then the TLS caller's load
+                pause()
+            return result
+        identity.key_password = read_password
+    else:
+        print('starting', flush=True)
+    if mode == 'receiver':
+        receiver.tls_context(folder)
+    elif mode == 'sender':
+        sender.client_context(folder)
+    else:
+        identity.ensure_self_signed(folder)
+
+
 class IdentityTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -30,6 +67,67 @@ class IdentityTest(unittest.TestCase):
                         '-out', str(Path(self.folder, identity.CERTIFICATE))],
                        capture_output=True, check=True)
         config.unlink()
+
+    def worker(self, mode):
+        process = subprocess.Popen(
+            [sys.executable, '-c',
+             'import sys; sys.path.insert(0, sys.argv[1]); '
+             'from test_identity import overlap_worker; overlap_worker(*sys.argv[2:])',
+             str(Path(__file__).parent), self.folder, mode],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        def finish():
+            if process.poll() is None:
+                process.kill()
+            process.communicate(timeout=10)
+        self.addCleanup(finish)
+        return process
+
+    def overlap(self, mode):
+        first = self.worker(mode)
+        self.assertEqual(first.stdout.readline().strip(), 'paused')
+        second = self.worker('ensure')
+        self.assertEqual(second.stdout.readline().strip(), 'starting')
+        try:
+            second.wait(timeout=0.4)
+            blocked = False
+        except subprocess.TimeoutExpired:
+            blocked = True
+        output, errors = first.communicate('\n', timeout=15)
+        self.assertEqual(first.returncode, 0, errors + output)
+        output, errors = second.communicate(timeout=15)
+        self.assertEqual(second.returncode, 0, errors + output)
+        receiver.tls_context(self.folder)
+        sender.client_context(self.folder)
+        self.assertTrue(blocked, 'another process entered the identity transaction while in use')
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows cross-process identity transaction')
+    def test_overlapping_migrations_preserve_original_identity(self):
+        self.legacy()
+        original = Path(self.folder, identity.CERTIFICATE).read_bytes()
+        self.overlap('publish')
+        receiver.tls_context(self.folder)
+        sender.client_context(self.folder)
+        self.assertEqual(Path(self.folder, identity.CERTIFICATE).read_bytes(), original)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows cross-process identity transaction')
+    def test_overlapping_recovery_publishes_one_loadable_identity(self):
+        certificate, _ = identity.ensure_self_signed(self.folder)
+        original = Path(certificate).read_bytes()
+        Path(self.folder, identity.SECRET).write_bytes(b'broken DPAPI blob')
+        self.overlap('publish')
+        replacement = Path(certificate).read_bytes()
+        self.assertNotEqual(replacement, original)
+        receiver.tls_context(self.folder)
+        sender.client_context(self.folder)
+        self.assertEqual(Path(certificate).read_bytes(), replacement)
+
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows cross-process TLS transaction')
+    def test_tls_load_holds_identity_transaction_for_both_roles(self):
+        identity.ensure_self_signed(self.folder)
+        for mode in ('receiver', 'sender'):
+            with self.subTest(mode=mode):
+                self.overlap(mode)
 
     def test_round_trip_and_both_tls_sides(self):
         certificate, key = identity.ensure_self_signed(self.folder)

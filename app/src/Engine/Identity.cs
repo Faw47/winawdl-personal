@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Security.AccessControl;
 using System.Security.Cryptography;
@@ -16,6 +17,7 @@ public static class Identity
     public const string Certificate = "certificate.self-signed.pem";
     public const string Key = "key.self-signed.pem";
     public const string Secret = "key.self-signed.secret";
+    public const string Lock = "identity.lock";
     private const string Subject = "CN=AirDrop receiver";
     private const int ValidDays = 365;
 
@@ -29,6 +31,8 @@ public static class Identity
         try
         {
             Directory.CreateDirectory(folder);
+            Restrict(folder, files: false);
+            using var transaction = Transaction(folder);
             Restrict(folder);
             if (File.Exists(certificate) && File.Exists(key))
             {
@@ -80,7 +84,28 @@ public static class Identity
         }
     }
 
-    private static void Restrict(string folder)
+    private static FileStream Transaction(string folder)
+    {
+        // Python locks this same byte with msvcrt.locking. Never unlink the lock file:
+        // waiters must keep using the same file even after its owner exits.
+        var file = new FileStream(Path.Combine(folder, Lock), FileMode.OpenOrCreate,
+                                  FileAccess.ReadWrite, FileShare.ReadWrite);
+        try
+        {
+            var waited = Stopwatch.StartNew();
+            while (true)
+            {
+                try { file.Lock(0, 1); return file; }
+                catch (IOException error) when ((error.HResult & 0xffff) == 33 &&
+                                                 waited.Elapsed < TimeSpan.FromSeconds(15))
+                { Thread.Sleep(50); }
+            }
+        }
+        catch { file.Dispose(); throw; }
+        // Disposing the stream releases the range, including on process termination.
+    }
+
+    private static void Restrict(string folder, bool files = true)
     {
         var user = WindowsIdentity.GetCurrent().User!;
         var directory = new DirectorySecurity();
@@ -89,7 +114,8 @@ public static class Identity
             InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
             PropagationFlags.None, AccessControlType.Allow));
         new DirectoryInfo(folder).SetAccessControl(directory);
-        foreach (var name in new[] { Key, Certificate, Secret })
+        if (!files) return;
+        foreach (var name in new[] { Key, Certificate, Secret, Lock })
         {
             var file = new FileInfo(Path.Combine(folder, name));
             if (!file.Exists) continue;

@@ -3,6 +3,8 @@
 is all a sender needs when the receiver is visible to everyone."""
 import ctypes
 from ctypes import wintypes
+from contextlib import contextmanager
+import errno
 import logging
 import os
 import shutil
@@ -10,10 +12,13 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import time
 
 CERTIFICATE = 'certificate.self-signed.pem'
 KEY = 'key.self-signed.pem'
 SECRET = 'key.self-signed.secret'
+LOCK = 'identity.lock'
+LOCK_TIMEOUT = 15
 VALID_DAYS = '365'
 # Passed explicitly because some Windows builds of OpenSSL point at a default
 # configuration file that does not exist. Senders do not look at the name.
@@ -89,7 +94,7 @@ def key_password(keys_dir):
     return password
 
 
-def _restrict(keys_dir):
+def _restrict(keys_dir, files=True):
     """Replace inherited and explicit access with this user's inheritable ACE."""
     advapi = ctypes.WinDLL('advapi32', use_last_error=True)
     kernel = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -124,9 +129,11 @@ def _restrict(keys_dir):
             raise ctypes.WinError(ctypes.get_last_error())
         try:
             # Protect existing files too, even if they had explicit permissions.
-            paths = [keys_dir] + [os.path.join(keys_dir, name)
-                                  for name in (CERTIFICATE, KEY, SECRET)
-                                  if os.path.isfile(os.path.join(keys_dir, name))]
+            paths = [keys_dir]
+            if files:
+                paths += [os.path.join(keys_dir, name)
+                          for name in (CERTIFICATE, KEY, SECRET, LOCK)
+                          if os.path.isfile(os.path.join(keys_dir, name))]
             for path in paths:
                 if not advapi.SetFileSecurityW(path, 0x80000004, descriptor):
                     raise ctypes.WinError(ctypes.get_last_error())
@@ -136,6 +143,33 @@ def _restrict(keys_dir):
         if sid:
             kernel.LocalFree(sid)
         kernel.CloseHandle(token)
+
+
+@contextmanager
+def _windows_transaction(keys_dir):
+    """Share byte zero with Identity.cs; keep this file in place across starts."""
+    import msvcrt
+
+    os.makedirs(keys_dir, exist_ok=True)
+    _restrict(keys_dir, files=False)
+    with open(os.path.join(keys_dir, LOCK), 'a+b') as lock:
+        lock.seek(0)
+        deadline = time.monotonic() + LOCK_TIMEOUT
+        while True:
+            try:
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+                break
+            except OSError as error:
+                if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                    raise
+                if time.monotonic() >= deadline:
+                    raise IdentityError('Timed out waiting for the AirDrop identity') from error
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def _validate(certificate, key, password):
@@ -207,7 +241,8 @@ def ensure_self_signed(keys_dir):
     """Return the certificate and key paths, creating the pair on first use."""
     if sys.platform == 'win32':
         try:
-            return _windows_identity(keys_dir)
+            with _windows_transaction(keys_dir):
+                return _windows_identity(keys_dir)
         except (OSError, ValueError) as error:
             message = f'Could not protect the AirDrop identity ({type(error).__name__})'
             raise IdentityError(message) from error
@@ -230,3 +265,18 @@ def ensure_self_signed(keys_dir):
     if run.returncode != 0:
         raise IdentityError(f'openssl could not create a certificate: {run.stderr.strip()}')
     return certificate, key
+
+
+def load_cert_chain(context, keys_dir):
+    """Keep inspection, repair, password reading and TLS loading in one transaction."""
+    if sys.platform != 'win32':
+        certificate, key = ensure_self_signed(keys_dir)
+        context.load_cert_chain(certificate, key, password=key_password(keys_dir))
+        return
+    try:
+        with _windows_transaction(keys_dir):
+            certificate, key = _windows_identity(keys_dir)
+            context.load_cert_chain(certificate, key, password=key_password(keys_dir))
+    except (OSError, ValueError) as error:
+        message = f'Could not protect the AirDrop identity ({type(error).__name__})'
+        raise IdentityError(message) from error

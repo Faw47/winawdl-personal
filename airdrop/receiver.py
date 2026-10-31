@@ -644,9 +644,8 @@ def tls_context(keys_dir, contacts_only=False):
     means it may be absent, not that a bad one is let through, so Apple's
     intermediates are trusted beside its root: a sender may send its leaf
     alone."""
-    certificate, key = identity.ensure_self_signed(keys_dir)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.load_cert_chain(certificate, key, password=identity.key_password(keys_dir))
+    identity.load_cert_chain(context, keys_dir)
     context.verify_mode = ssl.CERT_NONE
     if contacts_only:
         context.load_verify_locations(cafile=contacts.APPLE_ROOT_CA)
