@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Winawdl.Model;
 using Winawdl.Theme;
 
@@ -27,6 +28,31 @@ public partial class MainView : UserControl
     }
 
     private TableModel? Model => DataContext as TableModel;
+
+    /// <summary>Two rings leave the middle in turn and fade, for as long as the
+    /// window looks. Still when Windows has animation effects turned off.</summary>
+    private void OnRadarLoaded(object sender, RoutedEventArgs e)
+    {
+        if (Motion.Reduced) return;
+        var period = TimeSpan.FromMilliseconds(2400);
+        foreach (var (ring, delay) in new[] { (PulseOne, 0.0), (PulseTwo, 1200.0) })
+        {
+            var grow = new ScaleTransform(0.35, 0.35);
+            ring.RenderTransform = grow;
+            var scale = new DoubleAnimation(0.35, 1, period)
+            {
+                BeginTime = TimeSpan.FromMilliseconds(delay), RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = Motion.Out,
+            };
+            var fade = new DoubleAnimation(0.9, 0, period)
+            {
+                BeginTime = TimeSpan.FromMilliseconds(delay), RepeatBehavior = RepeatBehavior.Forever,
+            };
+            grow.BeginAnimation(ScaleTransform.ScaleXProperty, scale);
+            grow.BeginAnimation(ScaleTransform.ScaleYProperty, scale);
+            ring.BeginAnimation(OpacityProperty, fade);
+        }
+    }
 
     /// <summary>The pill opens its menu under itself, as a pop-up button does.</summary>
     private void OnFindMe(object sender, RoutedEventArgs e)

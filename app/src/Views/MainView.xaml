@@ -224,9 +224,14 @@
             </ItemsControl>
             <StackPanel Margin="0,28,0,0" MaxWidth="320" HorizontalAlignment="Center"
                         Visibility="{Binding ShowsNobody, Converter={StaticResource Shown}}">
-              <Grid Width="96" Height="96" HorizontalAlignment="Center">
+              <!-- Looking, as AirDrop shows it: rings that leave the middle and fade. -->
+              <Grid Width="96" Height="96" HorizontalAlignment="Center" Loaded="OnRadarLoaded">
                 <Ellipse Stroke="{DynamicResource Outline}" StrokeThickness="1" />
                 <Ellipse Margin="16" Stroke="{DynamicResource Outline}" StrokeThickness="1" />
+                <Ellipse x:Name="PulseOne" Stroke="{DynamicResource Accent}" StrokeThickness="1.5" Opacity="0"
+                         RenderTransformOrigin="0.5,0.5" />
+                <Ellipse x:Name="PulseTwo" Stroke="{DynamicResource Accent}" StrokeThickness="1.5" Opacity="0"
+                         RenderTransformOrigin="0.5,0.5" />
                 <Ellipse Margin="32" Fill="{DynamicResource Accent}" />
               </Grid>
               <TextBlock Style="{StaticResource Name}" Margin="0,16,0,0" HorizontalAlignment="Center"
