@@ -15,7 +15,7 @@ public sealed record Daemon(string Name, string Program, string[] Arguments);
 public static class RadioSupervisor
 {
     public const string Flag = "--radio";
-    public const string Channel = "44";
+    public const string Channel = "149";
     public const string StatusFile = "radio.status";
     private const int InterruptWaitMs = 5000;
     private const int OwnLogLimitBytes = 64 * 1024;

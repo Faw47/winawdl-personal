@@ -262,65 +262,39 @@ public static class Checks
         files = new[] { new { name = "a.jpg", size = 5, type = "public.jpeg" } },
     };
 
-    /// <summary>A device whose requests are accepted without asking.</summary>
+    /// <summary>A sender's name/model are not proof of identity.</summary>
     private static void Always(Application app)
     {
         var world = Stage.NewWorld(app.Dispatcher);
         var view = Show(world);
         var model = world.Model;
-        var saved = 0;
-        world.Settings.Save = () => saved++;
         var attention = new List<string>();
-        var arrived = new List<string>();
         model.Attention += attention.Add;
-        model.Arrived += arrival => arrived.Add(arrival.Headline);
         world.Engine.Say(new { @event = "link", up = true });
 
         world.Engine.Say(Ask("r1", "Stand-in iPhone", "iPhone14,2"));
-        Expect(model.Incoming[0].ShowsAlways && attention.Count == 1, "a request from a named device offers Always accept, and asks for attention");
-        Expect(Press(view, "Always accept from Stand-in iPhone") && world.Engine.Told.Last().Contains("\"id\":\"r1\",\"accept\":true"),
-               "Always accept from Stand-in iPhone -> this request is accepted");
-        Expect(world.Settings.AlwaysAccept is [{ Name: "Stand-in iPhone", Model: "iPhone14,2" }] && saved == 1 && model.Trusted.Count == 1,
-               "the device is remembered by its name and model, and that is written down");
+        Expect(model.Incoming[0].IsAsking && !model.Incoming[0].ShowsAlways
+               && attention.Count == 1,
+               "named senders require approval and have no Always button");
+        Expect(Press(view, "Accept") && world.Engine.Told.Last().Contains("\"id\":\"r1\",\"accept\":true"),
+               "a single request can still be accepted");
         world.Engine.Say(new { @event = "answered", id = "r1", how = "accepted" });
 
-        world.Engine.Say(Ask("r2", "Stand-in iPhone", "iPhone14,2"));
-        Expect(world.Engine.Told.Last().Contains("\"id\":\"r2\",\"accept\":true") && !model.Incoming[0].IsAsking && attention.Count == 1,
-               "its next request is accepted at once: no question, no call for attention");
-        world.Engine.Say(new { @event = "stored", id = "r2", folder = Path.GetTempPath(), names = new[] { "a.jpg" } });
-        Expect(arrived is ["Stand-in iPhone sent you a photo"], $"what it sent is said once it is stored: \"{arrived.LastOrDefault()}\"");
-
         var told = world.Engine.Told.Count;
-        world.Engine.Say(Ask("r3", "Stand-in iPhone", "iPhone15,3"));
-        Expect(model.Incoming[0].IsAsking && world.Engine.Told.Count == told && attention.Count == 2,
-               "the same name from another model of device is asked about");
-        world.Engine.Say(new { @event = "answered", id = "r3", how = "declined" });
-        world.Engine.Say(Ask("r4", "", ""));
-        Expect(model.Incoming[0].IsAsking && !model.Incoming[0].ShowsAlways, "a device that gives no name cannot be always accepted");
-        world.Engine.Say(new { @event = "answered", id = "r4", how = "declined" });
+        world.Engine.Say(Ask("r2", "Stand-in iPhone", "iPhone14,2"));
+        Expect(model.Incoming[0].IsAsking && world.Engine.Told.Count == told
+               && attention.Count == 2,
+               "a repeat with the identical self-reported identity still asks");
+        world.Engine.Say(new { @event = "answered", id = "r2", how = "declined" });
 
-        model.SettingsOpen = true;
-        var listed = Stage.Controls(view).Select(one => one.Line).ToList();
-        Expect(listed.Any(line => line.Contains("\"Stop always accepting from Stand-in iPhone\"")),
-               "settings lists the device, with a way to stop");
-        Expect(Press(view, "Stop always accepting from Stand-in iPhone") && world.Settings.AlwaysAccept.Count == 0
-               && model.Trusted.Count == 0 && saved == 2, "Stop always accepting -> it is forgotten, and that is written down");
-        model.SettingsOpen = false;
-        world.Engine.Say(Ask("r5", "Stand-in iPhone", "iPhone14,2"));
-        Expect(model.Incoming[0].IsAsking && model.Incoming[0].ShowsAlways, "its next request is asked about again");
-
-        // Remembered across a restart: the model starts from what was written down.
         var kept = new AppSettings { AlwaysAccept = [new KnownDevice { Name = "Stand-in iPad", Model = "iPad13,1" }] };
         var again = new TableModel(world.Engine, world.Radio, world.Desk, kept);
-        Expect(again.Trusted is [{ Name: "Stand-in iPad" }], "a remembered device is listed when the app starts again");
-
-        // Taking everything asks nobody, so what arrives is said as well.
-        world = Stage.NewWorld(app.Dispatcher);
-        arrived.Clear();
-        world.Model.Arrived += arrival => arrived.Add(arrival.Headline);
-        world.Engine.Say(Ask("r1", "Stand-in Mac", "MacBookPro18,3", waits: false));
-        world.Engine.Say(new { @event = "stored", id = "r1", folder = Path.GetTempPath(), names = new[] { "a.jpg" } });
-        Expect(arrived is ["Stand-in Mac sent you a photo"], "with Take everything, what arrived is said too");
+        Expect(again.Trusted is [{ Name: "Stand-in iPad" }],
+               "previously saved name-only entries remain visible to remove");
+        told = world.Engine.Told.Count;
+        world.Engine.Say(Ask("r3", "Stand-in iPad", "iPad13,1"));
+        Expect(again.Incoming[0].IsAsking && world.Engine.Told.Count == told,
+               "even a legacy saved sender is never automatically accepted");
     }
 
     /// <summary>The card that shows a request while the window is not in front.</summary>

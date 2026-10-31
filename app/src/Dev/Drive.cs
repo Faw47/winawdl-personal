@@ -540,7 +540,7 @@ public static class Drive
             Press("Close settings");
             Check(!_model.SettingsOpen && Named("Radio") is not null, "its Close button -> closed, and the table is in reach again");
 
-            Say("A request while the window is not in front, then a device that is always accepted");
+            Say("A request while the window is not in front, with approval required every time");
             var requests = new RequestWindow(_model, () => false) { Spot = new Point(-30000, -30000) };
             var carded = false;
             _model.Attention += _ => carded = requests.Announce();
@@ -582,20 +582,15 @@ public static class Drive
 
             _other.Tell(new { @do = "send", id = "x5", peer = meId, files = new[] { files[1] } });
             Check(Until(() => _model.HasRequests), "it sends again -> a request waits");
-            Press("Always accept from Other device");
-            Check(Until(() => arrived.Count == 2, 30) && _settings.AlwaysAccept.Count == 1,
-                  "Always accept from Other device -> this one arrives, and the device is remembered");
+            Press("Accept");
+            Check(Until(() => arrived.Count == 2, 30) && _settings.AlwaysAccept.Count == 0,
+                  "manual approval -> this file arrives without creating trusted names");
             _other.Tell(new { @do = "send", id = "x6", peer = meId, files = new[] { files[3] } });
-            var questioned = false;
-            Check(Until(() =>
-            {
-                questioned |= _model.HasRequests;
-                return arrived.Count == 3;
-            }, 30) && !questioned, "its next file arrives with no question: the engine was answered the moment it asked");
+            Check(Until(() => _model.HasRequests), "a repeated device still needs approval");
+            Press("Accept");
+            Check(Until(() => arrived.Count == 3, 30), "the next manually accepted file arrives");
             Press("Settings");
             Shot("settings-always");
-            Press("Stop always accepting from Other device");
-            Check(_settings.AlwaysAccept.Count == 0, "Stop always accepting, in settings -> the device is forgotten");
             Press("Close settings");
             requests.Close();
 

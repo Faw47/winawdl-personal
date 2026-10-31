@@ -88,6 +88,19 @@ class ReceiverTest(unittest.TestCase):
         with open(os.path.join(self.temp.name, 'a.txt'), 'rb') as stored:
             self.assertEqual(stored.read(), b'sent over TLS')
 
+    def test_approved_photo_cannot_turn_into_an_executable(self):
+        connection = self.connect()
+        ask = {'SenderComputerName': 'Phone', 'Files': [{'FileName': 'photo.jpg'}]}
+        self.assertEqual(self.post_plist(connection, '/Ask', ask)[0], 200)
+        payload = gzip.compress(archive(portable_member('./photo.jpg', b'photo'),
+                                        portable_member('./surprise.exe', b'MZ')))
+        connection.request('POST', '/Upload', body=payload,
+                           headers={'Content-Type': 'application/x-dvzip'})
+        response = connection.getresponse()
+        response.read()
+        self.assertEqual(response.status, 422)
+        self.assertEqual(os.listdir(self.temp.name), [])
+
     def upload_without_end_marker(self, payload):
         """Send every chunk of an upload but not the zero-length one that
         ends it, as an iPhone does for a video. Returns the status line."""

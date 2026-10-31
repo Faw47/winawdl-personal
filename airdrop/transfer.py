@@ -573,7 +573,90 @@ def numbered(name, number):
     return name if number == 0 else f'{stem}-{number}{ext}'
 
 
-def _extract(archive, dest, budget, created):
+class ApprovedFiles:
+    """Names that this TLS connection's owner actually approved.
+
+    Names are compared before open_new() can change them to avoid collisions.
+    Only explicit, conservative media conversions are accepted; unannounced
+    executable/script/archive filenames are rejected, never silently stored.
+    """
+    TRANSCODES = {
+        '.heic': frozenset(('.jpg', '.jpeg')),
+        '.heif': frozenset(('.jpg', '.jpeg')),
+        '.mov': frozenset(('.mp4',)),
+    }
+    PHOTOS = frozenset(('.jpg', '.jpeg', '.heic', '.heif'))
+    BUNDLE_STILLS = frozenset(('.jpg', '.jpeg', '.heic', '.heif', '.png'))
+    BUNDLE_VIDEOS = frozenset(('.mov',))
+
+    def __init__(self, announced):
+        from collections import Counter
+        self.remaining = Counter(safe_name(name, 'file').casefold() for name in announced)
+        self.photos = Counter()
+        for name, count in self.remaining.items():
+            stem, ext = os.path.splitext(name)
+            if ext in self.PHOTOS:
+                self.photos[stem] += count
+        self.videos_used = Counter()
+        self.bundle_stills = Counter()
+        self.bundle_videos = Counter()
+
+    def allow(self, name, live_photo):
+        key = name.casefold()
+        if live_photo:
+            # iOS announces a Live Photo as IMG_123.pvt (a folder, size 0),
+            # then uploads its separately named still and MOV inside it.
+            folder = safe_name(live_photo, '').casefold()
+            folder_stem, folder_ext = os.path.splitext(folder)
+            if folder_ext == LIVE_PHOTO_FOLDER_SUFFIX and self.remaining[folder]:
+                stem, ext = os.path.splitext(key)
+                if stem != folder_stem:
+                    raise ValueError(f'archive contains an unapproved file: {name!r}')
+                if ext in self.BUNDLE_STILLS:
+                    if self.bundle_stills[folder] >= self.remaining[folder]:
+                        raise ValueError(f'archive contains an unapproved file: {name!r}')
+                    self.bundle_stills[folder] += 1
+                    return
+                if ext in self.BUNDLE_VIDEOS:
+                    if self.bundle_videos[folder] >= self.remaining[folder]:
+                        raise ValueError(f'archive contains an unapproved file: {name!r}')
+                    self.bundle_videos[folder] += 1
+                    return
+                raise ValueError(f'archive contains an unapproved file: {name!r}')
+        if self.remaining[key]:
+            self.remaining[key] -= 1
+            return
+        stem, ext = os.path.splitext(key)
+        # iOS may convert HEIC/HEIF to JPEG or MOV to MP4 in transit.
+        for announced, count in self.remaining.items():
+            old_stem, old_ext = os.path.splitext(announced)
+            if count and stem == old_stem and ext in self.TRANSCODES.get(old_ext, ()):
+                self.remaining[announced] -= 1
+                return
+        # A Live Photo can contain an extra MOV companion in a .pvt folder.
+        # The video's stem and the folder must both match an approved photo.
+        if live_photo and ext == '.mov':
+            folder_stem, folder_ext = os.path.splitext(safe_name(live_photo, '').casefold())
+            if (folder_ext == LIVE_PHOTO_FOLDER_SUFFIX and folder_stem == stem
+                    and self.videos_used[stem] < self.photos[stem]):
+                self.videos_used[stem] += 1
+                return
+        raise ValueError(f'archive contains an unapproved file: {name!r}')
+
+    def finish(self):
+        for name, count in self.remaining.items():
+            if not count:
+                continue
+            # Each approved .pvt bundle must provide exactly one still and
+            # one video. Metadata is skipped by the original extractor.
+            if (name.endswith(LIVE_PHOTO_FOLDER_SUFFIX)
+                    and self.bundle_stills[name] == count
+                    and self.bundle_videos[name] == count):
+                continue
+            raise ValueError('archive omitted one or more approved files')
+
+
+def _extract(archive, dest, budget, created, approved=None):
     written = []
     live_photo_numbers = {}
     for entry in cpio.read_entries(archive):
@@ -592,6 +675,8 @@ def _extract(archive, dest, budget, created):
             raise UploadLimitError(
                 f'archive declares more than {budget.byte_limit} output bytes')
         wanted = safe_name(entry.pathname, 'file')
+        if approved is not None:
+            approved.allow(wanted, live_photo)
         if live_photo:
             # The still and the video share a stem, and keep sharing it when
             # an earlier file has taken the name of one of them.
@@ -607,12 +692,15 @@ def _extract(archive, dest, budget, created):
                 sink.write(block)
         mark_as_downloaded(os.path.join(dest, name))
         written.append(Stored(name, live_photo))
+    if approved is not None:
+        approved.finish()
     return written
 
 
-def store_upload(raw, dest, tid, receive_budget):
+def store_upload(raw, dest, tid, receive_budget, approved=None):
     """Decode and extract regular files, removing every output on failure."""
     created = []
+    approved_files = ApprovedFiles(approved) if approved is not None else None
     try:
         with tempfile.TemporaryFile(dir=dest) as archive:
             raw.seek(0)
@@ -625,7 +713,7 @@ def store_upload(raw, dest, tid, receive_budget):
             archive.seek(0)
             logging.info('upload %s: decoded to %d bytes', tid, decoded)
             return _extract(archive, dest,
-                            ExtractionBudget(receive_budget.byte_limit), created)
+                            ExtractionBudget(receive_budget.byte_limit), created, approved_files)
     except Exception:
         for name in reversed(created):
             with contextlib.suppress(FileNotFoundError):

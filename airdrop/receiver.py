@@ -225,8 +225,16 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as error:
             logging.error('ask: undecodable %d-byte body: %r', len(body), error)
             ask = {}
+        if not isinstance(ask, dict):
+            self.reject(400, 'Ask must contain a dictionary')
+            return
         logging.debug('ask: %s', transfer.outline(ask))
         files = ask.get('Files') or []
+        if (not isinstance(files, list)
+                or any(not isinstance(f, dict) or not isinstance(f.get('FileName'), str)
+                       or not f['FileName'] for f in files)):
+            self.reject(400, 'Ask contains invalid Files metadata')
+            return
         items = ask.get('Items') or []
         kinds = ask.get('TransferType') or {}
         sender = ask.get('SenderComputerName')
@@ -248,6 +256,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.accepted is None:
             self.reject(DECLINED_STATUS, 'declined here')
             return
+        # Bind consent to the precise filenames announced on this connection.
+        # Unsolicited uploads in explicit take-all mode remain unrestricted.
+        self.approved_names = [f['FileName'] for f in files]
         # A link transfer has no /Upload: the URL is in Items, so accepting
         # the Ask is the transfer. It is stored and never opened.
         if 'links' in kinds:
@@ -262,7 +273,8 @@ class Handler(BaseHTTPRequestHandler):
             watcher.stored(self.accepted, links)
         self.answer(self.identity_plist())
 
-    def receive_archive(self, raw, budget, plan, deadline, tid, on_progress):
+    def receive_archive(self, raw, budget, plan, deadline, tid, on_progress,
+                        approved_names=None):
         """Store the upload's files; returns their names and whether the body
         ended. An iPhone never ends the body of a video or a Live Photo."""
         dest = self.server.settings.dest
@@ -280,7 +292,8 @@ class Handler(BaseHTTPRequestHandler):
             if not deadline.between_chunks:
                 raise
             try:
-                written = transfer.store_upload(raw, dest, tid, budget)
+                written = transfer.store_upload(raw, dest, tid, budget,
+                                                approved=approved_names)
             except transfer.UploadLimitError:
                 raise
             except ValueError:
@@ -289,7 +302,8 @@ class Handler(BaseHTTPRequestHandler):
                          'with no end marker', tid, deadline.transferred)
             return written, False
         logging.info('upload %s: %d bytes received', tid, wire_bytes)
-        return transfer.store_upload(raw, dest, tid, budget), True
+        return transfer.store_upload(raw, dest, tid, budget,
+                                     approved=approved_names), True
 
     def handle_upload(self):
         settings = self.server.settings
@@ -302,6 +316,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         tid = transfer.safe_name(self.headers.get('TransferID', ''), 'upload')
         watcher = self.server.watcher
+        approved_names = getattr(self, 'approved_names', None)
+        self.approved_names = None
         token = watcher.upload_started(self.accepted, tid, announced_bytes(self.headers))
         self.accepted = None
         if token is None:
@@ -324,7 +340,8 @@ class Handler(BaseHTTPRequestHandler):
             with tempfile.TemporaryFile(dir=settings.dest) as raw:
                 written, ended = self.receive_archive(
                     raw, budget, plan, deadline, tid,
-                    lambda done: watcher.upload_progress(token, done))
+                    lambda done: watcher.upload_progress(token, done),
+                    approved_names=approved_names)
             logging.info('upload %s: stored %s', tid, ', '.join(written))
         except TimeoutError as error:
             expected = plan[1] if plan else None

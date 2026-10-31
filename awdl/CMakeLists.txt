@@ -81,3 +81,9 @@ add_executable(redact_test tests/redact_test.c win/redact.c)
 target_include_directories(redact_test PRIVATE win)
 target_compile_options(redact_test PRIVATE -Wall -Wextra -Werror)
 target_link_options(redact_test PRIVATE -static)
+
+# Security regression for the OWL A-MSDU output-capacity check.
+add_executable(rx_amsdu_bounds_test tests/rx_amsdu_bounds_test.c compat/ether.c)
+target_link_libraries(rx_amsdu_bounds_test PRIVATE awdl)
+target_compile_options(rx_amsdu_bounds_test PRIVATE -Wall -Wextra -Werror)
+target_link_options(rx_amsdu_bounds_test PRIVATE -static)

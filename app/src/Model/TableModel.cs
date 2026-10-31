@@ -504,7 +504,9 @@ public sealed class TableModel : Observable
         var total = Number(said, "total");
         var sender = Text(said, "sender");
         var model = Text(said, "model");
-        var known = sender.Length > 0 && IsTrusted(sender, model);
+        // The sender controls these strings; they cannot authenticate a device.
+        // Until there is cryptographic pairing, every Ask needs its own consent.
+        var known = false;
         var waits = Flag(said, "waits") && !known;
         var detail = names.Count == 1 ? Words.Title(names[0]) : "";
         if (total is > 0) detail += (detail.Length > 0 ? " · " : "") + Words.Size(total.Value);
@@ -520,14 +522,14 @@ public sealed class TableModel : Observable
             Decline = new Command(() => Answer(id, false)),
             Always = new Command(() =>
             {
-                Trust(sender, model);
+                // No name-only persistent approval: it is trivially spoofable.
                 Answer(id, true);
             }),
             Dismiss = new Command(() =>
             {
                 if (Find(id) is { } shown) Incoming.Remove(shown);
             }),
-            CanAlways = waits && sender.Length > 0,
+            CanAlways = false,
             State = waits ? IncomingState.Asking : IncomingState.Receiving,
             Status = waits ? detail : "Waiting for the files",
         };

@@ -6,6 +6,10 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <sddl.h>
+#ifdef _MSC_VER
+#pragma comment(lib, "advapi32.lib")
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -23,14 +27,27 @@ class PipeServer {
 public:
   /* `stopping` is polled while an operation waits, so a blocked read or
    * connect ends soon after the daemon is asked to stop. */
-  PipeServer(const std::string &name, std::function<bool()> stopping)
+  /* `admins_only` gives the pipe a DACL for SYSTEM and Administrators
+   * alone, so a standard-user process can neither read frames nor talk to
+   * the radio, nor hold its single instance. Only tests turn it off. */
+  PipeServer(const std::string &name, std::function<bool()> stopping,
+             bool admins_only = true)
       : _stopping(std::move(stopping)) {
-    _handle = CreateNamedPipeA(name.c_str(),
-                               PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED |
-                                   FILE_FLAG_FIRST_PIPE_INSTANCE,
-                               PIPE_TYPE_BYTE | PIPE_READMODE_BYTE |
-                                   PIPE_REJECT_REMOTE_CLIENTS,
-                               1, kBufferBytes, kBufferBytes, 0, nullptr);
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    if (!admins_only || ConvertStringSecurityDescriptorToSecurityDescriptorA(
+                            "D:P(A;;GA;;;SY)(A;;GA;;;BA)", SDDL_REVISION_1,
+                            &descriptor, nullptr)) {
+      SECURITY_ATTRIBUTES attributes{
+          static_cast<DWORD>(sizeof(SECURITY_ATTRIBUTES)), descriptor, FALSE};
+      _handle = CreateNamedPipeA(name.c_str(),
+                                 PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED |
+                                     FILE_FLAG_FIRST_PIPE_INSTANCE,
+                                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE |
+                                     PIPE_REJECT_REMOTE_CLIENTS,
+                                 1, kBufferBytes, kBufferBytes, 0,
+                                 descriptor ? &attributes : nullptr);
+      if (descriptor) LocalFree(descriptor);
+    }
     _read_event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
     _write_event = CreateEventA(nullptr, TRUE, FALSE, nullptr);
   }

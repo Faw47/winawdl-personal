@@ -126,7 +126,7 @@ public sealed class TrustedModel(KnownDevice device)
     public string Name => Device.Name;
     public string Glyph => Words.Glyph(Words.KindOfDevice(Device.Model.Length > 0 ? Device.Model : null));
     public ICommand? Forget { get; init; }
-    public string ForgetName => $"Stop always accepting from {Name}";
+    public string ForgetName => $"Forget inactive saved name {Name}";
 }
 
 /// <summary>What a device sent, once it is stored: a notice that leads to it.</summary>

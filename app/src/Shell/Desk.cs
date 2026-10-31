@@ -125,14 +125,65 @@ public sealed class Desk(Dispatcher dispatcher) : IDesk
         }
     }
 
+    // Types Windows runs, installs, mounts or follows when opened. One of these
+    // that someone sent is shown in Explorer, so one click cannot run it.
+    private static readonly HashSet<string> Runnable = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".exe", ".com", ".scr", ".pif", ".cpl", ".msc", ".msi", ".msp", ".mst",
+        ".msix", ".msixbundle", ".appx", ".appxbundle", ".appinstaller", ".application",
+        ".appref-ms", ".bat", ".cmd", ".ps1", ".psm1", ".psd1", ".ps1xml", ".vbs", ".vbe",
+        ".js", ".jse", ".wsf", ".wsh", ".wsc", ".hta", ".jar", ".py", ".pyw", ".reg",
+        ".inf", ".lnk", ".url", ".website", ".scf", ".library-ms", ".search-ms",
+        ".searchconnector-ms", ".settingcontent-ms", ".chm", ".hlp", ".gadget", ".diagcab",
+        ".iso", ".img", ".vhd", ".vhdx", ".dll", ".sys", ".ocx", ".xll", ".theme",
+        ".themepack",
+    };
+
     public void Open(string path)
     {
+        if (File.Exists(path) && Runnable.Contains(Path.GetExtension(path)))
+        {
+            // A link the receiver stored itself still opens in the browser.
+            if (StoredWebLink(path) is { } url)
+            {
+                path = url;
+            }
+            else
+            {
+                Reveal(path);
+                return;
+            }
+        }
         try
         {
             Process.Start(new ProcessStartInfo(path) { UseShellExecute = true })?.Dispose();
         }
         catch (Exception error) when (error is System.ComponentModel.Win32Exception or IOException)
         {
+        }
+    }
+
+    /// <summary>The web address in a .url exactly as airdrop\transfer.py writes
+    /// one, two lines and an http or https URL; null for anything else.</summary>
+    private static string? StoredWebLink(string path)
+    {
+        if (!string.Equals(Path.GetExtension(path), ".url", StringComparison.OrdinalIgnoreCase)) return null;
+        try
+        {
+            if (new FileInfo(path).Length > 8192) return null;
+            var lines = File.ReadAllLines(path);
+            if (lines.Length != 2 || lines[0] != "[InternetShortcut]"
+                || !lines[1].StartsWith("URL=", StringComparison.Ordinal)) return null;
+            var url = lines[1][4..];
+            if (url.Any(char.IsControl) || url.Contains(' ')) return null;
+            return Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                   && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+                ? uri.AbsoluteUri
+                : null;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 

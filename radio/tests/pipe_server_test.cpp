@@ -52,7 +52,7 @@ void real_client(bool &got_hello) {
 } /* namespace */
 
 int main() {
-  PipeServer server(kPipeName, [] { return false; });
+  PipeServer server(kPipeName, [] { return false; }, /*admins_only=*/false);
   expect(server.valid(), "pipe created");
 
   /* What a shell's "does this pipe exist" check does: connect and hang up. */

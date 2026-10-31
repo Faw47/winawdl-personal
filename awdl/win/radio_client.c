@@ -121,6 +121,36 @@ static DWORD WINAPI reader_main(void *arg) {
 	return 0;
 }
 
+#ifndef PROCESS_QUERY_LIMITED_INFORMATION
+#define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
+#endif
+/* TokenElevation, spelled out so no header version can hide it. */
+#define TOKEN_ELEVATION_CLASS ((TOKEN_INFORMATION_CLASS) 20)
+
+/* Anyone may create a pipe of this name before the radio daemon does. What
+ * arrives on it is trusted only when the process serving it is elevated,
+ * which a standard-user program cannot be. */
+static BOOL pipe_server_is_elevated(HANDLE pipe) {
+	typedef BOOL (WINAPI *server_pid_fn)(HANDLE, PULONG);
+	server_pid_fn server_pid = (server_pid_fn) (void (*)(void)) GetProcAddress(
+		GetModuleHandleA("kernel32.dll"), "GetNamedPipeServerProcessId");
+	ULONG pid = 0;
+	if (!server_pid || !server_pid(pipe, &pid))
+		return FALSE;
+	HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+	if (!process)
+		return FALSE;
+	HANDLE token = NULL;
+	DWORD elevated = 0, size = 0;
+	BOOL known = OpenProcessToken(process, TOKEN_QUERY, &token) &&
+		     GetTokenInformation(token, TOKEN_ELEVATION_CLASS, &elevated,
+					 sizeof(elevated), &size);
+	if (token)
+		CloseHandle(token);
+	CloseHandle(process);
+	return known && elevated;
+}
+
 /* The daemon may still be starting, or its single pipe instance may still be
  * tied to a client that just left, so keep trying for a while. */
 static HANDLE connect_pipe(void) {
@@ -128,8 +158,15 @@ static HANDLE connect_pipe(void) {
 	for (;;) {
 		HANDLE pipe = CreateFileA(RADIO_LINK_PIPE_NAME, GENERIC_READ | GENERIC_WRITE, 0,
 					  NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
-		if (pipe != INVALID_HANDLE_VALUE)
-			return pipe;
+		if (pipe != INVALID_HANDLE_VALUE) {
+			if (pipe_server_is_elevated(pipe))
+				return pipe;
+			CloseHandle(pipe);
+			log_error("refusing %s: the process serving it is not elevated",
+				  RADIO_LINK_PIPE_NAME);
+			SetLastError(ERROR_ACCESS_DENIED);
+			return INVALID_HANDLE_VALUE;
+		}
 		DWORD error = GetLastError();
 		BOOL may_appear = error == ERROR_FILE_NOT_FOUND || error == ERROR_PIPE_BUSY;
 		if (!may_appear || GetTickCount64() >= deadline) {
