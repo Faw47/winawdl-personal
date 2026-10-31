@@ -16,6 +16,9 @@ import unittest
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import apple_fixtures  # noqa: E402
+import contacts  # noqa: E402
 import receiver  # noqa: E402
 import transfer  # noqa: E402
 from test_transfer import archive, padded, portable_member  # noqa: E402
@@ -235,6 +238,130 @@ class ReceiverTest(unittest.TestCase):
         self.settings.interface_index = OTHER_INTERFACE
         with self.assertRaises(OSError):
             self.post_plist(self.connect(), '/Discover', {})
+
+
+class ContactsOnlyTest(unittest.TestCase):
+    """The receiver over TLS with only known senders accepted, against a
+    stand-in for Apple's CAs."""
+
+    ACCOUNT = '001288-10-AAAA-BBBB-CCCC-DDDD'
+    OTHER = '001288-10-FFFF-9999-8888-7777'
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.tmp.cleanup)
+        cls.fx = apple_fixtures.Fixtures(cls.tmp.name)
+        for name, path in (('APPLE_ROOT_CA', cls.fx.root_crt),
+                           ('APPLE_AAI_CA', cls.fx.mid_crt), ('RECORD_CA', cls.fx.mid_crt)):
+            patcher = mock.patch.object(contacts, name, path)
+            patcher.start()
+            cls.addClassCleanup(patcher.stop)
+        cls.keys = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.keys.cleanup)
+        cls.context = receiver.tls_context(cls.keys.name, contacts_only=True)
+        cls.friend = cls.fx.client(cls.ACCOUNT)
+        cls.impostor = cls.fx.client(cls.OTHER)
+        cls.friends_record = cls.fx.record(['friend@example.com'], cls.ACCOUNT)
+        cls.strangers_record = cls.fx.record(['stranger@example.com'], cls.ACCOUNT)
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.settings = argparse.Namespace(
+            name='Test PC', model='MacBookPro18,3', dest=self.temp.name,
+            max_receive_percent=30, interface_index=LOOPBACK_SCOPE, redact=False,
+            contacts_only=True, known_senders=['Friend@Example.com'])
+        self.asked = []
+        watcher = receiver.Watcher()
+        watcher.asked = lambda ask, address, left: self.asked.append(ask) or True
+        self.server = receiver.Receiver(0, self.settings, watcher)
+        self.server.socket = self.context.wrap_socket(
+            self.server.socket, server_side=True, do_handshake_on_connect=False)
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(self.stop_server, thread)
+
+    def stop_server(self, thread):
+        self.server.shutdown()
+        thread.join()
+        self.server.reset_sessions()
+        self.server.server_close()
+
+    def connect(self, client=None):
+        trusting = ssl.create_default_context()
+        trusting.check_hostname = False
+        trusting.verify_mode = ssl.CERT_NONE
+        if client:
+            trusting.load_cert_chain(*client)
+        connection = http.client.HTTPSConnection(
+            '::1', self.server.server_address[1], context=trusting, timeout=10)
+        self.addCleanup(connection.close)
+        return connection
+
+    def post(self, connection, path, value):
+        body = plistlib.dumps(value, fmt=plistlib.FMT_BINARY)
+        connection.request('POST', path, body=iter([body]), encode_chunked=True,
+                           headers={'Transfer-Encoding': 'chunked'})
+        response = connection.getresponse()
+        return response.status, response.read()
+
+    def ask(self, record):
+        ask = {'SenderComputerName': 'Phone', 'Files': [{'FileName': 'a.txt'}]}
+        if record:
+            ask['SenderRecordData'] = record
+        return ask
+
+    def upload(self, connection):
+        payload = gzip.compress(archive(portable_member('./a.txt', b'from a friend')))
+        connection.request('POST', '/Upload', body=payload,
+                           headers={'Content-Type': 'application/x-dvzip'})
+        response = connection.getresponse()
+        response.read()
+        return response.status
+
+    def test_a_known_sender_is_asked_about_and_stored(self):
+        connection = self.connect(self.friend)
+        self.assertEqual(self.post(connection, '/Ask', self.ask(self.friends_record))[0], 200)
+        self.assertEqual(len(self.asked), 1)
+        self.assertEqual(self.upload(connection), 200)
+        self.assertEqual(os.listdir(self.temp.name), ['a.txt'])
+
+    def test_a_stranger_is_refused_before_anyone_is_asked(self):
+        connection = self.connect(self.friend)
+        self.assertEqual(self.post(connection, '/Ask', self.ask(self.strangers_record))[0], 403)
+        self.assertEqual(self.asked, [])
+
+    def test_a_known_senders_record_from_another_key_is_refused(self):
+        connection = self.connect(self.impostor)
+        self.assertEqual(self.post(connection, '/Ask', self.ask(self.friends_record))[0], 403)
+        self.assertEqual(self.asked, [])
+
+    def test_a_sender_with_no_certificate_is_refused(self):
+        connection = self.connect()
+        self.assertEqual(self.post(connection, '/Ask', self.ask(self.friends_record))[0], 403)
+
+    def test_an_upload_with_no_accepted_ask_is_refused(self):
+        self.assertEqual(self.upload(self.connect(self.friend)), 403)
+        self.assertEqual(os.listdir(self.temp.name), [])
+
+    def test_a_link_from_a_stranger_is_not_stored(self):
+        ask = {'TransferType': {'links': True}, 'Items': ['https://example.org/page'],
+               'SenderRecordData': self.strangers_record}
+        self.assertEqual(self.post(self.connect(self.friend), '/Ask', ask)[0], 403)
+        self.assertEqual(os.listdir(self.temp.name), [])
+
+    def test_an_identified_stranger_does_not_see_this_computer(self):
+        status, body = self.post(self.connect(), '/Discover',
+                                 {'SenderRecordData': self.strangers_record})
+        self.assertEqual(status, receiver.DECLINED_STATUS)
+        self.assertNotIn(b'Test PC', body)
+
+    def test_a_known_sender_and_an_unidentified_one_see_it(self):
+        for value in ({'SenderRecordData': self.friends_record}, {}):
+            status, body = self.post(self.connect(), '/Discover', value)
+            self.assertEqual(status, 200)
+            self.assertEqual(plistlib.loads(body)['ReceiverComputerName'], 'Test PC')
 
 
 if __name__ == '__main__':
