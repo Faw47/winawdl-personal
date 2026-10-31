@@ -220,10 +220,11 @@ class Handler(BaseHTTPRequestHandler):
     def identity_plist(self):
         settings = self.server.settings
         return plistlib.dumps({
-            'ReceiverMediaCapabilities': (original_media.CAPABILITIES
-                                          if getattr(settings, 'original_media',
-                                                     os.environ.get('WINAWDL_ORIGINAL_MEDIA') == '1')
-                                          else MEDIA_CAPABILITIES),
+            'ReceiverMediaCapabilities': (
+                original_media.CAPABILITIES
+                if getattr(settings, 'original_media',
+                           os.environ.get('WINAWDL_ORIGINAL_MEDIA') == '1')
+                else MEDIA_CAPABILITIES),
             'ReceiverComputerName': settings.name,
             'ReceiverModelName': settings.model,
         }, fmt=plistlib.FMT_BINARY)
