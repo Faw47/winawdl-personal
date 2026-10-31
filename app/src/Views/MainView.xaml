@@ -289,6 +289,11 @@
               </Button>
               <TextBlock Style="{StaticResource Soft}" Margin="0,12,0,0" HorizontalAlignment="Center"
                          TextAlignment="Center" Text="Ctrl+V pastes files copied in Explorer" />
+              <TextBlock Style="{StaticResource Soft}" Margin="0,12,0,4"
+                         Text="Or paste a web link, then press a device above" />
+              <TextBox Style="{StaticResource Field}" MaxLength="8192"
+                       Text="{Binding LinkDraft, UpdateSourceTrigger=PropertyChanged}"
+                       AutomationProperties.Name="Web link to send" />
             </StackPanel>
 
             <StackPanel Margin="14,14,8,10" Visibility="{Binding HasHeld, Converter={StaticResource Shown}}">
@@ -398,6 +403,16 @@
                   </StackPanel>
                 </RadioButton>
               </StackPanel>
+
+              <CheckBox Style="{StaticResource Tick}" Margin="0,22,0,0"
+                        IsChecked="{Binding OriginalMedia}"
+                        AutomationProperties.Name="Preserve original photo and video formats">
+                <StackPanel>
+                  <TextBlock Text="Preserve original photo and video formats" TextWrapping="Wrap" />
+                  <TextBlock Style="{StaticResource Soft}"
+                             Text="Request HEIC and HEVC instead of converted files. Some devices may not support this." />
+                </StackPanel>
+              </CheckBox>
 
               <StackPanel Visibility="{Binding HasTrusted, Converter={StaticResource Shown}}">
                 <TextBlock Style="{StaticResource Label}" Text="Inactive saved names" Margin="0,22,0,2" />
