@@ -5,6 +5,10 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Send with AirDrop from Explorer.** A switch adds a Send to shortcut and
+  classic file and folder menu entries for this account. Selected items open
+  in the one running copy of winawdl, ready to send.
+
 - **Start with Windows.** A switch in Window settings opens winawdl in the
   notification area when you sign in. It reads the Windows startup entry
   when Settings opens, and uninstall removes that account's entry.

@@ -6,7 +6,7 @@
 # The setup program uses two more. -Missing only lists what the PC still
 # lacks, one "winget id, tab, name" a line. -Setup says the setup program has
 # copied the files and makes the shortcut and the list entry itself.
-param([switch]$Yes, [switch]$DryRun, [switch]$Missing, [switch]$Setup)
+param([switch]$Yes, [switch]$DryRun, [switch]$Missing, [switch]$Setup, [switch]$SkipExplorer)
 $ErrorActionPreference = 'Stop'
 # A 32-bit program that starts this is shown the 32-bit Program Files and no
 # pnputil, so it carries on in the 64-bit PowerShell.
@@ -282,6 +282,15 @@ Step 'a shortcut, and an entry in the list of installed apps' {
   # The size the list of installed apps shows, in kilobytes.
   $bytes = (Get-ChildItem $Target -Recurse -File | Measure-Object Length -Sum).Sum
   Set-ItemProperty $UninstallKey -Name EstimatedSize -Value ([int][math]::Ceiling($bytes / 1KB)) -Type DWord
+}
+
+if (-not $SkipExplorer) {
+  'Explorer'
+  Step 'add Send with AirDrop for this account' {
+    $app = Join-Path $Target 'winawdl.exe'
+    $result = Start-Process -FilePath $app -ArgumentList '--explorer-install' -Wait -PassThru -WindowStyle Hidden
+    if ($result.ExitCode -ne 0) { throw 'Send with AirDrop could not be added for this account.' }
+  }
 }
 
 ''

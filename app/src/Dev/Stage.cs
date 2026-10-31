@@ -91,6 +91,23 @@ public sealed class ScriptedStartup : IStartup
     }
 }
 
+public sealed class ScriptedExplorer : IExplorerIntegration
+{
+    public bool Stored { get; set; }
+    public bool RefuseRead { get; set; }
+    public bool RefuseWrite { get; set; }
+    public bool IgnoreWrite { get; set; }
+    public bool Enabled
+    {
+        get => RefuseRead ? throw new UnauthorizedAccessException() : Stored;
+        set
+        {
+            if (RefuseWrite) throw new UnauthorizedAccessException();
+            if (!IgnoreWrite) Stored = value;
+        }
+    }
+}
+
 /// <summary>Windows with the dialogs answered in advance and nothing opened.</summary>
 public sealed class ScriptedDesk(Dispatcher dispatcher) : IDesk
 {
@@ -175,7 +192,7 @@ public static class Stage
             {
                 theme.Apply(palette);
                 var view = Build(build, app.Dispatcher);
-                if (name.StartsWith("settings-startup-"))
+                if (name.StartsWith("settings-startup-") || name.StartsWith("settings-explorer-"))
                 {
                     view.Measure(new Size(460, 688));
                     view.Arrange(new Rect(0, 0, 460, 688));
@@ -224,7 +241,7 @@ public static class Stage
     }
 
     public sealed record World(ScriptedEngine Engine, ScriptedRadio Radio, ScriptedDesk Desk, TableModel Model,
-                               AppSettings Settings, ScriptedStartup Startup);
+                               AppSettings Settings, ScriptedStartup Startup, ScriptedExplorer Explorer);
 
     public static World NewWorld(Dispatcher dispatcher, string? folder = null)
     {
@@ -233,10 +250,11 @@ public static class Stage
         var desk = new ScriptedDesk(dispatcher);
         var settings = new AppSettings { Name = "STUDY-PC", Folder = folder ?? Path.GetTempPath() };
         var startup = new ScriptedStartup();
-        var model = new TableModel(engine, radio, desk, settings, startup);
+        var explorer = new ScriptedExplorer();
+        var model = new TableModel(engine, radio, desk, settings, startup, explorer);
         model.StartTheEngine();
         model.SetVisible(true);
-        return new World(engine, radio, desk, model, settings, startup);
+        return new World(engine, radio, desk, model, settings, startup, explorer);
     }
 
     private static MainView Build(Action<World> scene, Dispatcher dispatcher)
@@ -363,6 +381,23 @@ public static class Stage
         yield return ("settings-startup-unreadable", world =>
         {
             world.Startup.RefuseRead = true;
+            world.Model.SettingsOpen = true;
+        });
+        yield return ("settings-explorer-off", world => world.Model.SettingsOpen = true);
+        yield return ("settings-explorer-on", world =>
+        {
+            world.Explorer.Stored = true;
+            world.Model.SettingsOpen = true;
+        });
+        yield return ("settings-explorer-error", world =>
+        {
+            world.Explorer.RefuseWrite = true;
+            world.Model.SettingsOpen = true;
+            world.Model.ExplorerEnabled = true;
+        });
+        yield return ("settings-explorer-unreadable", world =>
+        {
+            world.Explorer.RefuseRead = true;
             world.Model.SettingsOpen = true;
         });
         yield return ("settings-always", world =>

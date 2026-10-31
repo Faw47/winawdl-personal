@@ -30,8 +30,9 @@ PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19041
-; The app holds this while it runs, so setup asks for it to be closed first.
-AppMutex=winawdl-app
+; A per-user Global mutex contains the user's SID. An elevated setup may run
+; under a different account, so it cannot name that user's mutex here.
+; Inno's file-in-use check and install.ps1's process wait handle running copies.
 InfoBeforeFile=before.txt
 SetupIconFile=..\app\winawdl.ico
 UninstallDisplayIcon={app}\winawdl.exe
@@ -62,6 +63,8 @@ Name: "{commonappdata}\winawdl\logs"; Flags: uninsneveruninstall
 Name: "{autoprograms}\winawdl"; Filename: "{app}\winawdl.exe"; WorkingDir: "{app}"; Comment: "AirDrop on Windows"
 
 [Run]
+; Registration must run as the person who launched setup, not the elevated helper.
+Filename: "{app}\winawdl.exe"; Parameters: "--explorer-install"; Flags: runhidden waituntilterminated runasoriginaluser; Check: SetUpWell
 ; As the person who started setup, not as administrator: Explorer cannot drop files on a window that is.
 Filename: "{app}\winawdl.exe"; Description: "Start winawdl"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: SetUpWell
 
@@ -74,6 +77,7 @@ Root: HKCU64; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName
 const
   CardKey = 'SYSTEM\CurrentControlSet\Enum\PCI';
   CardPrefix = 'VEN_10EC&DEV_C852';
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{6B0F6E0C-6C5E-4E0B-9B5C-5D7E7C0A2A31}_is1';
 
 var
   Failed: Boolean;
@@ -197,11 +201,45 @@ begin
   Result := not Failed;
 end;
 
+{ Inno cannot run code as the original user during uninstall. The Add/Remove
+  Programs command starts this script before elevation, so it can remove the
+  launching user's HKCU entries before the generated uninstaller takes over. }
+procedure SetUserUninstallCommand;
+var
+  Command: String;
+begin
+  Command := '"' + ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe') +
+    '" -NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\uninstall.ps1') +
+    '" -InnoUninstall "' + ExpandConstant('{uninstallexe}') + '"';
+  if not RegWriteStringValue(HKLM64, UninstallKey, 'UninstallString', Command) or
+     not RegWriteStringValue(HKLM64, UninstallKey, 'QuietUninstallString', Command + ' -Quiet') then
+    RaiseException('Could not prepare the per-user uninstall command.');
+end;
+
+function InitializeUninstall: Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/WINAWDLUSERCLEANED') = 0 then
+      Result := True;
+  if not Result then
+    MsgBox('Start winawdl removal from Installed apps. It first removes this account''s ' +
+           'Send with AirDrop and startup entries, then starts the system uninstaller.',
+           mbError, MB_OK);
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
   Said: AnsiString;
 begin
+  if CurStep = ssDone then
+  begin
+    SetUserUninstallCommand;
+    exit;
+  end;
   if CurStep <> ssPostInstall then
     exit;
   WizardForm.StatusLabel.Caption := 'Signing the driver on this PC and giving the Wi-Fi card to it...';

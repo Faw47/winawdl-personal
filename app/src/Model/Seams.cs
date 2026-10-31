@@ -60,6 +60,12 @@ public interface IStartup
     bool Enabled { get; set; }
 }
 
+/// <summary>The current user's SendTo shortcut and classic Explorer verbs.</summary>
+public interface IExplorerIntegration
+{
+    bool Enabled { get; set; }
+}
+
 /// <summary>A device whose requests are accepted without asking. The name and
 /// the model are what it says of itself: AirDrop gives a PC nothing sturdier.</summary>
 public sealed class KnownDevice

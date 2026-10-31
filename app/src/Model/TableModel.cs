@@ -25,8 +25,11 @@ public sealed class TableModel : Observable
     private readonly IDesk _desk;
     private readonly AppSettings _settings;
     private readonly IStartup _startup;
+    private readonly IExplorerIntegration _explorer;
     private bool _startupEnabled, _startupAvailable;
     private string _startupError = "";
+    private bool _explorerEnabled, _explorerAvailable;
+    private string _explorerError = "";
     private int _sends;
     private bool _engineUp, _wantsLook, _linkUp, _looking, _beaconOn = true, _receiving, _settingsOpen;
     private bool _radioHasRun;
@@ -38,14 +41,17 @@ public sealed class TableModel : Observable
     private DateTime? _everyoneUntil;
     private int _unwilling;
 
-    public TableModel(IEngine engine, IRadio radio, IDesk desk, AppSettings settings, IStartup startup)
+    public TableModel(IEngine engine, IRadio radio, IDesk desk, AppSettings settings, IStartup startup,
+                      IExplorerIntegration explorer)
     {
         _engine = engine;
         _radio = radio;
         _desk = desk;
         _settings = settings;
         _startup = startup;
+        _explorer = explorer;
         RefreshStartup();
+        RefreshExplorer();
         _nameDraft = Name;
         _engine.Said += OnSaid;
         _engine.Stopped += OnEngineStopped;
@@ -924,6 +930,7 @@ public sealed class TableModel : Observable
                 _nameDraft = Name;
                 _nameError = _folderError = "";
                 RefreshStartup();
+                RefreshExplorer();
             }
             ChangedAll();
         }
@@ -1066,7 +1073,8 @@ public sealed class TableModel : Observable
     public bool HasStartupProblem => _startupError.Length > 0;
 
     private static bool StartupError(Exception error) =>
-        error is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException;
+        error is IOException or UnauthorizedAccessException or System.Security.SecurityException
+            or ArgumentException or System.Runtime.InteropServices.COMException;
 
     private void RefreshStartup()
     {
@@ -1081,6 +1089,48 @@ public sealed class TableModel : Observable
             _startupEnabled = false;
             _startupAvailable = false;
             _startupError = "Start with Windows could not be read. Check this account's permissions and reopen Settings.";
+        }
+    }
+
+    public bool ExplorerEnabled
+    {
+        get => _explorerEnabled;
+        set
+        {
+            if (_explorerEnabled == value) return;
+            try
+            {
+                _explorer.Enabled = value;
+                RefreshExplorer();
+                if (_explorerAvailable && _explorerEnabled != value)
+                    _explorerError = "Windows did not keep that change. Try again.";
+            }
+            catch (Exception error) when (StartupError(error))
+            {
+                RefreshExplorer();
+                _explorerError = "Send with AirDrop could not be changed. Check this account's permissions and try again.";
+            }
+            ChangedAll();
+        }
+    }
+
+    public bool ExplorerAvailable => _explorerAvailable;
+    public string ExplorerProblem => _explorerError;
+    public bool HasExplorerProblem => _explorerError.Length > 0;
+
+    private void RefreshExplorer()
+    {
+        try
+        {
+            _explorerEnabled = _explorer.Enabled;
+            _explorerAvailable = true;
+            _explorerError = "";
+        }
+        catch (Exception error) when (StartupError(error))
+        {
+            _explorerEnabled = false;
+            _explorerAvailable = false;
+            _explorerError = "Send with AirDrop could not be read. Check this account's permissions and reopen Settings.";
         }
     }
 
