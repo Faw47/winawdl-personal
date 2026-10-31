@@ -96,6 +96,20 @@ jobs:
           $run = Start-Process build\app\winawdl\winawdl.exe -ArgumentList '--check', "`"$out`"" -Wait -PassThru
           if (Test-Path "$out\check.log") { Get-Content "$out\check.log" }
           exit $run.ExitCode
+      - name: Draw every screen, light and dark
+        shell: pwsh
+        run: |
+          $out = "$PWD\build\screens"
+          $run = Start-Process build\app\winawdl\winawdl.exe -ArgumentList '--render', "`"$out`"" -Wait -PassThru
+          if ($run.ExitCode -ne 0) { exit $run.ExitCode }
+          Get-ChildItem $out -Filter *.png | Measure-Object | Select-Object -ExpandProperty Count
+      - name: Save the screens
+        uses: actions/upload-artifact@v4
+        with:
+          name: screens-${{ github.sha }}
+          path: build/screens/*.png
+          if-no-files-found: error
+          retention-days: 14
       - name: Save Windows app files
         uses: actions/upload-artifact@v4
         with:
