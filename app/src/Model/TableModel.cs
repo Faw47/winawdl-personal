@@ -206,7 +206,11 @@ public sealed class TableModel : Observable
     }
 
     public string NobodyTitle => _looking ? "No one nearby yet" : "Getting ready to look";
-    public string NobodyBody => _looking
+    // A device that will not answer has its own notice below, which says what to
+    // change on it; the general advice would only repeat it.
+    public string NobodyBody => _looking && _unwilling > 0
+        ? "Keep the other device's screen on."
+        : _looking
         ? "Set AirDrop to Everyone for 10 Minutes on the device (Settings, General, AirDrop) and keep "
           + "its screen on."
         : "Nearby devices are woken over Bluetooth first.";

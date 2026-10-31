@@ -162,7 +162,7 @@ public static class Checks
         world.Radio.Become(RadioPhase.Failed, "radio: could not get 6 locked 2 MiB blocks below 4 GiB");
         Expect(model.Across == Across.RadioProblem && model.PanelTitle == "AirDrop stopped" && model.PanelHasLog,
                $"the radio ends by itself -> \"{model.PanelTitle}\": \"{model.PanelBody}\"");
-        Expect(Press(view, "Open the logs") && world.Desk.Opened.Last().StartsWith("open "), "Open the logs -> the log folder is opened (recorded)");
+        Expect(Press(view, "Show Logs") && world.Desk.Opened.Last().StartsWith("open "), "Show Logs -> the log folder is opened (recorded)");
         Expect(Press(view, "Try Again") && world.Radio.Starts == 2, "Try Again -> the radio is started again");
         world.Radio.Become(RadioPhase.Failed, "");
         Expect(model.PanelTitle == "AirDrop did not start" && model.PanelBody == "It left nothing in its log.",

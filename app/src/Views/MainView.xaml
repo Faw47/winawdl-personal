@@ -170,7 +170,7 @@
                 <TextBlock Text="{Binding PanelActionLabel}" />
               </StackPanel>
             </Button>
-            <Button Style="{StaticResource TextButton}" Content="Open the logs" Margin="0,8,0,0"
+            <Button Style="{StaticResource TextButton}" Content="Show Logs" Margin="0,8,0,0"
                     HorizontalAlignment="Center" Command="{Binding OpenLog}"
                     Visibility="{Binding PanelHasLog, Converter={StaticResource Shown}}" />
           </StackPanel>
