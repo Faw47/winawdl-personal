@@ -34,6 +34,8 @@ import transfer
 
 PROTOCOL = 1
 LINK_POLL_SECONDS = 1
+# The longest "everyone for a while", as on an iPhone and then some.
+MAX_EVERYONE_SECONDS = 60 * 60
 # A receiver that has not been announced for this long has left.
 PEER_SILENCE_SECONDS = 20
 # How often a receiver that gave no name yet is asked again, and how often
@@ -86,12 +88,16 @@ class Settings:
         self.max_receive_percent = args.max_receive_percent
         self.contacts_only = args.contacts_only
         self.known_senders = list(args.known_senders)
+        # While everyone may send for a while: when, in seconds since the
+        # epoch, it goes back to the known senders alone.
+        self.everyone_until = None
         self.redact = False
         self.interface_index = 0
 
     def public(self):
         return {'name': self.name, 'folder': self.dest, 'ask': self.ask,
-                'contacts_only': self.contacts_only, 'known_senders': self.known_senders}
+                'contacts_only': self.contacts_only, 'known_senders': self.known_senders,
+                'everyone_until': self.everyone_until}
 
 
 class Accepted:
@@ -558,6 +564,7 @@ class Engine:
         self.scope = None
         self._lock = threading.Lock()
         self._link_thread = threading.Thread(target=self._watch_link, name='link', daemon=True)
+        self._everyone_timer = None
 
     def start(self):
         self.events.say('ready', protocol=PROTOCOL, **self.settings.public())
@@ -590,6 +597,7 @@ class Engine:
 
     def stop(self):
         self.stopping.set()
+        self._end_everyone_timer()
         self._link_thread.join()
         with self._lock:
             self.looking.look(False)
@@ -618,9 +626,42 @@ class Engine:
                 self.settings.known_senders = [s.strip() for s in senders]
             else:
                 refused['known_senders'] = 'each an email address or a phone number'
-        if 'contacts_only' in command:
+        if 'everyone_for' in command:
+            seconds = command['everyone_for']
+            if type(seconds) is int and 1 <= seconds <= MAX_EVERYONE_SECONDS:
+                self.everyone_for(seconds)
+            else:
+                refused['everyone_for'] = f'whole seconds from 1 to {MAX_EVERYONE_SECONDS}'
+        elif 'contacts_only' in command:
+            self._end_everyone_timer()
             self.contacts_only(bool(command['contacts_only']))
         self.events.say('settings', refused=refused, **self.settings.public())
+
+    def everyone_for(self, seconds):
+        """Everyone may send for this long, then only the known senders, as
+        an iPhone's "Everyone for 10 Minutes" goes back by itself."""
+        self._end_everyone_timer()
+        self.contacts_only(False)
+        self.settings.everyone_until = time.time() + seconds
+        timer = threading.Timer(seconds, self._everyone_ended)
+        timer.daemon = True
+        self._everyone_timer = timer
+        timer.start()
+
+    def _everyone_ended(self):
+        if self.stopping.is_set():
+            return
+        self._everyone_timer = None
+        self.settings.everyone_until = None
+        self.contacts_only(True)
+        logging.info('everyone could send for a while; only known senders can now')
+        self.events.say('settings', refused={}, **self.settings.public())
+
+    def _end_everyone_timer(self):
+        if self._everyone_timer:
+            self._everyone_timer.cancel()
+            self._everyone_timer = None
+        self.settings.everyone_until = None
 
     def contacts_only(self, on):
         """Only known senders, or everyone. The receiver asks senders for a

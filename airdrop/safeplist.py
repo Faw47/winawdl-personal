@@ -97,7 +97,19 @@ class _BoundedBinaryParser(plistlib._BinaryPlistParser):
 
 
 def loads(data):
-    """Decode a peer plist while bounding object counts, depth and bytes."""
+    """Decode a peer plist while bounding object counts, depth and bytes.
+    Anything that is no plist raises ValueError, however the parser below
+    fails on it: an XML one can fail as ExpatError or LookupError, which a
+    caller that catches ValueError would let through."""
+    try:
+        return _loads(data)
+    except ValueError:
+        raise
+    except Exception as error:
+        raise ValueError(f'not a plist: {type(error).__name__}') from error
+
+
+def _loads(data):
     if data[:8] == b'bplist00':
         parser = _BoundedBinaryParser(len(data))
         try:

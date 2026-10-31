@@ -422,6 +422,26 @@ by metric first whenever its radio stays on one channel, as this one does.
 `awdld` uses it unless started with `-C`. Not yet tried against an iPhone
 here; the log above will show whether a wrong master recurs.
 
+### Fuzzing
+
+`awdl/fuzz/run.sh` fuzzes, with libFuzzer, AddressSanitizer and
+UndefinedBehaviorSanitizer, the C that reads frames from anyone in range:
+OWL's receive path as patched, and the frame fixup, service bridge, host
+frame and TCP merge code. CI runs it for a minute a target. The first runs,
+on 2026-10-31, took about 12 million frames into OWL and 15 million into
+the rest without a memory error. Unpatched OWL fails in seconds from the
+seed frame, on the frames a refused A-MSDU left behind. Left out are OWL's
+unaligned field reads and radiotap's shift into the sign bit, which do what
+they mean on x86-64.
+
+`airdrop/tests/test_fuzz.py` does the same, seeded and short, for the
+Python that reads plists, archives, compressed bodies, chunked bodies and
+multicast DNS. It found that a broken XML plist failed as `ExpatError` or
+`LookupError` and a corrupt compressed body as `zlib.error`, where every
+caller expects `ValueError`. Through the sender's probe that meant a device
+answering `/Discover` with one was never probed again. Both now raise
+`ValueError`.
+
 ## The AirDrop layer
 
 `airdrop/` is the receiving half of omdrop, adapted for Windows. omdrop's

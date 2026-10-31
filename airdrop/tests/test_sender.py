@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cpio  # noqa: E402
@@ -275,6 +276,17 @@ class LoopbackTest(unittest.TestCase):
             with open(os.path.join(self.received, name), 'rb') as source:
                 stored[name] = source.read()
         self.assertEqual(stored, {'clip.mp4': large, 'note.txt': b'hello'})
+
+
+class HostileReceiverTest(unittest.TestCase):
+    def test_a_discover_answer_that_is_no_plist_gives_no_name(self):
+        # Any device on the link can answer; a broken XML plist used to
+        # escape as ExpatError and end the engine's probe of it for good.
+        for body in (b'<?xml version="1.0"?><plist><dict><key>a</ke',
+                     b'<?xml version="1.0" encoding="UTX-8"?><plist/>'):
+            with mock.patch.object(sender, 'Connection'), \
+                    mock.patch.object(sender, 'post_plist', return_value=(200, body)):
+                self.assertIsNone(sender.receiver_identity('fe80::2', 8771, 4, None))
 
 
 if __name__ == '__main__':

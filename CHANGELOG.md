@@ -5,6 +5,21 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Everyone for 10 minutes.** A third choice beside Everyone and the list:
+  anyone can send for ten minutes, then only the people listed again, with
+  the time it ends shown. If the app ends in the meantime it starts again
+  with the list.
+
+- **A device can no longer flood the screen with requests.** Each sender
+  may ask five times in 30 seconds, and all of them together twenty; past
+  that it is told to wait, before anyone is asked.
+
+- **The parsers are fuzzed**, in CI on every push: OWL's receive path and
+  the frame handling around it with sanitizers, and the AirDrop layer's
+  plist, archive, compression, chunked-body and multicast DNS readers. A
+  device answering a lookup with a broken plist could stop this PC from
+  ever asking it again; that is fixed.
+
 - **Contacts Only, for receiving.** The settings choose who can send:
   everyone, or only the people listed there by their Apple ID's email
   address or phone number. A sender must prove who it is with the record

@@ -223,6 +223,33 @@ class EngineTest(unittest.TestCase):
         self.assertEqual(sender.receiver_identity('::1', running.settings.port, LOOPBACK_SCOPE,
                                                   self.client_context), identity)
 
+    def test_everyone_for_a_while_goes_back_to_the_known_senders(self):
+        running, heard, _ = self.engine('--contacts-only', '--known-sender', 'friend@example.com')
+        identity = ('Receiver PC', 'MacBookPro18,3')
+        running.handle({'do': 'set', 'everyone_for': 1})
+        said = heard.wait('settings')
+        self.assertFalse(said['contacts_only'])
+        self.assertGreater(said['everyone_until'], time.time())
+        heard.wait('receiving', on=True)
+        self.assertEqual(sender.receiver_identity('::1', running.settings.port, LOOPBACK_SCOPE,
+                                                  self.client_context), identity)
+        ended = heard.wait('settings')
+        self.assertEqual((ended['contacts_only'], ended['everyone_until']), (True, None))
+        heard.wait('receiving', on=True)
+        with self.assertRaises(sender.Unwilling):
+            sender.receiver_identity('::1', running.settings.port, LOOPBACK_SCOPE,
+                                     self.client_context)
+
+    def test_choosing_again_ends_everyone_for_a_while(self):
+        running, heard, _ = self.engine('--contacts-only', '--known-sender', 'friend@example.com')
+        running.handle({'do': 'set', 'everyone_for': 600})
+        heard.wait('settings')
+        running.handle({'do': 'set', 'contacts_only': False})
+        said = heard.wait('settings')
+        self.assertEqual((said['contacts_only'], said['everyone_until']), (False, None))
+        running.handle({'do': 'set', 'everyone_for': 0})
+        self.assertEqual(list(heard.wait('settings')['refused']), ['everyone_for'])
+
     def test_a_known_sender_must_be_an_email_or_a_phone_number(self):
         running, heard, _ = self.engine()
         running.handle({'do': 'set', 'known_senders': ['friend@example.com', '---']})
