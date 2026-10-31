@@ -217,7 +217,8 @@ class Handler(BaseHTTPRequestHandler):
         settings = self.server.settings
         return plistlib.dumps({
             'ReceiverMediaCapabilities': (original_media.CAPABILITIES
-                                          if os.environ.get('WINAWDL_ORIGINAL_MEDIA') == '1'
+                                          if getattr(settings, 'original_media',
+                                                     os.environ.get('WINAWDL_ORIGINAL_MEDIA') == '1')
                                           else MEDIA_CAPABILITIES),
             'ReceiverComputerName': settings.name,
             'ReceiverModelName': settings.model,
