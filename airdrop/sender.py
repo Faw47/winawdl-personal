@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 import uuid
+from urllib.parse import urlsplit
 from typing import NamedTuple
 
 import cpio
@@ -48,6 +49,7 @@ UNIFORM_TYPES = {
     '.txt': 'public.plain-text', '.zip': 'public.zip-archive',
 }
 DEFAULT_UNIFORM_TYPE = 'public.data'
+MAX_LINK_BYTES = 8192
 BEACON_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              'scripts', 'airdrop-beacon.ps1')
 BEACON_READY = 'advertising'
@@ -207,6 +209,42 @@ def outgoing(paths):
     if len(set(names)) != len(names):
         raise Unsendable('same_name', 'two of the files have the same name')
     return files
+
+
+def valid_links(urls):
+    """Validate web URLs before sending them to another device's browser."""
+    if not urls:
+        raise Unsendable('invalid_url', 'at least one web URL is required')
+    if len(urls) > transfer.MAX_ARCHIVE_MEMBERS:
+        raise Unsendable('invalid_url', 'too many URLs in one transfer')
+    result = []
+    for url in urls:
+        if not isinstance(url, str) or not transfer.is_web_link(url):
+            raise Unsendable('invalid_url', 'only HTTP/HTTPS URLs without whitespace are supported')
+        try:
+            parts = urlsplit(url)
+            host = parts.hostname
+            encoded = url.encode('utf-8')
+        except (ValueError, UnicodeEncodeError):
+            raise Unsendable('invalid_url', 'invalid URL') from None
+        if not host or len(encoded) > MAX_LINK_BYTES:
+            raise Unsendable('invalid_url', 'URL must have a host and fit within 8192 bytes')
+        result.append(url)
+    return result
+
+
+def links_ask_body(sender_name, urls, transfer_id):
+    """A web-link Ask shaped like Safari's: the Ask itself completes delivery."""
+    return {
+        'TransferID': {'id': transfer_id},
+        'TransferType': {'links': {}},
+        'SenderID': secrets.token_hex(6),
+        'BundleID': 'com.apple.Safari',
+        'SenderComputerName': sender_name,
+        'SenderModelName': DEFAULT_MODEL,
+        'Items': urls,
+        'ConvertMediaFormats': False,
+    }
 
 
 def post_plist(connection, path, value):
@@ -400,6 +438,26 @@ def deliver(address, port, scope, context, sender_name, files, watch=None):
         connection.close()
 
 
+def deliver_links(address, port, scope, context, sender_name, urls, watch=None):
+    """A link transfer ends at the accepted Ask; it has no /Upload request."""
+    urls = valid_links(urls)
+    watch = watch or Watch()
+    connection = Connection(address, port, scope, context, ASK_SECONDS)
+    try:
+        connection.connect()
+        watch.connected(connection)
+        status, response = post_plist(connection, '/Ask',
+                                      links_ask_body(sender_name, urls, str(uuid.uuid4()).upper()))
+        logging.debug('link Ask answered %d: %s', status, outline(response))
+        return SENT if status == 200 else DECLINED
+    finally:
+        connection.close()
+
+
+def send_links(address, port, scope, context, sender_name, urls):
+    return deliver_links(address, port, scope, context, sender_name, urls) == SENT
+
+
 def send(address, port, scope, context, sender_name, files):
     """Whether the files went through."""
     return deliver(address, port, scope, context, sender_name, files) == SENT
@@ -407,7 +465,9 @@ def send(address, port, scope, context, sender_name, files):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('files', nargs='+', help='the files to send')
+    parser.add_argument('files', nargs='*', help='the files to send')
+    parser.add_argument('--url', action='append', default=[],
+                        help='send an HTTP/HTTPS web link (repeatable, instead of files)')
     parser.add_argument('--to', help='part of the receiver\'s name, when several answer')
     parser.add_argument('--name', default=socket.gethostname().split('.')[0],
                         help='the name the receiver sees (default: the computer name)')
@@ -420,7 +480,15 @@ def parse_args(argv):
     parser.add_argument('--iface', default=DEFAULT_INTERFACE)
     parser.add_argument('--keys', default=identity.default_keys_dir(),
                         help='directory holding the TLS certificate and key')
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if bool(args.files) == bool(args.url):
+        parser.error('choose either one or more files, or --url (not both)')
+    if args.url:
+        try:
+            args.url = valid_links(args.url)
+        except Unsendable as error:
+            parser.error(str(error))
+    return args
 
 
 def run(settings, files, context, scope):
@@ -434,7 +502,9 @@ def run(settings, files, context, scope):
     name, (address, port) = choose(named, settings.to)
     logging.info('asking %s; accept on the device', name)
     try:
-        return send(address, port, scope, context, settings.name, files)
+        return (send_links(address, port, scope, context, settings.name, settings.url)
+                if settings.url else
+                send(address, port, scope, context, settings.name, files))
     except TimeoutError:
         logging.warning('%s did not answer in time', name)
     except (OSError, http.client.HTTPException) as error:
@@ -447,7 +517,7 @@ def main(argv=None):
     logging.basicConfig(level=logging.DEBUG if settings.trace else logging.INFO,
                         stream=sys.stdout,
                         format='%(asctime)s %(levelname)s %(message)s')
-    files = outgoing(settings.files)
+    files = outgoing(settings.files) if settings.files else []
     try:
         context = client_context(settings.keys)
     except identity.IdentityError as error:

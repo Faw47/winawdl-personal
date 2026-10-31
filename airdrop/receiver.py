@@ -23,6 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import identity
 import mdns
 import netif
+import original_media
 import redact
 import transfer
 
@@ -215,7 +216,9 @@ class Handler(BaseHTTPRequestHandler):
     def identity_plist(self):
         settings = self.server.settings
         return plistlib.dumps({
-            'ReceiverMediaCapabilities': MEDIA_CAPABILITIES,
+            'ReceiverMediaCapabilities': (original_media.CAPABILITIES
+                                          if os.environ.get('WINAWDL_ORIGINAL_MEDIA') == '1'
+                                          else MEDIA_CAPABILITIES),
             'ReceiverComputerName': settings.name,
             'ReceiverModelName': settings.model,
         }, fmt=plistlib.FMT_BINARY)
@@ -367,11 +370,11 @@ class Handler(BaseHTTPRequestHandler):
         watcher.stored(token, written)
         self.send_response(200)
         self.send_header('Content-Length', '0')
-        if not ended:
-            # The rest of this request never came, so the connection cannot
-            # carry another one.
-            self.send_header('Connection', 'close')
-            self.close_connection = True
+        # The upload is complete: close promptly so iOS shows "Sent", rather
+        # than leaving a reusable HTTP connection idle until timeout.
+        # Missing end markers already require close; normal uploads can too.
+        self.send_header('Connection', 'close')
+        self.close_connection = True
         self.end_headers()
 
     def log_message(self, fmt, *args):

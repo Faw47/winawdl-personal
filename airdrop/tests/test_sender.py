@@ -233,6 +233,37 @@ class LoopbackTest(unittest.TestCase):
         self.assertFalse(sender.refuses_certificate(alert('CERTIFICATE_VERIFY_FAILED')))
         self.assertFalse(sender.refuses_certificate(ConnectionResetError()))
 
+    def test_web_links_are_sent_in_one_ask_without_upload(self):
+        links = ['https://example.org/hello?x=1', 'https://example.org/a']
+        self.assertTrue(sender.send_links('::1', self.port, LOOPBACK_SCOPE,
+                                           self.client_context, 'Sender PC', links))
+        names = os.listdir(self.received)
+        self.assertEqual(len(names), 2)
+        for name in names:
+            self.assertTrue(name.endswith('.url'))
+        stored = []
+        for name in names:
+            with open(os.path.join(self.received, name), 'rb') as stream:
+                stored.append(stream.read())
+        self.assertTrue(any(b'URL=https://example.org/hello?x=1' in x for x in stored))
+        self.assertTrue(any(b'URL=https://example.org/a' in x for x in stored))
+
+    def test_link_validation_rejects_invalid_and_oversized_urls(self):
+        for text in ('file:///C:/Windows/win.ini', 'https://',
+                     'https://example.org/line\nsecond', 'https://example.org/' + 'A'*8200):
+            with self.subTest(text=text[:40]), self.assertRaises(sender.Unsendable):
+                sender.valid_links([text])
+        self.assertEqual(sender.valid_links(['https://example.org/']),
+                         ['https://example.org/'])
+
+    def test_cli_requires_exactly_one_kind_of_payload(self):
+        for args in ([], ['file.txt', '--url', 'https://example.org']):
+            with self.assertRaises(SystemExit):
+                sender.parse_args(args)
+        parsed = sender.parse_args(['--url', 'https://example.org'])
+        self.assertEqual(parsed.files, [])
+        self.assertEqual(parsed.url, ['https://example.org'])
+
     def test_files_arrive_as_they_were(self):
         large = os.urandom(3 * sender.IO_BLOCK_BYTES + 17)
         files = sender.outgoing([self.source_file('clip.mp4', large),
