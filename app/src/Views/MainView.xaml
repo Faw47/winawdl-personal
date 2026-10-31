@@ -549,6 +549,19 @@
                              Text="{Binding StartupProblem}"
                              Visibility="{Binding HasStartupProblem, Converter={StaticResource Shown}}" />
                   <Border Style="{StaticResource Hairline}" />
+                  <t:Switch Style="{StaticResource RowSwitch}" IsChecked="{Binding ExplorerEnabled}"
+                            IsEnabled="{Binding ExplorerAvailable}"
+                            AutomationProperties.Name="Send with AirDrop in Explorer">
+                    <StackPanel>
+                      <TextBlock Text="Send with AirDrop in Explorer" />
+                      <TextBlock Style="{StaticResource Caption}"
+                                 Text="Add to Send to and the classic right-click menu." />
+                    </StackPanel>
+                  </t:Switch>
+                  <TextBlock Style="{StaticResource Caption}" Foreground="{DynamicResource Ember}" Margin="14,0,14,11"
+                             Text="{Binding ExplorerProblem}"
+                             Visibility="{Binding HasExplorerProblem, Converter={StaticResource Shown}}" />
+                  <Border Style="{StaticResource Hairline}" />
                   <t:Switch Style="{StaticResource RowSwitch}" IsChecked="{Binding ShowRequests}"
                             AutomationProperties.Name="Show requests and arrivals on screen">
                     <StackPanel>

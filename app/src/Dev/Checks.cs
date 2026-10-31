@@ -39,6 +39,12 @@ public static class Checks
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Program.Dress(app).Apply(Palette.Light(Rgb.Hex("#0078D4")));
             Motion.Reduced = true;
+            if (args.Skip(1).Contains("explorer"))
+            {
+                Explorer(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("startup"))
             {
                 Startup(app);
@@ -50,6 +56,7 @@ public static class Checks
             Identities(Path.Combine(folder, "identities-" + Guid.NewGuid().ToString("N")));
             States(app);
             Startup(app);
+            Explorer(app, folder);
             Supervisor(Path.Combine(folder, "supervised"));
         }
         catch (Exception error)
@@ -59,6 +66,125 @@ public static class Checks
         }
         log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static void Explorer(Application app, string folder)
+    {
+        var first = Path.Combine(folder, "first file.txt");
+        var second = Path.Combine(folder, "second & file.txt");
+        File.WriteAllText(first, "one");
+        File.WriteAllText(second, "two");
+        var request = LaunchRequest.FromArguments(["--tray", first, second, "--engine", "--loopback", folder]);
+        Expect(request.Paths.SequenceEqual(new[] { first, second }) && request.Surface,
+               "Explorer keeps the complete selected list and files override tray-only launch");
+        Expect(!LaunchRequest.FromArguments(["--tray"]).Surface && LaunchRequest.FromArguments([]).Surface,
+               "second tray-only launch stays hidden and ordinary launch surfaces");
+        Expect(LaunchRequest.Sanitize([first, "relative.txt", "C:relative", "\\rooted", first,
+                   Path.Combine(folder, "absent"), "C:\\bad\0name", folder]).SequenceEqual(new[] { first, folder }),
+               "initial and pipe paths require existing canonical absolute paths and discard duplicates");
+        Expect(LaunchRequest.Decode("{}"u8.ToArray()) == null
+               && LaunchRequest.Decode(new byte[LaunchRequest.MaxBytes + 1]) == null,
+               "malformed and oversized launch messages are refused");
+        var world = Stage.NewWorld(app.Dispatcher);
+        Program.Deliver(request, world.Model, () =>
+            Expect(world.Model.Held.Count == 2, "files reach the model before the window surfaces"));
+        var view = Show(world);
+        world.Model.SettingsOpen = true;
+        Expect(Press(view, "Send with AirDrop in Explorer") && world.Explorer.Stored && world.Model.ExplorerEnabled,
+               "Explorer switch enables registration through its isolated seam");
+        world.Explorer.RefuseWrite = true;
+        world.Model.ExplorerEnabled = false;
+        Expect(world.Model.ExplorerEnabled && world.Model.HasExplorerProblem,
+               "a denied Explorer removal preserves actual state and shows an error");
+        world.Explorer.RefuseWrite = false;
+        world.Model.ExplorerEnabled = false;
+        Expect(!world.Model.ExplorerEnabled && !world.Model.HasExplorerProblem,
+               "Explorer switch removes registration and clears a recovered error");
+        world.Explorer.RefuseRead = true;
+        world.Model.SettingsOpen = false;
+        world.Model.SettingsOpen = true;
+        Expect(!world.Model.ExplorerAvailable && world.Model.HasExplorerProblem,
+               "unreadable Explorer registration disables the switch");
+        ExplorerPipe(first, second).GetAwaiter().GetResult();
+        var shortcut = Path.Combine(folder, "Send with AirDrop.lnk");
+        WindowsExplorer.WriteShortcut(shortcut, Environment.ProcessPath!);
+        Expect(WindowsExplorer.ShortcutMatches(shortcut, Environment.ProcessPath!),
+               "native shell shortcut roundtrips in the test folder with no per-file placeholder");
+        var shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell", throwOnError: true)!)!;
+        try
+        {
+            dynamic link = ((dynamic)shell).CreateShortcut(shortcut);
+            try { link.Description = "My own SendTo shortcut"; link.Save(); }
+            finally { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(link); }
+        }
+        finally { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); }
+        Expect(!WindowsExplorer.ShortcutMatches(shortcut, Environment.ProcessPath!),
+               "a customized SendTo shortcut is not treated as app-owned");
+        var partial = Path.Combine(folder, "partial SendTo.lnk");
+        var rolledBack = false;
+        try { WindowsExplorer.WithShortcutRegistration(partial, Environment.ProcessPath!,
+            _ => throw new IOException("fake registry denial"), () => rolledBack = true); }
+        catch (IOException) { }
+        Expect(rolledBack && !File.Exists(partial),
+               "failed registry registration rolls back its partial values and new shortcut");
+        WindowsExplorer.WriteShortcut(partial, Environment.ProcessPath!);
+        var original = File.ReadAllBytes(partial);
+        try { WindowsExplorer.WithShortcutRegistration(partial, Environment.ProcessPath!,
+            _ => throw new IOException("fake registry denial"), () => { }); }
+        catch (IOException) { }
+        Expect(File.ReadAllBytes(partial).SequenceEqual(original),
+               "failed registration preserves a pre-existing shortcut");
+        var executable = Environment.ProcessPath!;
+        var fakeValues = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            [""] = "Send with AirDrop", ["Icon"] = $"\"{executable}\",0",
+            ["MultiSelectModel"] = WindowsExplorer.SelectionModel,
+            ["winawdl-owner"] = "winawdl Explorer integration v1",
+            ["UserValue"] = "keep me"
+        };
+        var fakeCommand = new Dictionary<string, object?>
+        {
+            [""] = WindowsExplorer.CommandFor(executable), ["UserCommandValue"] = "keep me"
+        };
+        var fakeVerb = new WindowsExplorer.VerbSnapshot(fakeValues, fakeCommand,
+            ["command", "UserSubkey"], ["UserCommandSubkey"]);
+        Expect(!WindowsExplorer.PristineVerb(fakeVerb, executable),
+               "a customized classic verb cannot be overwritten as a pristine registration");
+        var removal = WindowsExplorer.PlanVerbRemoval(fakeVerb, executable);
+        Expect(removal != null && !removal.Values.Contains("UserValue")
+               && !removal.CommandValues.Contains("UserCommandValue")
+               && fakeVerb.Subkeys.Contains("UserSubkey"),
+               "classic verb cleanup selects app values without deleting user values or subkeys");
+        fakeValues.Remove("winawdl-owner");
+        Expect(WindowsExplorer.PlanVerbRemoval(fakeVerb, executable) == null,
+               "a matching command without the app ownership marker is not removed");
+        Expect(WindowsExplorer.CommandFor(@"C:\Program Files\winawdl\winawdl.exe")
+               == "\"C:\\Program Files\\winawdl\\winawdl.exe\" \"%1\""
+               && WindowsExplorer.SelectionModel == "Document",
+               "classic verbs quote one item per invocation; the pipe accumulates each selection");
+    }
+
+    private static async Task ExplorerPipe(string first, string second)
+    {
+        var name = "winawdl-check-" + Guid.NewGuid().ToString("N");
+        using var owner = new SingleInstance(name);
+        using var other = new SingleInstance(name);
+        Expect(owner.IsFirst && !other.IsFirst, "a real per-user mutex chooses one owner");
+        Expect(owner.MutexName.Contains(System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value,
+                   StringComparison.Ordinal), "the cross-session mutex name includes this user's SID");
+        var received = new TaskCompletionSource<LaunchRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var forwarding = other.Forward(LaunchRequest.FromArguments([first, second]));
+        owner.Listen(request => received.TrySetResult(request));
+        Expect(await forwarding && (await received.Task.WaitAsync(TimeSpan.FromSeconds(10))).Paths.Length == 2,
+               "real pipe forwards the full selection even when the listener starts later");
+        using (var bad = new System.IO.Pipes.NamedPipeClientStream(".", owner.PipeName,
+                   System.IO.Pipes.PipeDirection.InOut, System.IO.Pipes.PipeOptions.Asynchronous))
+        {
+            await bad.ConnectAsync(3000);
+            await bad.WriteAsync(BitConverter.GetBytes(LaunchRequest.MaxBytes + 1));
+        }
+        Expect(await other.Forward(LaunchRequest.FromArguments([first])),
+               "the pipe server survives an oversized hostile frame");
     }
 
     private static void Startup(Application app)
@@ -537,7 +663,7 @@ public static class Checks
         world.Engine.Say(new { @event = "answered", id = "r2", how = "declined" });
 
         var kept = new AppSettings { AlwaysAccept = [new KnownDevice { Name = "Stand-in iPad", Model = "iPad13,1" }] };
-        var again = new TableModel(world.Engine, world.Radio, world.Desk, kept, world.Startup);
+        var again = new TableModel(world.Engine, world.Radio, world.Desk, kept, world.Startup, world.Explorer);
         Expect(again.Trusted is [{ Name: "Stand-in iPad" }],
                "previously saved name-only entries remain visible to remove");
         told = world.Engine.Told.Count;
@@ -612,7 +738,7 @@ public static class Checks
             Folder = Path.GetTempPath(), ContactsOnly = true, KnownSenders = ["friend@example.com"],
         };
         var engine = new ScriptedEngine();
-        var again = new TableModel(engine, world.Radio, world.Desk, kept, world.Startup);
+        var again = new TableModel(engine, world.Radio, world.Desk, kept, world.Startup, world.Explorer);
         again.StartTheEngine();
         Expect(again.OnlyKnownSenders && again.KnownSenders is [{ Address: "friend@example.com" }],
                "the choice and the list come back with the app, as the engine started with them");

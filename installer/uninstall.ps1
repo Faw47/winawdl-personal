@@ -5,8 +5,45 @@
 # -DryRun says what would be done and changes nothing. -Yes asks no questions.
 # -Setup is how the setup program's own uninstaller runs this: it removes the
 # shortcut, the list entry and the files itself.
-param([switch]$Yes, [switch]$DryRun, [switch]$RemoveData, [switch]$Setup)
+param([switch]$Yes, [switch]$DryRun, [switch]$RemoveData, [switch]$Setup,
+      [switch]$UserOnly, [string]$InnoUninstall, [switch]$Quiet)
 $ErrorActionPreference = 'Stop'
+function Remove-UserRegistration([string]$app) {
+  if (Test-Path $app) {
+    $result = Start-Process -FilePath $app -ArgumentList '--explorer-remove' -Wait -PassThru -WindowStyle Hidden
+    if ($result.ExitCode -ne 0) { throw 'Send with AirDrop could not be removed for this account.' }
+  }
+  $user = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+    [Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
+  try {
+    $run = $user.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true)
+    if ($run) {
+      try { $run.DeleteValue('winawdl', $false) } finally { $run.Dispose() }
+    }
+  } finally { $user.Dispose() }
+}
+
+if ($UserOnly -or $InnoUninstall) {
+  if ($DryRun) { '  would: remove this account''s Explorer and startup entries'; exit 0 }
+  if ($InnoUninstall) {
+    $inno = [IO.Path]::GetFullPath($InnoUninstall)
+    if (-not [string]::Equals([IO.Path]::GetDirectoryName($inno), $PSScriptRoot,
+                              [StringComparison]::OrdinalIgnoreCase) -or
+        [IO.Path]::GetFileName($inno) -notmatch '^unins\d+\.exe$' -or
+        -not (Test-Path -LiteralPath $inno -PathType Leaf)) {
+      throw 'The Inno uninstaller path is not in the winawdl install folder.'
+    }
+  }
+  Remove-UserRegistration (Join-Path $PSScriptRoot 'winawdl.exe')
+  if ($InnoUninstall) {
+    $launch = @{ FilePath = $inno; Verb = 'RunAs'; Wait = $true; PassThru = $true
+                 ArgumentList = @('/WINAWDLUSERCLEANED') }
+    if ($Quiet) { $launch.ArgumentList += '/SILENT' }
+    $result = Start-Process @launch
+    exit $result.ExitCode
+  }
+  exit 0
+}
 # A 32-bit program that starts this is shown the 32-bit Program Files and no
 # pnputil, so it carries on in the 64-bit PowerShell.
 if (-not [Environment]::Is64BitProcess -and [Environment]::Is64BitOperatingSystem) {
@@ -78,17 +115,9 @@ if ($running) {
   }
 }
 
-'Windows startup'
-Step 'remove this account''s winawdl startup entry' {
-  # Match the app's explicit view even when setup starts 32-bit PowerShell.
-  $user = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
-    [Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
-  try {
-    $run = $user.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true)
-    if ($run) {
-      try { $run.DeleteValue('winawdl', $false) } finally { $run.Dispose() }
-    }
-  } finally { $user.Dispose() }
+'Windows startup and Explorer'
+Step 'remove this account''s startup entry, Send with AirDrop shortcut and classic verbs' {
+  Remove-UserRegistration (Join-Path $Target 'winawdl.exe')
 }
 
 'Driver'

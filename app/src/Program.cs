@@ -12,8 +12,7 @@ namespace Winawdl;
 
 public static class Program
 {
-    private const string OnlyOne = @"Local\winawdl-app";
-    private const string ShowSignal = @"Local\winawdl-show";
+    private const string OnlyOne = "winawdl-app";
     /// <summary>What follows this on the command line goes to the engine, for a
     /// test without a radio: --engine --loopback --peer [::1]:8772</summary>
     private const string EngineFlag = "--engine";
@@ -25,6 +24,8 @@ public static class Program
         [Dev.Stage.Flag, .. var rest] => Dev.Stage.Run(rest),
         [Dev.Drive.Flag, .. var rest] => Dev.Drive.Run(rest),
         [Dev.Checks.Flag, .. var rest] => Dev.Checks.Run(rest),
+        [WindowsExplorer.InstallFlag] => WindowsExplorer.Register(true),
+        [WindowsExplorer.RemoveFlag] => WindowsExplorer.Register(false),
         _ => RunApp(args),
     };
 
@@ -38,13 +39,13 @@ public static class Program
 
     private static int RunApp(string[] args)
     {
-        using var only = new Mutex(true, OnlyOne, out var first);
-        using var show = new EventWaitHandle(false, EventResetMode.AutoReset, ShowSignal);
-        if (!first)
+        LaunchRequest request;
+        try { request = LaunchRequest.FromArguments(args); }
+        catch (ArgumentException) { return 2; }
+        using var only = new SingleInstance(OnlyOne);
+        if (!only.IsFirst)
         {
-            // Already running, perhaps with its window closed: bring that one up.
-            if (ShouldSurface(args)) show.Set();
-            return 0;
+            return only.Forward(request).GetAwaiter().GetResult() ? 0 : 1;
         }
 
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -58,7 +59,8 @@ public static class Program
         var engine = new EngineProcess(app.Dispatcher, repo, engineArguments);
         var radio = new RadioControl(app.Dispatcher, repo);
         var model = new TableModel(engine, radio, new Desk(app.Dispatcher), settings,
-                                   new WindowsStartup(Environment.ProcessPath!));
+                                   new WindowsStartup(Environment.ProcessPath!),
+                                   new WindowsExplorer(Environment.ProcessPath!));
         var window = new MainWindow(model, theme, settings);
         using var tray = new Tray(window, () =>
         {
@@ -87,17 +89,11 @@ public static class Program
                 tray.Say(arrival.Headline, () => arrival.Press?.Execute(null));
         };
 
-        var waiting = new Thread(() =>
-        {
-            while (show.WaitOne()) app.Dispatcher.BeginInvoke(window.Surface);
-        })
-        {
-            IsBackground = true, Name = "show",
-        };
-        waiting.Start();
+        only.Listen(next => app.Dispatcher.BeginInvoke(() => Deliver(next, model, window.Surface)));
 
+        Deliver(request, model, () => { });
         model.StartTheEngine();
-        ShowAtStartup(window, args);
+        if (request.Surface) window.Show();
         app.Run();
         engine.Stop();
         radio.Stop();
@@ -105,7 +101,13 @@ public static class Program
     }
 
     internal static bool ShouldSurface(string[] args) =>
-        !args.TakeWhile(argument => argument != EngineFlag).Contains(WindowsStartup.TrayFlag);
+        LaunchRequest.FromArguments(args).Surface;
+
+    internal static void Deliver(LaunchRequest request, TableModel model, Action surface)
+    {
+        if (request.Paths.Length > 0) model.Hold(request.Paths);
+        if (request.Surface) surface();
+    }
 
     internal static void ShowAtStartup(MainWindow window, string[] args)
     {
