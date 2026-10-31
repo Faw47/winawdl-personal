@@ -42,7 +42,8 @@ class SenderFolderTest(unittest.TestCase):
             with open(existing, 'wb') as output:
                 output.write(b'keep')
             with transfer.receive_destination(root, 'Phone', True) as dest:
-                self.assertEqual(dest, folder)
+                # Windows may expand an 8.3 alias in root to its long path.
+                self.assertTrue(os.path.samefile(dest, folder))
                 raw = io.BytesIO(dvzip((True, archive(portable_member('note.txt', b'new')))))
                 self.assertEqual(transfer.store_upload(raw, dest, 'T', Budget()), ['note-1.txt'])
             with open(existing, 'rb') as source:
