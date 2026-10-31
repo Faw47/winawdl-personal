@@ -411,7 +411,7 @@
                     AutomationProperties.Name="Close settings" />
             <TextBlock Style="{StaticResource Title}" Text="Settings" VerticalAlignment="Center" />
           </DockPanel>
-          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,0,0,12">
+          <ScrollViewer x:Name="SettingsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,0,0,12">
             <StackPanel Margin="0,0,8,0">
               <TextBlock Style="{StaticResource Group}" Text="This PC" />
               <ContentControl Style="{StaticResource Card}" Padding="0">
@@ -536,6 +536,19 @@
               <TextBlock Style="{StaticResource Group}" Text="Window" />
               <ContentControl Style="{StaticResource Card}" Padding="0">
                 <StackPanel>
+                  <t:Switch x:Name="StartupSwitch" Style="{StaticResource RowSwitch}"
+                            IsChecked="{Binding StartWithWindows}" IsEnabled="{Binding StartupAvailable}"
+                            AutomationProperties.Name="Start with Windows">
+                    <StackPanel>
+                      <TextBlock Text="Start with Windows" />
+                      <TextBlock Style="{StaticResource Caption}"
+                                 Text="Open in the notification area when you sign in." />
+                    </StackPanel>
+                  </t:Switch>
+                  <TextBlock Style="{StaticResource Caption}" Foreground="{DynamicResource Ember}" Margin="14,0,14,11"
+                             Text="{Binding StartupProblem}"
+                             Visibility="{Binding HasStartupProblem, Converter={StaticResource Shown}}" />
+                  <Border Style="{StaticResource Hairline}" />
                   <t:Switch Style="{StaticResource RowSwitch}" IsChecked="{Binding ShowRequests}"
                             AutomationProperties.Name="Show requests and arrivals on screen">
                     <StackPanel>

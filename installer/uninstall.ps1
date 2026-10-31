@@ -78,6 +78,19 @@ if ($running) {
   }
 }
 
+'Windows startup'
+Step 'remove this account''s winawdl startup entry' {
+  # Match the app's explicit view even when setup starts 32-bit PowerShell.
+  $user = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
+    [Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
+  try {
+    $run = $user.OpenSubKey('Software\Microsoft\Windows\CurrentVersion\Run', $true)
+    if ($run) {
+      try { $run.DeleteValue('winawdl', $false) } finally { $run.Dispose() }
+    }
+  } finally { $user.Dispose() }
+}
+
 'Driver'
 Step 'remove it, so that Windows gives the card back to its own driver' {
   foreach ($package in Get-PublishedPackages) {

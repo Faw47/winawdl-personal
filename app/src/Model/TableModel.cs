@@ -24,6 +24,9 @@ public sealed class TableModel : Observable
     private readonly IRadio _radio;
     private readonly IDesk _desk;
     private readonly AppSettings _settings;
+    private readonly IStartup _startup;
+    private bool _startupEnabled, _startupAvailable;
+    private string _startupError = "";
     private int _sends;
     private bool _engineUp, _wantsLook, _linkUp, _looking, _beaconOn = true, _receiving, _settingsOpen;
     private bool _radioHasRun;
@@ -35,12 +38,14 @@ public sealed class TableModel : Observable
     private DateTime? _everyoneUntil;
     private int _unwilling;
 
-    public TableModel(IEngine engine, IRadio radio, IDesk desk, AppSettings settings)
+    public TableModel(IEngine engine, IRadio radio, IDesk desk, AppSettings settings, IStartup startup)
     {
         _engine = engine;
         _radio = radio;
         _desk = desk;
         _settings = settings;
+        _startup = startup;
+        RefreshStartup();
         _nameDraft = Name;
         _engine.Said += OnSaid;
         _engine.Stopped += OnEngineStopped;
@@ -918,6 +923,7 @@ public sealed class TableModel : Observable
             {
                 _nameDraft = Name;
                 _nameError = _folderError = "";
+                RefreshStartup();
             }
             ChangedAll();
         }
@@ -1030,6 +1036,51 @@ public sealed class TableModel : Observable
             _settings.KeepInTray = value;
             _settings.Save();
             Changed();
+        }
+    }
+
+    public bool StartWithWindows
+    {
+        get => _startupEnabled;
+        set
+        {
+            if (_startupEnabled == value) return;
+            try
+            {
+                _startup.Enabled = value;
+                RefreshStartup();
+                if (_startupAvailable && _startupEnabled != value)
+                    _startupError = "Windows did not keep that change. Try again.";
+            }
+            catch (Exception error) when (StartupError(error))
+            {
+                RefreshStartup();
+                _startupError = "Start with Windows could not be changed. Check this account's permissions and try again.";
+            }
+            ChangedAll();
+        }
+    }
+
+    public bool StartupAvailable => _startupAvailable;
+    public string StartupProblem => _startupError;
+    public bool HasStartupProblem => _startupError.Length > 0;
+
+    private static bool StartupError(Exception error) =>
+        error is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException;
+
+    private void RefreshStartup()
+    {
+        try
+        {
+            _startupEnabled = _startup.Enabled;
+            _startupAvailable = true;
+            _startupError = "";
+        }
+        catch (Exception error) when (StartupError(error))
+        {
+            _startupEnabled = false;
+            _startupAvailable = false;
+            _startupError = "Start with Windows could not be read. Check this account's permissions and reopen Settings.";
         }
     }
 

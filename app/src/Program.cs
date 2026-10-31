@@ -43,7 +43,7 @@ public static class Program
         if (!first)
         {
             // Already running, perhaps with its window closed: bring that one up.
-            show.Set();
+            if (ShouldSurface(args)) show.Set();
             return 0;
         }
 
@@ -57,7 +57,8 @@ public static class Program
         var settings = SettingsStore.Load();
         var engine = new EngineProcess(app.Dispatcher, repo, engineArguments);
         var radio = new RadioControl(app.Dispatcher, repo);
-        var model = new TableModel(engine, radio, new Desk(app.Dispatcher), settings);
+        var model = new TableModel(engine, radio, new Desk(app.Dispatcher), settings,
+                                   new WindowsStartup(Environment.ProcessPath!));
         var window = new MainWindow(model, theme, settings);
         using var tray = new Tray(window, () =>
         {
@@ -96,11 +97,19 @@ public static class Program
         waiting.Start();
 
         model.StartTheEngine();
-        window.Show();
+        ShowAtStartup(window, args);
         app.Run();
         engine.Stop();
         radio.Stop();
         return 0;
+    }
+
+    internal static bool ShouldSurface(string[] args) =>
+        !args.TakeWhile(argument => argument != EngineFlag).Contains(WindowsStartup.TrayFlag);
+
+    internal static void ShowAtStartup(MainWindow window, string[] args)
+    {
+        if (ShouldSurface(args)) window.Show();
     }
 
     private static void OnCrash(object sender, DispatcherUnhandledExceptionEventArgs e)

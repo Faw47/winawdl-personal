@@ -341,7 +341,7 @@ public static class Drive
             _engine = new EngineProcess(_app.Dispatcher, repo,
                                         ["--loopback", "--port", $"{myPort}", "--peer", $"[::1]:{theirPort}", "--keys", keys]);
             var radio = new ScriptedRadio();
-            _model = new TableModel(_engine, radio, _desk, _settings);
+            _model = new TableModel(_engine, radio, _desk, _settings, new ScriptedStartup());
             _window = new MainWindow(_model, _theme, _settings)
             {
                 WindowStartupLocation = WindowStartupLocation.Manual, Left = -30000, Top = -30000,
