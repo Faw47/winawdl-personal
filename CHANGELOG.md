@@ -3,6 +3,16 @@
 What each tagged state of the project holds. The measurements behind the
 numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
+## Unreleased
+
+- **The receiver's limits caught up with omdrop's.** Links are held to the
+  disk budget an upload gets, and stored all or none. An Ask too large for
+  any upload is refused before it is logged. Links with hidden characters or
+  over 8192 bytes are not stored. A second file of the longest name length is
+  numbered instead of failing. Log lines escape what a sender wrote.
+- A sender that cancels mid-upload is shown as having left, not as a failure
+  to store.
+
 ## 0.3.0, 2026-10-13
 
 - **A request on screen.** While the app's window is not the one in front, a

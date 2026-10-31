@@ -7,6 +7,7 @@ import socket
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -157,6 +158,20 @@ class SafeNameTest(unittest.TestCase):
         self.assertEqual(transfer.safe_name('...', 'file'), 'file')
         self.assertEqual(transfer.safe_name('gpj.\u202eexe', 'file'), 'gpj.exe')
 
+    def test_a_name_whose_extension_alone_is_too_long_falls_back(self):
+        self.assertEqual(transfer.safe_name('a.' + 'x' * 300, 'file'), 'file')
+
+    def test_a_cut_name_does_not_end_in_what_windows_drops(self):
+        name = transfer.safe_name('a' * 254 + ' b', 'file')
+        self.assertEqual(name, 'a' * 254)
+
+    def test_a_numbered_name_of_the_longest_length_still_fits(self):
+        name = 'n' * 251 + '.jpg'
+        self.assertEqual(transfer.name_units(name), transfer.MAX_NAME_UNITS)
+        second = transfer.numbered(name, 1)
+        self.assertEqual(transfer.name_units(second), transfer.MAX_NAME_UNITS)
+        self.assertTrue(second.endswith('-1.jpg'))
+
 
 class StoreTest(unittest.TestCase):
     def setUp(self):
@@ -261,6 +276,52 @@ class StoreTest(unittest.TestCase):
         self.assertFalse(transfer.is_web_link('file:///C:/Windows/win.ini'))
         self.assertFalse(transfer.is_web_link('https://example.org/\r\nIconFile=\\\\host\\share'))
         self.assertFalse(transfer.is_web_link(b'https://example.org/'))
+
+    def test_links_with_invisible_or_unicode_space_are_not_stored(self):
+        for hidden in ('\u00a0', '\u2028', '\u3000', '\u200b', '\u202e', '\ufeff'):
+            self.assertFalse(transfer.is_web_link(f'https://example.org/a{hidden}b'), repr(hidden))
+
+    def test_links_longer_than_omdrops_limit_are_not_stored(self):
+        base = 'https://example.org/'
+        fits = base + 'a' * (transfer.MAX_LINK_BYTES - len(base))
+        self.assertTrue(transfer.is_web_link(fits))
+        self.assertFalse(transfer.is_web_link(fits + 'a'))
+
+    def test_a_link_that_cannot_be_parsed_is_not_stored(self):
+        self.assertFalse(transfer.is_web_link('http://[::1/page'))
+
+    def test_a_link_with_a_long_last_segment_is_stored_under_a_name_that_fits(self):
+        url = 'https://example.org/' + 'p' * 400
+        name = transfer.store_link(url, self.dest)
+        self.assertTrue(name.endswith('.url'))
+        self.assertLessEqual(transfer.name_units(name), transfer.MAX_NAME_UNITS)
+        self.assertEqual(transfer.store_link(url, self.dest)[-6:], '-1.url')
+
+    def test_links_over_the_budget_store_nothing(self):
+        urls = ['https://example.org/a', 'https://example.org/b']
+        free = transfer.MIN_FREE_BYTES + transfer.LINK_FILE_ALLOWANCE
+        with (mock.patch.object(transfer.shutil, 'disk_usage', return_value=mock.Mock(free=free)),
+              self.assertRaises(transfer.UploadLimitError)):
+            transfer.store_links(urls, self.dest, 90)
+        self.assertEqual(os.listdir(self.dest), [])
+
+    def test_links_within_the_budget_are_all_stored(self):
+        urls = ['https://example.org/a', 'https://example.org/b']
+        self.assertEqual(transfer.store_links(urls, self.dest, 30),
+                         ['example.org-a.url', 'example.org-b.url'])
+
+    def test_a_failed_link_write_takes_back_the_ones_before_it(self):
+        real = transfer.store_link
+        calls = []
+
+        def failing(url, dest):
+            calls.append(url)
+            if len(calls) == 2:
+                raise OSError('disk gone')
+            return real(url, dest)
+        with mock.patch.object(transfer, 'store_link', failing), self.assertRaises(OSError):
+            transfer.store_links(['https://a.example/', 'https://b.example/'], self.dest, 30)
+        self.assertEqual(os.listdir(self.dest), [])
 
 
 class BodyTest(unittest.TestCase):

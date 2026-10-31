@@ -386,6 +386,26 @@ size, member count, read rate and free disk space. What changed:
 - The identity is a self-signed certificate only. Contacts Only, the Apple
   identity and omdrop's configuration file and panel are left out for now.
 
+omdrop has since tightened its receiver, and the same limits apply here
+(omdrop 0.18.1 to 0.18.4, read 2026-10-31):
+
+- An Ask is refused before anything is built from it if it names more than
+  512 files or items, the most an upload may hold. Its parts are checked for
+  type first, so a malformed one is answered rather than dropping the
+  connection.
+- A links Ask stores all its links or none. They are charged, with 4096
+  bytes each for the file, against the budget an upload gets, under one lock
+  so that two Asks cannot both spend the same free bytes, and over it the
+  sender is answered 507. A link longer than 8192 bytes, or holding Unicode
+  whitespace or an invisible character, is not stored.
+- A name that is numbered to avoid an earlier file is cut to still fit 255
+  characters; at the longest length it used to fail as too long.
+- A sender that leaves mid-upload is reported as having left. It used to be
+  reported as a storage failure, since a reset socket is an `OSError` too.
+- Every log line goes through `logline.py`: control and invisible characters
+  escaped, 32 KiB at most. A name with a line break in it could otherwise
+  write a line of its own.
+
 The receiver listens on every interface, because the adapter exists only while
 `awdld` runs, and drops any connection that did not arrive on `awdl0`.
 

@@ -23,6 +23,7 @@ import threading
 import time
 
 import identity
+import logline
 import mdns
 import netif
 import receiver
@@ -647,8 +648,7 @@ def main(argv=None):
     args = parse_args(argv)
     for stream in (sys.stdin, sys.stdout, sys.stderr):
         stream.reconfigure(encoding='utf-8')
-    logging.basicConfig(level=logging.DEBUG if args.trace else logging.INFO,
-                        stream=sys.stderr, format='%(asctime)s %(levelname)s %(message)s')
+    logline.configure(logging.DEBUG if args.trace else logging.INFO, sys.stderr)
     events = Events(sys.stdout)
     try:
         engine = Engine(args, events)

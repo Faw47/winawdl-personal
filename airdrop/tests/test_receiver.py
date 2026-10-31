@@ -10,6 +10,7 @@ import ssl
 import sys
 import tempfile
 import socket
+import struct
 import threading
 import unittest
 from unittest import mock
@@ -159,6 +160,57 @@ class ReceiverTest(unittest.TestCase):
                'Items': ['https://example.org/page', 'file:///C:/Windows/win.ini']}
         self.assertEqual(self.post_plist(self.connect(), '/Ask', ask)[0], 200)
         self.assertEqual(os.listdir(self.temp.name), ['example.org-page.url'])
+
+    def test_an_ask_of_too_many_files_is_refused_before_it_is_listed(self):
+        files = [{'FileName': f'{n}.jpg'} for n in range(transfer.MAX_ARCHIVE_MEMBERS + 1)]
+        with self.assertLogs(level='WARNING') as logs:
+            status, _ = self.post_plist(self.connect(), '/Ask', {'Files': files})
+        self.assertEqual(status, 413)
+        self.assertFalse(any('ask from' in line for line in logs.output))
+
+    def test_an_ask_whose_parts_have_the_wrong_types_is_answered(self):
+        self.assertEqual(self.post_plist(self.connect(), '/Ask', {'Items': 7})[0], 400)
+        ask = {'TransferType': 5, 'Files': [{'FileName': 'a.txt'}]}
+        self.assertEqual(self.post_plist(self.connect(), '/Ask', ask)[0], 200)
+
+    def test_links_over_the_disk_budget_are_refused_and_none_stored(self):
+        ask = {'TransferType': {'links': True},
+               'Items': ['https://example.org/a', 'https://example.org/b']}
+        low = mock.Mock(free=transfer.MIN_FREE_BYTES + 1024)
+        failed = []
+        self.server.watcher.upload_failed = lambda token, reason: failed.append(reason)
+        with mock.patch.object(transfer.shutil, 'disk_usage', return_value=low):
+            status, _ = self.post_plist(self.connect(), '/Ask', ask)
+        self.assertEqual(status, 507)
+        self.assertEqual(os.listdir(self.temp.name), [])
+        self.assertEqual(len(failed), 1)
+
+    def test_a_sender_that_leaves_mid_upload_is_not_a_storage_failure(self):
+        failed = []
+        left = threading.Event()
+
+        def upload_failed(token, reason):
+            failed.append(reason)
+            left.set()
+        self.server.watcher.upload_failed = upload_failed
+        reading = threading.Event()
+        self.server.watcher.upload_progress = lambda token, done: reading.set()
+        trusting = ssl.create_default_context()
+        trusting.check_hostname = False
+        trusting.verify_mode = ssl.CERT_NONE
+        plain = socket.create_connection(('::1', self.server.server_address[1]), timeout=10)
+        tls = trusting.wrap_socket(plain)
+        tls.sendall(b'POST /Upload HTTP/1.1\r\nHost: receiver\r\n'
+                    b'Content-Type: application/x-dvzip\r\n'
+                    b'Transfer-Encoding: chunked\r\n\r\n1000\r\n' + b'x' * 100)
+        self.assertTrue(reading.wait(10))
+        # A reset, as a phone that cancels sends.
+        tls.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                       struct.pack('HH' if os.name == 'nt' else 'ii', 1, 0))
+        tls.close()
+        self.assertTrue(left.wait(10))
+        self.assertIn('the sender left', failed[0])
+        self.assertNotIn('storage failed', failed[0])
 
     def test_redacting_keeps_the_sender_and_its_folders_out_of_the_log(self):
         self.settings.redact = True
