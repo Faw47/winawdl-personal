@@ -332,6 +332,33 @@ public static class Checks
         Expect(model.NobodyCanSend && world.Engine.Told.Last().Contains("\"known_senders\":[]"),
                "with the list emptied nobody can send, and the window says so");
 
+        model.SenderDraft = "friend@example.com";
+        model.AddSender.Execute(null);
+        model.EveryoneForAWhile = true;
+        Expect(model.EveryoneForAWhile && !model.OnlyKnownSenders && world.Settings.ContactsOnly
+               && world.Engine.Told.Last().Contains("\"everyone_for\":600"),
+               "everyone for 10 minutes tells the engine and keeps the list as what comes after");
+        var until = DateTimeOffset.Now.AddMinutes(10).ToUnixTimeSeconds();
+        world.Engine.Say(new
+        {
+            @event = "settings", refused = new { }, name = "STUDY-PC", folder = Path.GetTempPath(),
+            ask = true, contacts_only = false, known_senders = new[] { "friend@example.com" },
+            everyone_until = until,
+        });
+        Expect(model.EveryoneForAWhile && world.Settings.ContactsOnly,
+               "while everyone may send, what is kept is still the list");
+        world.Engine.Say(new
+        {
+            @event = "settings", refused = new { }, name = "STUDY-PC", folder = Path.GetTempPath(),
+            ask = true, contacts_only = true, known_senders = new[] { "friend@example.com" },
+            everyone_until = (double?) null,
+        });
+        Expect(model.OnlyKnownSenders && !model.EveryoneForAWhile,
+               "when the ten minutes end the window shows the list in force again");
+        model.AnyoneCanSend = true;
+        Expect(!world.Settings.ContactsOnly && world.Engine.Told.Last().Contains("\"contacts_only\":false"),
+               "everyone, for good, can still be chosen");
+
         var kept = new AppSettings
         {
             Folder = Path.GetTempPath(), ContactsOnly = true, KnownSenders = ["friend@example.com"],

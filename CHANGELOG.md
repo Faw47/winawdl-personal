@@ -5,6 +5,11 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Everyone for 10 minutes.** A third choice beside Everyone and the list:
+  anyone can send for ten minutes, then only the people listed again, with
+  the time it ends shown. If the app ends in the meantime it starts again
+  with the list.
+
 - **A device can no longer flood the screen with requests.** Each sender
   may ask five times in 30 seconds, and all of them together twenty; past
   that it is told to wait, before anyone is asked.

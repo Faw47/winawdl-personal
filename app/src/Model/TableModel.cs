@@ -29,6 +29,8 @@ public sealed class TableModel : Observable
     private string _beaconWhy = "", _receivingProblem = "", _heldNotice = "", _radioNotice = "";
     private string _engineProblem = "", _engineDetail = "", _nameDraft = "", _nameError = "", _folderError = "";
     private string _senderDraft = "", _senderError = "";
+    /// <summary>While everyone may send for a while, when that ends.</summary>
+    private DateTime? _everyoneUntil;
     private int _unwilling;
 
     public TableModel(IEngine engine, IRadio radio, IDesk desk, AppSettings settings)
@@ -378,7 +380,14 @@ public sealed class TableModel : Observable
     /// the old list when it refuses a new one.</summary>
     private void AdoptSenders(JsonElement said)
     {
-        if (said.TryGetProperty("contacts_only", out var only) && only.ValueKind is JsonValueKind.True or JsonValueKind.False)
+        _everyoneUntil = said.TryGetProperty("everyone_until", out var until) && until.ValueKind == JsonValueKind.Number
+            ? DateTimeOffset.FromUnixTimeMilliseconds((long) (until.GetDouble() * 1000)).LocalDateTime
+            : null;
+        // While everyone may send for a while the engine says it takes
+        // everyone, but what is kept is the list it goes back to: an app
+        // that ends in the meantime starts again with the list.
+        if (_everyoneUntil is null && said.TryGetProperty("contacts_only", out var only)
+            && only.ValueKind is JsonValueKind.True or JsonValueKind.False)
             _settings.ContactsOnly = only.GetBoolean();
         if (!said.TryGetProperty("known_senders", out var senders) || senders.ValueKind != JsonValueKind.Array)
             return;
@@ -868,21 +877,52 @@ public sealed class TableModel : Observable
 
     public bool TakeAll { get => !AskFirst; set => AskFirst = !value; }
 
+    // Each of the three choices acts only when it is chosen: a radio button
+    // that is let go of writes false, which says nothing.
+
     /// <summary>Only the people on the list may send, as Apple proves them.</summary>
     public bool OnlyKnownSenders
     {
-        get => _settings.ContactsOnly;
+        get => _settings.ContactsOnly && _everyoneUntil is null;
+        set { if (value) ChooseSenders(contactsOnly: true); }
+    }
+
+    public bool AnyoneCanSend
+    {
+        get => !_settings.ContactsOnly && _everyoneUntil is null;
+        set { if (value) ChooseSenders(contactsOnly: false); }
+    }
+
+    /// <summary>Everyone may send for ten minutes, then only the people on
+    /// the list again, as an iPhone's "Everyone for 10 Minutes" does.</summary>
+    public bool EveryoneForAWhile
+    {
+        get => _everyoneUntil is not null;
         set
         {
-            if (_settings.ContactsOnly == value) return;
-            _settings.ContactsOnly = value;
+            if (!value || _everyoneUntil is not null) return;
+            _settings.ContactsOnly = true;
             _settings.Save();
-            _engine.Tell(new() { ["do"] = "set", ["contacts_only"] = value });
+            _everyoneUntil = DateTime.Now.AddSeconds(EveryoneSeconds);
+            _engine.Tell(new() { ["do"] = "set", ["everyone_for"] = EveryoneSeconds });
             ChangedAll();
         }
     }
 
-    public bool AnyoneCanSend { get => !OnlyKnownSenders; set => OnlyKnownSenders = !value; }
+    public const int EveryoneSeconds = 10 * 60;
+    public string EveryoneUntil => _everyoneUntil is { } until
+        ? $"Until {until:t}, then only the people listed here."
+        : "Then only the people listed here.";
+
+    private void ChooseSenders(bool contactsOnly)
+    {
+        if (_settings.ContactsOnly == contactsOnly && _everyoneUntil is null) return;
+        _settings.ContactsOnly = contactsOnly;
+        _everyoneUntil = null;
+        _settings.Save();
+        _engine.Tell(new() { ["do"] = "set", ["contacts_only"] = contactsOnly });
+        ChangedAll();
+    }
     public bool HasKnownSenders => KnownSenders.Count > 0;
     /// <summary>The list is in force and empty, so nobody can send.</summary>
     public bool NobodyCanSend => OnlyKnownSenders && !HasKnownSenders;

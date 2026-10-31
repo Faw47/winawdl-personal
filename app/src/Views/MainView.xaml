@@ -403,6 +403,13 @@
               <StackPanel>
                 <RadioButton Style="{StaticResource Choice}" Content="Everyone"
                              IsChecked="{Binding AnyoneCanSend}" />
+                <RadioButton Style="{StaticResource Choice}" IsChecked="{Binding EveryoneForAWhile}"
+                             AutomationProperties.Name="Everyone for 10 minutes">
+                  <StackPanel>
+                    <TextBlock Text="Everyone for 10 minutes" />
+                    <TextBlock Style="{StaticResource Soft}" Text="{Binding EveryoneUntil}" />
+                  </StackPanel>
+                </RadioButton>
                 <RadioButton Style="{StaticResource Choice}" IsChecked="{Binding OnlyKnownSenders}"
                              AutomationProperties.Name="Only the people listed here">
                   <StackPanel>

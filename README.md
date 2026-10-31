@@ -226,7 +226,9 @@ prompt of its own.
   are asked, and is not shown this PC if its record says who it is. Nothing
   is asked of Apple to check this: its public certificates come with
   winawdl. Requests from people on the list are still asked about, unless
-  the settings take everything. An empty list lets nobody send.
+  the settings take everything. An empty list lets nobody send. "Everyone
+  for 10 minutes" lets anyone send for that long and then goes back to the
+  list by itself, as an iPhone's setting of that name does.
 - **A device that stays away.** When the window says that a device nearby
   only answers devices it knows, set that device's AirDrop to "Everyone for
   10 Minutes".
