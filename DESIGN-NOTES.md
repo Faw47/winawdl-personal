@@ -195,6 +195,11 @@ The submodule is kept as upstream has it. The build copies its sources into
   frame is refused too: its copy failed silently and the frame went to the
   host with whatever the buffer held before.
 - `0002-election-metric-first.patch`. See the next section but one.
+- `0003-data-frames-keep-peer.patch`. A peer is dropped when it has not been
+  heard for 2 s, and OWL counted only its action frames as hearing it. A
+  phone busy sending data can go that long between the action frames this
+  side catches, and was then dropped mid-transfer with its data. Its data
+  frames now count too, as in Owly's specification (AWDL-17).
 
 It runs as its own process, `awdld`, for two reasons. OWL is GPL-3.0 and
 devourer is GPL-2.0, which cannot be linked into one program. And OWL is GNU C,

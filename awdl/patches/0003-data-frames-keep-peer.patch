@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: winawdl <winawdl@invalid>
+Date: Sat, 31 Oct 2026 07:23:46 +0000
+Subject: [PATCH] Count a peer's data frames as hearing it
+
+---
+ src/rx.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/src/rx.c b/src/rx.c
+index 91878d4..829fc82 100644
+--- a/src/rx.c
++++ b/src/rx.c
+@@ -486,6 +486,17 @@ wire_error:
+ 	return -1;
+ }
+ 
++/* A peer's entry expires when it has not been heard for the peers' timeout
++ * (2 s), and only its action frames counted as hearing it. A peer in the
++ * middle of a transfer can go that long between the action frames a node
++ * hears while its data keeps arriving, and was then dropped, and its data
++ * with it. Its data frames count too, as in Owly (its SPEC, AWDL-17). */
++static void awdl_rx_heard(struct awdl_state *state, const struct ether_addr *from, uint64_t now) {
++	struct awdl_peer *peer;
++	if (awdl_peer_get(state->peers.peers, from, &peer) == PEERS_OK && peer->last_update < now)
++		peer->last_update = now;
++}
++
+ int awdl_rx(const struct buf *frame, struct buf ***data_frame, struct awdl_state *state) {
+ 	const struct ieee80211_hdr *ieee80211;
+ 	const struct ether_addr *from, *to;
+@@ -522,6 +533,7 @@ int awdl_rx(const struct buf *frame, struct buf ***data_frame, struct awdl_state
+ 		case IEEE80211_FTYPE_MGMT | IEEE80211_STYPE_ACTION:
+ 			return awdl_rx_action(frame, rssi, tsft, from, to, state);
+ 		case IEEE80211_FTYPE_DATA | IEEE80211_STYPE_DATA | IEEE80211_STYPE_QOS_DATA:
++			awdl_rx_heard(state, from, tsft);
+ 			READ_LE16(frame, 0, &qosc);
+ 			BUF_STRIP(frame, IEEE80211_QOS_CTL_LEN);
+ 			/* TODO should handle block acks if required (IEEE80211_QOS_CTL_ACK_POLICY_XYZ) */
+@@ -529,6 +541,8 @@ int awdl_rx(const struct buf *frame, struct buf ***data_frame, struct awdl_state
+ 				return awdl_rx_data_amsdu(frame, data_frame, from, to, state);
+ 			/* else fall through */
+ 		case IEEE80211_FTYPE_DATA | IEEE80211_STYPE_DATA:
++			if ((fc & IEEE80211_STYPE_QOS_DATA) == 0)
++				awdl_rx_heard(state, from, tsft);
+ 			return awdl_rx_data(frame, data_frame, from, to, state);
+ 		default:
+ 			log_warn("ieee80211: cannot handle type %x and subtype %x of received frame from %s",
