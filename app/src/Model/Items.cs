@@ -130,6 +130,15 @@ public sealed class TrustedModel(KnownDevice device)
     public string ForgetName => $"Forget inactive saved name {Name}";
 }
 
+/// <summary>Someone allowed to send while only known senders may: an Apple
+/// ID email address or phone number, as it was typed.</summary>
+public sealed class SenderModel(string address)
+{
+    public string Address { get; } = address;
+    public ICommand? Forget { get; init; }
+    public string ForgetName => $"Remove {Address} from the people who can send";
+}
+
 /// <summary>What a device sent, once it is stored: a notice that leads to it.</summary>
 public sealed class ArrivalModel
 {

@@ -5,6 +5,13 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Contacts Only, for receiving.** The settings choose who can send:
+  everyone, or only the people listed there by their Apple ID's email
+  address or phone number. A sender must prove who it is with the record
+  and certificate Apple issues for its account; anyone else is refused
+  before you are asked, and most do not see this PC at all. Adapted from
+  omdrop. Not yet tried with an iPhone.
+
 - **The receiver's limits caught up with omdrop's.** Links are held to the
   disk budget an upload gets, and stored all or none. An Ask too large for
   any upload is refused before it is logged. Links with hidden characters or
@@ -15,6 +22,9 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 - **A crash anyone in range could cause is closed.** One data frame packing
   more than 16 subframes overran a buffer in OWL. The build now applies fixes
   in `awdl/patches` to OWL, whose submodule stays as upstream has it.
+- **A sending phone is no longer dropped mid-transfer** for want of action
+  frames: its data frames now count as hearing it, where OWL let it expire
+  after 2 s without an action frame.
 - **The sync master is chosen by metric first**, as Apple devices choose it.
   By counter, the daemon could keep time with a device the iPhone had left,
   as in the 22 s wait of 0.3.0. `awdld -C` goes back to OWL's order.

@@ -3,6 +3,7 @@
 """AirDrop receiver for Windows: announces this computer on the AWDL adapter
 and serves /Discover, /Ask and /Upload there. Nothing received is opened."""
 import argparse
+import contacts
 import errno
 import json
 import logging
@@ -98,6 +99,16 @@ class Receiver(ThreadingHTTPServer):
         self.live = set()
         super().__init__(('::', port), Handler)
 
+    @property
+    def contacts_only(self):
+        """Whether only senders on the known-senders list are accepted."""
+        return bool(getattr(self.settings, 'contacts_only', False))
+
+    @property
+    def known(self):
+        """The known senders' hashed identifiers."""
+        return contacts.known_hashes(getattr(self.settings, 'known_senders', ()))
+
     def verify_request(self, request, client_address):
         # The socket listens on every interface; AirDrop only arrives on one.
         return client_address[3] == self.settings.interface_index
@@ -140,6 +151,9 @@ class Handler(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
     # What the watcher returned for the ask on this connection.
     accepted = None
+    # Set once an Ask on this connection passed the Contacts Only check: an
+    # Upload carries no record of its own, so only its Ask can vouch for it.
+    known_sender = False
 
     def sender_left(self):
         """Whether the sender has closed this connection. Only asked while it
@@ -213,7 +227,7 @@ class Handler(BaseHTTPRequestHandler):
             self.reject(error.status, str(error))
             return
         if self.path == '/Discover':
-            self.answer(self.identity_plist())
+            self.handle_discover(body)
         else:
             self.handle_ask(body)
 
@@ -228,6 +242,44 @@ class Handler(BaseHTTPRequestHandler):
             'ReceiverComputerName': settings.name,
             'ReceiverModelName': settings.model,
         }, fmt=plistlib.FMT_BINARY)
+
+    def handle_discover(self, body):
+        """Answer who this computer is, unless only known senders may send and
+        this one has shown it is not one. Silence then, as far as a status
+        can be: an error would tell a stranger that this computer is here."""
+        if self.server.contacts_only:
+            try:
+                record = (safeplist.loads(body) or {}).get('SenderRecordData')
+            except Exception:
+                record = None
+            outcome, detail = contacts.decide_discovery(
+                record if isinstance(record, bytes) else None, self.server.known)
+            if outcome != contacts.ACCEPT:
+                logging.info('discovery withheld (contacts only): %s %s',
+                             contacts.WHY[outcome], detail)
+                self.reject(DECLINED_STATUS, 'not a known sender')
+                return
+        self.answer(self.identity_plist())
+
+    def known_sender_check(self, ask):
+        """In Contacts Only, whether the sender proved to be a known one; it
+        is refused here if not. Every other mode lets it through."""
+        if not self.server.contacts_only:
+            return True
+        try:
+            peer_cert = self.connection.getpeercert(binary_form=True)
+        except (AttributeError, ValueError):
+            peer_cert = None
+        record = ask.get('SenderRecordData')
+        outcome, detail = contacts.decide(record if isinstance(record, bytes) else None,
+                                          peer_cert, self.server.known)
+        if outcome != contacts.ACCEPT:
+            # No identifier is logged: a hash gives back the phone number.
+            self.reject(403, f'contacts only: {contacts.WHY[outcome]} {detail}')
+            return False
+        logging.info('ask from a known sender')
+        self.known_sender = True
+        return True
 
     def handle_ask(self, body):
         try:
@@ -272,6 +324,9 @@ class Handler(BaseHTTPRequestHandler):
                      ','.join(kinds) or '?', len(files),
                      '; '.join(f"{name} {f.get('FileType')} {f.get('FileSize')}B"
                                for name, f in zip(names, files, strict=True)) or '-')
+        # Before the owner is asked or anything is stored.
+        if not self.known_sender_check(ask):
+            return
         watcher = self.server.watcher
         self.accepted = watcher.asked(ask, self.client_address[0], self.sender_left)
         if self.accepted is None:
@@ -347,6 +402,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_upload(self):
         settings = self.server.settings
+        if self.server.contacts_only and not self.known_sender:
+            self.reject(403, 'contacts only: an upload no accepted Ask vouches for')
+            return
         ctype = self.headers.get('Content-Type', '').split(';')[0].strip().lower()
         if ctype not in UPLOAD_TYPES:
             self.reject(415, f'unsupported Content-Type {ctype!r}')
@@ -388,9 +446,7 @@ class Handler(BaseHTTPRequestHandler):
             refused = 408, f'upload {tid}: {deadline.stall_report(error, expected)}'
         except (transfer.BodyTooLarge, transfer.UploadLimitError) as error:
             refused = 413, str(error)
-        except transfer.RequestBodyError as error:
-            refused = error.status, str(error)
-        except (ConnectionError, ssl.SSLError) as error:
+        except (ConnectionError, ssl.SSLError, transfer.BodyEnded) as error:
             # Socket errors are OSErrors too, but the disk is fine: the sender
             # went away, and there is nobody to answer.
             reason = (f'upload {tid}: the sender left after {deadline.transferred} '
@@ -399,6 +455,8 @@ class Handler(BaseHTTPRequestHandler):
             watcher.upload_failed(token, reason)
             self.close_connection = True
             return
+        except transfer.RequestBodyError as error:
+            refused = error.status, str(error)
         except OSError as error:
             refused = 507, f'storage failed: {error}'
         except Exception as error:
@@ -482,6 +540,12 @@ def parse_args(argv):
     parser.add_argument('--trace', action='store_true',
                         help='also print each request\'s headers, what a sender asks '
                              'and the members of its archive')
+    parser.add_argument('--contacts-only', action='store_true',
+                        help='accept only senders on the known-senders list, as Apple '
+                             'proves them; others do not see this computer')
+    parser.add_argument('--known-senders', dest='known_senders_file', metavar='FILE',
+                        help='the Apple ID emails and phone numbers accepted from, '
+                             'one a line')
     parser.add_argument('--redact', action='store_true',
                         help='print no names, addresses or account folders, for a '
                              'recording or a shared screen')
@@ -490,6 +554,14 @@ def parse_args(argv):
         args.dest = valid_dir(args.dest)
     except argparse.ArgumentTypeError as error:
         parser.error(f'--outdir: {error}')
+    args.known_senders = []
+    if args.known_senders_file:
+        try:
+            args.known_senders = contacts.read_known_senders(args.known_senders_file)
+        except OSError as error:
+            parser.error(f'--known-senders: {error}')
+    if args.contacts_only and not args.known_senders:
+        parser.error('--contacts-only needs --known-senders with someone on it')
     return args
 
 
@@ -516,12 +588,23 @@ def bind_receiver(port, settings):
     raise SystemExit(f'port {port} is held by another program')
 
 
-def tls_context(keys_dir):
+def tls_context(keys_dir, contacts_only=False):
+    """The receiver's TLS side. Visible to everyone, no certificate is asked
+    for: nothing would read it, and one that did not chain to Apple would
+    fail the handshake. With Contacts Only one is asked for, as Apple's
+    client certificate is half of what proves who a sender is. Optional
+    means it may be absent, not that a bad one is let through, so Apple's
+    intermediates are trusted beside its root: a sender may send its leaf
+    alone."""
     certificate, key = identity.ensure_self_signed(keys_dir)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certificate, key)
-    # Senders present self-signed certificates, so none is asked for.
     context.verify_mode = ssl.CERT_NONE
+    if contacts_only:
+        context.load_verify_locations(cafile=contacts.APPLE_ROOT_CA)
+        for intermediate in contacts.apple_intermediates():
+            context.load_verify_locations(cafile=intermediate)
+        context.verify_mode = ssl.CERT_OPTIONAL
     return context
 
 
@@ -534,7 +617,7 @@ def main(argv=None):
         sys.stderr = redact.Stream(sys.stderr, redactor.hide)
     logline.configure(logging.DEBUG if settings.trace else logging.INFO, sys.stdout)
     try:
-        context = tls_context(settings.keys)
+        context = tls_context(settings.keys, settings.contacts_only)
     except identity.IdentityError as error:
         raise SystemExit(str(error)) from None
     settings.interface_index, address = wait_for_interface(settings.iface)

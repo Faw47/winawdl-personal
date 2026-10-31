@@ -20,8 +20,13 @@ public sealed class ScriptedEngine : IEngine
     public event Action<string, string>? Stopped;
     public List<string> Told { get; } = [];
 
-    public void Start(string name, string folder, bool ask) =>
-        Say(new { @event = "ready", protocol = 1, name, folder, ask });
+    public void Start(string name, string folder, bool ask, bool contactsOnly,
+                      IReadOnlyList<string> knownSenders) =>
+        Say(new
+        {
+            @event = "ready", protocol = 1, name, folder, ask,
+            contacts_only = contactsOnly, known_senders = knownSenders,
+        });
 
     public void Tell(Dictionary<string, object?> command) => Told.Add(JsonSerializer.Serialize(command));
 
