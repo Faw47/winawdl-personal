@@ -11,36 +11,12 @@ get_filename_component(REPOSITORY "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 add_compile_options("-ffile-prefix-map=${REPOSITORY}=.")
 
 set(WINAWDL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
-set(OWL_UPSTREAM "${WINAWDL_ROOT}/upstream/owl")
 
-# The submodule stays as upstream has it. Its sources are copied into the
-# build tree and patches/ applied there, at every configure, so the copy is
-# never edited by hand and a changed patch or submodule redoes it.
+# OWL as upstream has it, copied into the build tree with patches/ applied.
+include("${WINAWDL_ROOT}/cmake/patched_copy.cmake")
 set(OWL "${CMAKE_CURRENT_BINARY_DIR}/owl")
-file(GLOB OWL_PATCHES "${CMAKE_CURRENT_SOURCE_DIR}/patches/*.patch")
-list(SORT OWL_PATCHES)
-file(GLOB_RECURSE OWL_UPSTREAM_FILES
-    "${OWL_UPSTREAM}/src/*" "${OWL_UPSTREAM}/daemon/*" "${OWL_UPSTREAM}/radiotap/*.[ch]")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    ${OWL_PATCHES} ${OWL_UPSTREAM_FILES})
-find_package(Git REQUIRED)
-file(REMOVE_RECURSE "${OWL}")
-file(MAKE_DIRECTORY "${OWL}")
-file(COPY "${OWL_UPSTREAM}/src" "${OWL_UPSTREAM}/daemon" DESTINATION "${OWL}")
-file(COPY "${OWL_UPSTREAM}/radiotap" DESTINATION "${OWL}" PATTERN ".git" EXCLUDE)
-foreach(patch IN LISTS OWL_PATCHES)
-    # The ceiling keeps git from finding this repository above the copy, which
-    # would make it read the patch's paths from the repository's top.
-    execute_process(
-        COMMAND "${CMAKE_COMMAND}" -E env "GIT_CEILING_DIRECTORIES=${CMAKE_CURRENT_BINARY_DIR}"
-                "${GIT_EXECUTABLE}" apply --whitespace=nowarn "${patch}"
-        WORKING_DIRECTORY "${OWL}"
-        RESULT_VARIABLE patch_result
-        ERROR_VARIABLE patch_error)
-    if(NOT patch_result EQUAL 0)
-        message(FATAL_ERROR "OWL patch ${patch} does not apply:\n${patch_error}")
-    endif()
-endforeach()
+winawdl_patched_copy("${WINAWDL_ROOT}/upstream/owl" "${OWL}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches" src daemon radiotap)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_EXTENSIONS ON)

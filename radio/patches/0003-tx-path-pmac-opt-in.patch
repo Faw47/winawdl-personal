@@ -1,0 +1,135 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: winawdl <winawdl@invalid>
+Date: Sat, 31 Oct 2026 07:03:14 +0000
+Subject: [PATCH] kestrel: opt-in P-MAC TX path selection on the 8852C
+
+The functional part of OpenIPC/devourer 8da7af2, behind
+DeviceConfig::debug.kestrel_tx_path_pmac (DEVOURER_KESTREL_TX_PATH_PMAC
+in the demos). Upstream ships it on; it applies to every PPDU and two-
+stream TX under it was not measured there, which winawdl depends on.
+---
+ examples/common/env_config.cpp    |  1 +
+ hal/halbb/g6/kestrel_halbb_glue.c | 17 +++++++++++++++++
+ hal/halbb/g6/kestrel_halbb_glue.h |  5 +++++
+ src/DeviceConfig.h                |  7 +++++++
+ src/kestrel/HalKestrel.cpp        |  4 ++++
+ src/kestrel/HalKestrel.h          |  4 ++++
+ src/kestrel/RtlKestrelDevice.cpp  |  1 +
+ 7 files changed, 39 insertions(+)
+
+diff --git a/examples/common/env_config.cpp b/examples/common/env_config.cpp
+index ca169f3..996f052 100644
+--- a/examples/common/env_config.cpp
++++ b/examples/common/env_config.cpp
+@@ -293,6 +293,7 @@ devourer::DeviceConfig devourer_config_from_env() {
+   cfg.debug.log_txpwr = env_flag("DEVOURER_LOG_TXPWR");
+   cfg.debug.kestrel_fw_log = env_flag("DEVOURER_KESTREL_FWLOG");
+   cfg.debug.kestrel_cca_on = env_flag("DEVOURER_KESTREL_CCA_ON");
++  cfg.debug.kestrel_tx_path_pmac = env_flag("DEVOURER_KESTREL_TX_PATH_PMAC");
+   cfg.debug.kestrel_trigger_f2p = env_flag("DEVOURER_KESTREL_TRIGGER_F2P");
+   if (const char *e = env_str("DEVOURER_REPLAY_WSEQ"))
+     cfg.debug.replay_wseq = e;
+diff --git a/hal/halbb/g6/kestrel_halbb_glue.c b/hal/halbb/g6/kestrel_halbb_glue.c
+index 36941e5..4a10b99 100644
+--- a/hal/halbb/g6/kestrel_halbb_glue.c
++++ b/hal/halbb/g6/kestrel_halbb_glue.c
+@@ -284,6 +284,23 @@ void kestrel_halbb_ctrl_tx_path(struct kestrel_halbb_ctx *ctx) {
+ #endif
+ }
+ 
++void kestrel_halbb_ctrl_tx_path_pmac(struct kestrel_halbb_ctx *ctx) {
++  /* After kestrel_halbb_ctrl_tx_path: take the TX path enable and the path
++   * A/B maps from the BB's P-MAC registers (0x09a4[4:2]) instead of the TX
++   * info the MAC sends with each PPDU: paths A+B, A on IFFT 0, B on IFFT 1,
++   * with the vendor's per-path TSSI reset pulse. OpenIPC/devourer 8da7af2
++   * found the path selection the MAC attaches to a hardware ACK comes from
++   * state nothing initialises, so some bring-ups compose ACKs no antenna
++   * radiates (3-6 of 12-15 sessions; 0 of 123 with this). It applies to
++   * every PPDU, and upstream measured one stream only. */
++#ifdef BB_8852C_SUPPORT
++  if (ctx && ctx->bb.ic_type == BB_RTL8852C)
++    halbb_ctrl_tx_path_pmac_8852c(&ctx->bb, RF_PATH_AB, false);
++#else
++  (void)ctx;
++#endif
++}
++
+ /* One-shot active/frame-free NHM absolute noise floor. See the header. */
+ int kestrel_halbb_env_mntr_nhm(struct kestrel_halbb_ctx *ctx,
+                                unsigned short mntr_time_ms,
+diff --git a/hal/halbb/g6/kestrel_halbb_glue.h b/hal/halbb/g6/kestrel_halbb_glue.h
+index 4f6f578..2b74add 100644
+--- a/hal/halbb/g6/kestrel_halbb_glue.h
++++ b/hal/halbb/g6/kestrel_halbb_glue.h
+@@ -66,6 +66,11 @@ void kestrel_halbb_ctrl_bw_ch(struct kestrel_halbb_ctx *ctx, unsigned char pri_c
+  * 8852C-only — the 8852B selects its TX antenna per-STA via the CMAC antenna
+  * model, so this is a no-op there. Single-PHY, RF_PATH_A. */
+ void kestrel_halbb_ctrl_tx_path(struct kestrel_halbb_ctx *ctx);
++/* Then the path enable / path A-B maps from P-MAC (halbb_ctrl_tx_path_pmac_
++ * 8852c, RF_PATH_AB), so a hardware response's path selection does not come
++ * from the MAC (see the definition). 8852C-only; opt-in, see
++ * DeviceConfig::debug.kestrel_tx_path_pmac. */
++void kestrel_halbb_ctrl_tx_path_pmac(struct kestrel_halbb_ctx *ctx);
+ /* 6 GHz EDCCA threshold after a 6 GHz tune (the vendor's unlinked
+  * EDCCA_NORMAL_MODE level — see the definition); bw is the halbb
+  * channel_width enum. */
+diff --git a/src/DeviceConfig.h b/src/DeviceConfig.h
+index 17a7ad9..c34a2b9 100644
+--- a/src/DeviceConfig.h
++++ b/src/DeviceConfig.h
+@@ -534,6 +534,13 @@ struct DeviceConfig {
+      * medium-busy gates enabled (carrier-sense TX) instead of clearing them,
+      * to test whether the ported RX-DCK calibration fixed the perpetual-busy. */
+     bool kestrel_cca_on = false;
++    /* env: DEVOURER_KESTREL_TX_PATH_PMAC — 8852C: after the T-MAC path
++     * routing at bring-up, take the TX path selection from the BB's P-MAC
++     * registers (paths A+B). OpenIPC/devourer 8da7af2 made this the default
++     * to end bring-ups whose hardware ACKs never air; here it is opt-in,
++     * because it applies to every PPDU and two-stream TX under it was not
++     * measured upstream. */
++    bool kestrel_tx_path_pmac = false;
+     /* env: DEVOURER_KESTREL_TRIGGER_F2P — force SendTrigger down the fw F2P_TEST
+      * command instead of host-injecting the raw Basic Trigger through the mgmt
+      * TX path. F2P is an MP-only entry the shipped client fw silently drops (it
+diff --git a/src/kestrel/HalKestrel.cpp b/src/kestrel/HalKestrel.cpp
+index c2af885..8a620d6 100644
+--- a/src/kestrel/HalKestrel.cpp
++++ b/src/kestrel/HalKestrel.cpp
+@@ -2356,6 +2356,10 @@ void HalKestrel::vnd_bb_ctrl_tx_path() {
+   if (_halbb_ctx && _variant == ChipVariant::C8852C) {
+     kestrel_halbb_ctrl_tx_path(_halbb_ctx);
+     _logger->info("Kestrel PHY: T-MAC TX path-com routed (vendored, 8852C)");
++    if (_tx_path_pmac) {
++      kestrel_halbb_ctrl_tx_path_pmac(_halbb_ctx);
++      _logger->info("Kestrel PHY: TX path selection from P-MAC, paths A+B");
++    }
+   }
+ }
+ 
+diff --git a/src/kestrel/HalKestrel.h b/src/kestrel/HalKestrel.h
+index 77eb19a..fe27c87 100644
+--- a/src/kestrel/HalKestrel.h
++++ b/src/kestrel/HalKestrel.h
+@@ -644,6 +644,10 @@ public:
+     _cca_default_unmeasured = default_unmeasured;
+   }
+   void set_kfr_ofld(bool on) { _kfr_ofld = on; }
++  void set_tx_path_pmac(bool on) { _tx_path_pmac = on; }
++
++private:
++  bool _tx_path_pmac = false; /* see DeviceConfig::debug.kestrel_tx_path_pmac */
+ };
+ 
+ } /* namespace kestrel */
+diff --git a/src/kestrel/RtlKestrelDevice.cpp b/src/kestrel/RtlKestrelDevice.cpp
+index 3f49b5e..d800a31 100644
+--- a/src/kestrel/RtlKestrelDevice.cpp
++++ b/src/kestrel/RtlKestrelDevice.cpp
+@@ -189,6 +189,7 @@ bool RtlKestrelDevice::PowerOnTrxAndPhy(kestrel::EfuseInfo &out) {
+ 
+ bool RtlKestrelDevice::BringUpMonitor(SelectedChannel channel) {
+   _channel = channel;
++  _hal.set_tx_path_pmac(_cfg.debug.kestrel_tx_path_pmac);
+   /* hal_start_8852b order (rtl8852b_halinit.c:508): mac_hal_init [pwr ->
+    * FWDL -> enable_bb_rf -> sys_init -> trx_init -> intf_init] -> efuse ->
+    * BB/RF tables -> channel. */

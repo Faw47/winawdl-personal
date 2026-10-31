@@ -21,9 +21,17 @@ set(DEVOURER_PCIE ON CACHE BOOL "" FORCE)
 set(DEVOURER_REGPROXY_INCLUDE_DIR "${WINAWDL_ROOT}/driver/regproxy"
     CACHE PATH "" FORCE)
 
+# devourer as the submodule has it, copied into the build tree with patches/
+# applied: upstream fixes the fork does not have yet.
+include("${WINAWDL_ROOT}/cmake/patched_copy.cmake")
+set(DEVOURER "${CMAKE_CURRENT_BINARY_DIR}/devourer-src")
+winawdl_patched_copy("${WINAWDL_ROOT}/upstream/devourer" "${DEVOURER}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches"
+    CMakeLists.txt LICENSE src hal examples tests tools)
+
 # EXCLUDE_FROM_ALL keeps devourer's own demos and tests out of the build. The
 # three used here hang off one target the Visual Studio generator can build.
-add_subdirectory("${WINAWDL_ROOT}/upstream/devourer" devourer EXCLUDE_FROM_ALL)
+add_subdirectory("${DEVOURER}" devourer EXCLUDE_FROM_ALL)
 add_custom_target(devourer_demos)
 add_dependencies(devourer_demos rxdemo txdemo pcieprobe)
 
@@ -59,7 +67,7 @@ endif()
 add_executable(channel_width_test tests/channel_width_test.cpp)
 target_compile_features(channel_width_test PRIVATE cxx_std_20)
 target_include_directories(channel_width_test PRIVATE
-    "${WINAWDL_ROOT}/upstream/devourer/src")
+    "${DEVOURER}/src")
 if(MSVC)
     target_compile_options(channel_width_test PRIVATE /W4 /WX)
 endif()
@@ -99,7 +107,7 @@ endif()
 add_executable(dma_address_test tests/dma_address_test.cpp)
 target_compile_features(dma_address_test PRIVATE cxx_std_20)
 target_include_directories(dma_address_test PRIVATE
-    "${WINAWDL_ROOT}/upstream/devourer/src")
+    "${DEVOURER}/src")
 if(MSVC)
     target_compile_options(dma_address_test PRIVATE /W4 /WX)
 endif()

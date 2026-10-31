@@ -151,6 +151,26 @@ soon as its client has given its address and BSSID. Reception then narrows
 from every frame to those for the client, broadcast and multicast, which is
 all AWDL needs. The card may now answer while Bluetooth is transmitting.
 
+Upstream devourer found, on other 8852C cards, bring-ups in which the
+responder was armed and no acknowledgement ever aired: 3 to 6 sessions of
+every 12 to 15 (OpenIPC/devourer 8da7af2). The MAC attaches a choice of
+transmit antenna paths to each response, taken from state nothing sets, and
+in those bring-ups it named a path the chip lacks or mapped path A off its
+signal. Taking the choice from the baseband's own registers ended it: none
+of 123. Here that would show as a session whose retry share stays at 85%.
+`radio/patches/0003` carries the change, off unless `winawdl_radio` is given
+`--tx-path-pmac` (`scripts\awdl-run.ps1 -TxPathPmac`), because it applies to
+every frame sent and upstream measured one stream only, while the data
+frames here go at two. It may also be why the phone acknowledged nothing at
+HT MCS 15, a two-stream rate (see Sending): untried.
+
+`radio/patches/0001` (OpenIPC/devourer 5b12c86) sets the energy-detect level
+on 5 GHz to the vendor's own for a device with no link, as devourer already
+did on 6 GHz. With the level from the baseband's table, the transmit gate
+read the receiver's own noise as a busy channel from channel 52 up, and
+nothing was sent on 100 to 161 by another 8852C card. Channel 44 was
+unaffected there; 149 needs it. Carrier sense by preamble stays on.
+
 Also noted: the "LTE interface not ready" error devourer logs twice per
 bring-up is benign here. The register it polls, 0xDAF0, reads back the chip's
 unimplemented-register pattern on this card, and rtw89 never touches it on
@@ -312,8 +332,11 @@ On 5 GHz the radio daemon tunes the card wider than 20 MHz, and the daemon
 then leaves OWL's 40 MHz capabilities as they are. For that the
 MAC has to be told the width and where the primary 20 MHz lies, which
 devourer's `set_channel` did not do (see `set_channel_mac` in the fork). The
-capture labels these frames 20 MHz all the same: the width it records from
-the receive descriptor is not to be trusted.
+capture labelled these frames 20 MHz all the same. The cause was found
+upstream (OpenIPC/devourer 357f045): the 8852C keeps a received frame's width
+in three bits of the descriptor, dword 1 [31:29], where the 8852B has two,
+and devourer read it the 8852B way, halving every width. `radio/patches/0002`
+reads it right, so a capture from now on says what width the iPhone used.
 
 At 40 MHz an aggregate stops at about 64 KiB, the most an HT station can
 announce. Tuned to 80 MHz, the daemon therefore appends VHT capabilities to
@@ -322,6 +345,10 @@ the frames that carry OWL's HT ones, in the TLV an iPhone uses for its own
 iPhone then sends VHT MCS 9 in bursts of about 100 frames, at 31 us a frame.
 That is the 40 MHz rate: it does not send 80 MHz frames, for a reason not
 found. The card is tuned to 80 MHz all the same, so that it could take them.
+Upstream has since seen an iPhone send 80 MHz frames to another 8852C card,
+on channel 149, at VHT two-stream MCS 7 to 9 and about 45 MB/s. So the next
+capture here, now that it reads the width right, is worth taking on 149 as
+well as 44.
 
 What still separates this from two Apple devices: the iPhone keeps to
 40 MHz, about 30% of each cycle goes to the acknowledgement, and the iPhone
@@ -888,6 +915,12 @@ package to the driver store does not take over the card on its own.
 - Build scripts do not rely on `vcvars64.bat`. They call `cl.exe` with
   explicit `INCLUDE` and `LIB`.
 - OWL is GPL-3.0 and devourer GPL-2.0. Keep them in separate processes.
+- Both submodules stay as upstream has them. The builds copy them into the
+  build tree and apply `awdl/patches` and `radio/patches` there, through
+  `cmake/patched_copy.cmake`, redoing it when the submodule's commit, its
+  uncommitted changes or a patch change. A patch that no longer applies
+  stops the configure: after moving a submodule, drop the patches upstream
+  now has and refresh the rest.
 
 ## Physical memory for DMA
 

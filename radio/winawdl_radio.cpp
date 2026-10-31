@@ -757,6 +757,9 @@ struct Options {
   std::string data_rate = "auto";
   bool aggregate = true;
   bool quick_submit = true;
+  /* Take the TX antenna path selection from the baseband's own registers
+   * (radio/patches/0003). Off unless asked: see DESIGN-NOTES. */
+  bool tx_path_pmac = false;
 };
 
 /* The rate `spec` names, or nothing if it names none or asks for a wider
@@ -801,6 +804,8 @@ std::optional<Options> parse_options(int argc, char **argv) {
       options.aggregate = false;
     else if (argument == "--no-quick-submit")
       options.quick_submit = false;
+    else if (argument == "--tx-path-pmac")
+      options.tx_path_pmac = true;
     else if (argument == "--capture" && i + 1 < argc)
       options.capture_path = argv[++i];
     else if (argument == "--width" && i + 1 < argc)
@@ -833,7 +838,7 @@ int main(int argc, char **argv) {
                  "usage: %s <channel> [--width 20|40|80] [--capture file.pcap] "
                  "[--no-block-ack] [--retries 0..62] "
                  "[--data-rate auto|client|MCS7/20] [--no-aggregate] "
-                 "[--no-quick-submit]\n",
+                 "[--no-quick-submit] [--tx-path-pmac]\n",
                  argv[0]);
     return 2;
   }
@@ -867,6 +872,7 @@ int main(int argc, char **argv) {
   WiFiDriver driver(logger);
   devourer::DeviceConfig config;
   config.tx.retry_limit = options->retries;
+  config.debug.kestrel_tx_path_pmac = options->tx_path_pmac;
   auto radio = driver.CreateRadioPcie(std::move(transport), config);
   if (!radio) return 1;
 
