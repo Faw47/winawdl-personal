@@ -239,6 +239,15 @@ class ReceiverTest(unittest.TestCase):
         self.assertIn('the sender left', failed[0])
         self.assertNotIn('storage failed', failed[0])
 
+    def test_a_sender_that_asks_too_often_is_told_to_wait(self):
+        asked = []
+        self.server.watcher.asked = lambda ask, address, left: asked.append(ask) or True
+        ask = {'SenderComputerName': 'Phone', 'Files': [{'FileName': 'a.txt'}]}
+        statuses = [self.post_plist(self.connect(), '/Ask', ask)[0]
+                    for _ in range(receiver.ASKS_PER_SENDER + 1)]
+        self.assertEqual(statuses, [200] * receiver.ASKS_PER_SENDER + [receiver.TOO_MANY_STATUS])
+        self.assertEqual(len(asked), receiver.ASKS_PER_SENDER)
+
     def test_redacting_keeps_the_sender_and_its_folders_out_of_the_log(self):
         self.settings.redact = True
         ask = {'SenderComputerName': 'Ada phone', 'SenderModelName': 'iPhone',
@@ -386,6 +395,30 @@ class ContactsOnlyTest(unittest.TestCase):
             status, body = self.post(self.connect(), '/Discover', value)
             self.assertEqual(status, 200)
             self.assertEqual(plistlib.loads(body)['ReceiverComputerName'], 'Test PC')
+
+
+
+class AskLimiterTest(unittest.TestCase):
+    def setUp(self):
+        self.now = 0.0
+        self.limiter = receiver.AskLimiter(per_sender=2, in_all=3, window=30,
+                                           clock=lambda: self.now)
+
+    def test_one_sender_is_held_to_its_share(self):
+        self.assertEqual([self.limiter.allow('a') for _ in range(3)], [True, True, False])
+        self.assertTrue(self.limiter.allow('b'))
+
+    def test_senders_together_are_held_to_the_total(self):
+        self.assertEqual([self.limiter.allow(address) for address in 'abcd'],
+                         [True, True, True, False])
+
+    def test_the_window_moves_on(self):
+        self.limiter.allow('a')
+        self.limiter.allow('a')
+        self.now = 29.9
+        self.assertFalse(self.limiter.allow('a'))
+        self.now = 30.1
+        self.assertTrue(self.limiter.allow('a'))
 
 
 if __name__ == '__main__':

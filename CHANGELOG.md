@@ -5,6 +5,10 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **A device can no longer flood the screen with requests.** Each sender
+  may ask five times in 30 seconds, and all of them together twenty; past
+  that it is told to wait, before anyone is asked.
+
 - **The parsers are fuzzed**, in CI on every push: OWL's receive path and
   the frame handling around it with sanitizers, and the AirDrop layer's
   plist, archive, compression, chunked-body and multicast DNS readers. A

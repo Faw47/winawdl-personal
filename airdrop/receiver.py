@@ -3,6 +3,7 @@
 """AirDrop receiver for Windows: announces this computer on the AWDL adapter
 and serves /Discover, /Ask and /Upload there. Nothing received is opened."""
 import argparse
+import collections
 import contacts
 import errno
 import json
@@ -18,6 +19,7 @@ import ssl
 import struct
 import sys
 import tempfile
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -52,6 +54,47 @@ LINGER_RESET = struct.pack('HH', 1, 0)
 # Version 1 with no codecs listed makes the sender convert to legacy formats
 # (JPEG, not HEIF). The key has to be present in both answers.
 MEDIA_CAPABILITIES = json.dumps({'Version': 1}).encode()
+
+
+# How many Asks are heard in a window: from one address, and from all of them
+# together, since a device can change its address. A sender asks once a
+# transfer, so these leave room for a person and none for a flood of requests
+# on the owner's screen.
+ASK_WINDOW_SECONDS = 30
+ASKS_PER_SENDER = 5
+ASKS_IN_ALL = 20
+TOO_MANY_STATUS = 429
+
+
+class AskLimiter:
+    """Counts recent Asks, by address and in all."""
+
+    def __init__(self, per_sender=ASKS_PER_SENDER, in_all=ASKS_IN_ALL,
+                 window=ASK_WINDOW_SECONDS, clock=time.monotonic):
+        self.per_sender = per_sender
+        self.in_all = in_all
+        self.window = window
+        self.clock = clock
+        self._lock = threading.Lock()
+        self._all = collections.deque()
+        self._by_sender = {}
+
+    def allow(self, address):
+        """Whether an Ask from address is heard, counting it if it is."""
+        now = self.clock()
+        with self._lock:
+            while self._all and self._all[0][0] <= now - self.window:
+                _, old = self._all.popleft()
+                times = self._by_sender[old]
+                times.popleft()
+                if not times:
+                    del self._by_sender[old]
+            mine = self._by_sender.get(address, ())
+            if len(self._all) >= self.in_all or len(mine) >= self.per_sender:
+                return False
+            self._all.append((now, address))
+            self._by_sender.setdefault(address, collections.deque()).append(now)
+            return True
 
 
 class HandshakeFailed(Exception):
@@ -96,6 +139,7 @@ class Receiver(ThreadingHTTPServer):
         self.settings = settings
         self.watcher = watcher or Watcher()
         self.live = set()
+        self.asks = AskLimiter()
         super().__init__(('::', port), Handler)
 
     @property
@@ -277,6 +321,10 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def handle_ask(self, body):
+        # Counted before anything is done with it, malformed or not.
+        if not self.server.asks.allow(self.client_address[0]):
+            self.reject(TOO_MANY_STATUS, 'too many requests from this sender; try again soon')
+            return
         try:
             ask = safeplist.loads(body)
         except Exception as error:
