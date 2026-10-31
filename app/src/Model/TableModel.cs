@@ -68,6 +68,10 @@ public sealed class TableModel : Observable
         PanelAction = new Command(RunPanelAction);
         foreach (var device in _settings.AlwaysAccept) Trusted.Add(Listed(device));
         AddSender = new Command(AddTheSender);
+        TurnOff = new Command(() => RadioOn = false);
+        FindByContacts = new Command(() => FindBy(() => OnlyKnownSenders = true));
+        FindByEveryoneForAWhile = new Command(() => FindBy(() => EveryoneForAWhile = true));
+        FindByEveryone = new Command(() => FindBy(() => AnyoneCanSend = true));
         ShowSenders();
     }
 
@@ -91,6 +95,10 @@ public sealed class TableModel : Observable
     public ICommand OpenProject { get; }
     public ICommand StartEngine { get; }
     public ICommand AddSender { get; }
+    public ICommand TurnOff { get; }
+    public ICommand FindByContacts { get; }
+    public ICommand FindByEveryoneForAWhile { get; }
+    public ICommand FindByEveryone { get; }
     public ICommand PanelAction { get; }
 
     /// <summary>Something wants an answer; the window may be out of sight.</summary>
@@ -146,16 +154,16 @@ public sealed class TableModel : Observable
     public string PanelTitle => Across switch
     {
         Across.EngineDown => _engineProblem,
-        Across.RadioStarting => "Starting the radio",
+        Across.RadioStarting => "Turning on AirDrop",
         Across.RadioProblem => _radio.Phase switch
         {
-            RadioPhase.Refused => "The radio stayed off",
+            RadioPhase.Refused => "AirDrop stayed off",
             RadioPhase.NotBuilt => _radio.FromSource
-                ? "The radio has not been built yet"
-                : "The radio's programs are missing",
-            _ => _radioHasRun ? "The radio stopped" : "The radio did not start",
+                ? "AirDrop has not been built yet"
+                : "AirDrop's programs are missing",
+            _ => _radioHasRun ? "AirDrop stopped" : "AirDrop did not start",
         },
-        _ => _radio.Phase == RadioPhase.Stopping ? "Stopping the radio" : "The radio is off",
+        _ => _radio.Phase == RadioPhase.Stopping ? "Turning off AirDrop" : "AirDrop is off",
     };
 
     public string PanelBody => Across switch
@@ -180,9 +188,9 @@ public sealed class TableModel : Observable
 
     public string PanelActionLabel => Across switch
     {
-        Across.EngineDown => "Start it again",
-        Across.RadioOff => _radio.Phase == RadioPhase.Stopping ? "" : "Turn on the radio",
-        Across.RadioProblem => _radio.Phase == RadioPhase.Refused ? "Turn on the radio" : "Try again",
+        Across.EngineDown => "Start Again",
+        Across.RadioOff => _radio.Phase == RadioPhase.Stopping ? "" : "Turn On AirDrop",
+        Across.RadioProblem => _radio.Phase == RadioPhase.Refused ? "Turn On AirDrop" : "Try Again",
         _ => "",
     };
 
@@ -198,7 +206,11 @@ public sealed class TableModel : Observable
     }
 
     public string NobodyTitle => _looking ? "No one nearby yet" : "Getting ready to look";
-    public string NobodyBody => _looking
+    // A device that will not answer has its own notice below, which says what to
+    // change on it; the general advice would only repeat it.
+    public string NobodyBody => _looking && _unwilling > 0
+        ? "Keep the other device's screen on."
+        : _looking
         ? "Set AirDrop to Everyone for 10 Minutes on the device (Settings, General, AirDrop) and keep "
           + "its screen on."
         : "Nearby devices are woken over Bluetooth first.";
@@ -216,6 +228,28 @@ public sealed class TableModel : Observable
                 _radioNotice = "The radio was started from a terminal. Stop it there with Ctrl+C.";
             Refresh();
         }
+    }
+
+    // Who can find this PC, as AirDrop's own setting puts it: off, contacts,
+    // everyone for ten minutes, everyone. Choosing one also turns the radio on.
+
+    public bool FindMeOff => !RadioOn;
+    public bool FindMeContacts => RadioOn && OnlyKnownSenders;
+    public bool FindMeForAWhile => RadioOn && EveryoneForAWhile;
+    public bool FindMeEveryone => RadioOn && AnyoneCanSend;
+
+    public string FindMeLabel => !RadioOn ? "Receiving Off"
+        : EveryoneForAWhile ? "Everyone for 10 Minutes"
+        : OnlyKnownSenders ? "Contacts Only"
+        : "Everyone";
+
+    public string FindMeName => $"Who can find this PC: {FindMeLabel}";
+
+    private void FindBy(Action choose)
+    {
+        choose();
+        if (!RadioOn) RadioOn = true;
+        ChangedAll();
     }
 
     public string Presence => _linkUp && _receiving ? $"Visible as {Name}"

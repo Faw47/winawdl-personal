@@ -1,31 +1,51 @@
 # The winawdl app: design direction
 
-The direction below is the owner's, given on 2026-10-12 as answers to four
-questions. The second part lists what was decided from it, one reason each.
-A change to the first part outranks anything in the second.
+The direction below is the owner's. The second part lists what was decided
+from it, one reason each. A change to the first part outranks anything in
+the second.
 
 ## Direction
 
-- **Character: tactile and warm.** It feels like handing someone an object.
-  Soft surfaces with real depth, files you can grab and drop onto a device,
-  springy motion when things land.
-- **Palette: follow Windows.** Light and dark, switching with the Windows
-  setting, with the owner's own Windows accent color as the one accent. The
-  app looks like it belongs on the machine.
-- **Name:** winawdl.
+- **AirDrop on Windows** (2026-10-31, replacing "tactile and warm" of
+  2026-10-12). The window looks and behaves like Apple's AirDrop: nearby
+  devices as round faces, a transfer as a ring around the face, a request
+  as an alert, almost no text. Apple's attention to detail is the bar.
+- **Palette: neutral, with the Windows accent.** Light and dark, switching
+  with the Windows setting. Surfaces are neutral greys as Apple's system
+  colors are; the owner's Windows accent is the one accent.
+- **Name:** winawdl. The window calls itself AirDrop, the thing it does.
 - **Icon:** "more like an AirDrop-like icon" (the owner, on seeing the letter
   that first stood in for one).
-- **Shell:** the most optimized one, which is a native window: one process,
-  nothing downloaded, drag and drop that carries file paths.
+- **Shell:** a native WPF window: one process, nothing downloaded, drag and
+  drop that carries file paths. Chosen over WebView2 and Tauri on
+  2026-10-31: Tauri draws with WebView2 on Windows, and either would add a
+  browser engine to an app that sits in the tray all day.
 - **A request out of the window** (2026-10-13): winawdl's own card in the
   corner of the screen, chosen over a Windows notification.
 - **Always accepting a device** (2026-10-13): offered on the request, with a
   list in the settings.
 
-Dial: ENERGY 2 / RHYTHM 2 / MOTION 2
-
 Read as: a desktop utility window for one person handing files between their
 own PC and the phones next to it.
+
+### Rules every screen keeps
+
+- **Type**, in Segoe UI Variable, the nearest Windows has to San Francisco:
+  large title 26 bold, title 20 semibold, name 15 semibold, body 14,
+  secondary 13, caption 12. Semibold only for names and headings.
+- **Space** on an 8 px grid; 24 px from the window's edge.
+- **Shape**: circles for devices, 12 px corners for cards, 8 for buttons,
+  fields and thumbnails, 14 for the pill.
+- **One material**: flat cards on the window with a hairline. No bevels, no
+  sunken wells, nothing rotated. A shadow only on what floats above the
+  window: menus and the cards in the corner of the screen.
+- **Color**: the accent marks the next press and the progress of a
+  transfer, nothing else. Every ink reaches 4.5:1 on every surface.
+- **Words**: a person's words. "Receiving Off", not "Radio". Buttons in
+  title case, as Apple writes them.
+
+The sections below are from the first direction. Where they speak of
+warmth, depth, wells or rotation, the rules above replace them.
 
 ## What follows from it
 

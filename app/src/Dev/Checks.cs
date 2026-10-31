@@ -140,8 +140,8 @@ public static class Checks
         var model = world.Model;
         Expect(model.Across == Across.RadioOff && model.Presence == "Not visible" && !model.RadioOn,
                $"no link: \"{model.PanelTitle}\", header \"{model.Presence}\"");
-        Expect(Press(view, "Turn on the radio") && world.Radio.Starts == 1 && model.Across == Across.RadioStarting && model.RadioOn,
-               $"Turn on the radio -> the radio is started once: \"{model.PanelTitle}\"");
+        Expect(Press(view, "Turn On AirDrop") && world.Radio.Starts == 1 && model.Across == Across.RadioStarting && model.RadioOn,
+               $"Turn On AirDrop -> the radio is started once: \"{model.PanelTitle}\"");
         world.Radio.Become(RadioPhase.Starting, "radio: card ready");
         Expect(model.PanelBody == "radio: card ready", "while it starts, the panel shows what the radio last wrote");
         world.Engine.Say(new { @event = "link", up = true });
@@ -160,15 +160,15 @@ public static class Checks
         Expect(model.Notices.Count == 2, "it stops refusing, or leaves -> the notice goes");
         world.Engine.Say(new { @event = "link", up = false });
         world.Radio.Become(RadioPhase.Failed, "radio: could not get 6 locked 2 MiB blocks below 4 GiB");
-        Expect(model.Across == Across.RadioProblem && model.PanelTitle == "The radio stopped" && model.PanelHasLog,
+        Expect(model.Across == Across.RadioProblem && model.PanelTitle == "AirDrop stopped" && model.PanelHasLog,
                $"the radio ends by itself -> \"{model.PanelTitle}\": \"{model.PanelBody}\"");
-        Expect(Press(view, "Open the logs") && world.Desk.Opened.Last().StartsWith("open "), "Open the logs -> the log folder is opened (recorded)");
-        Expect(Press(view, "Try again") && world.Radio.Starts == 2, "Try again -> the radio is started again");
+        Expect(Press(view, "Show Logs") && world.Desk.Opened.Last().StartsWith("open "), "Show Logs -> the log folder is opened (recorded)");
+        Expect(Press(view, "Try Again") && world.Radio.Starts == 2, "Try Again -> the radio is started again");
         world.Radio.Become(RadioPhase.Failed, "");
-        Expect(model.PanelTitle == "The radio did not start" && model.PanelBody == "It left nothing in its log.",
+        Expect(model.PanelTitle == "AirDrop did not start" && model.PanelBody == "It left nothing in its log.",
                $"it fails before running, silent -> \"{model.PanelTitle}\": \"{model.PanelBody}\"");
         world.Radio.Become(RadioPhase.Refused);
-        Expect(model.PanelTitle == "The radio stayed off" && !model.PanelHasLog && !model.RadioOn,
+        Expect(model.PanelTitle == "AirDrop stayed off" && !model.PanelHasLog && !model.RadioOn,
                $"Windows was told no -> \"{model.PanelTitle}\": \"{model.PanelBody}\"");
         world.Radio.Become(RadioPhase.NotBuilt);
         Expect(model.PanelBody.Contains("build-radio.ps1"), $"nothing built -> \"{model.PanelTitle}\": \"{model.PanelBody}\"");
@@ -186,15 +186,20 @@ public static class Checks
                    $"engine {why} -> \"{model.PanelTitle}\": \"{model.PanelBody}\"");
         }
         var before = world.Engine.Told.Count;
-        Expect(Press(view, "Start it again") && model.Across != Across.EngineDown && world.Engine.Told.Count > before,
-               "Start it again -> the engine is started and told whether to look");
+        Expect(Press(view, "Start Again") && model.Across != Across.EngineDown && world.Engine.Told.Count > before,
+               "Start Again -> the engine is started and told whether to look");
 
         // The switch does what the panel's button does, and takes it back.
         world = Stage.NewWorld(app.Dispatcher);
         view = Show(world);
         model = world.Model;
-        Expect(Press(view, "Radio") && world.Radio.Starts == 1 && model.RadioOn, "the Radio switch, off -> the radio is started");
-        Expect(Press(view, "Radio") && world.Radio.Phase == RadioPhase.Off && !model.RadioOn, "the Radio switch, on -> the radio the app started is stopped");
+        Expect(model.FindMeLabel == "Receiving Off" && model.FindMeOff, "the pill says receiving is off while the radio is");
+        model.FindByEveryone.Execute(null);
+        Expect(world.Radio.Starts == 1 && model.RadioOn && model.FindMeEveryone && model.FindMeLabel == "Everyone",
+               "choosing Everyone in the pill -> the radio is started, and the pill says Everyone");
+        model.TurnOff.Execute(null);
+        Expect(world.Radio.Phase == RadioPhase.Off && !model.RadioOn && model.FindMeOff,
+               "Receiving Off in the pill -> the radio the app started is stopped");
 
         // A transfer that the device walks away from, and one that is lost on the way in.
         world = Stage.NewWorld(app.Dispatcher);
@@ -442,7 +447,7 @@ public static class Checks
         Lay();
         controls = Stage.Controls(card).Select(one => one.Line).ToList();
         Expect(controls.Count == 4 && controls[0].Contains("\"Open IMG_1.jpg\"") && controls[1].Contains("\"Dismiss\"")
-               && controls[2].Contains("\"Show in folder\"") && controls[3].Contains("\"Open\""),
+               && controls[2].Contains("\"Show in Folder\"") && controls[3].Contains("\"Open\""),
                $"the card is itself the press, and holds three more: {string.Join(", ", controls)}");
         Expect(Press(card, "Open IMG_1.jpg") && world.Desk.Opened.Last() == "open " + Path.Combine(shelf, "IMG_1.jpg") && model.Arrivals.Count == 0,
                "press the card -> the file is opened (recorded), and the card goes");
@@ -451,7 +456,7 @@ public static class Checks
 
         world.Engine.Say(Ask("r4", "Stand-in iPhone", "iPhone14,2", waits: false));
         world.Engine.Say(new { @event = "stored", id = "r4", folder = shelf, names = new[] { "a.jpg", "b.jpg" } });
-        Expect(arrivals.Last() is { Single: false, PressLabel: "Show in folder" }, "several files stored -> the card shows them in their folder");
+        Expect(arrivals.Last() is { Single: false, PressLabel: "Show in Folder" }, "several files stored -> the card shows them in their folder");
         model.Arrivals.Add(arrivals.Last());
         Lay();
         Expect(Press(card, "Show what arrived in its folder") && world.Desk.Opened.Last() == "reveal " + Path.Combine(shelf, "a.jpg"),

@@ -42,12 +42,8 @@
                   <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
                 <ContentControl Template="{StaticResource FileFace}" Focusable="False"
-                                DataContext="{Binding File}" Width="48" Height="48" Margin="2,2,16,2"
-                                VerticalAlignment="Top" RenderTransformOrigin="0.5,0.5">
-                  <ContentControl.RenderTransform>
-                    <RotateTransform Angle="{Binding Turn}" />
-                  </ContentControl.RenderTransform>
-                </ContentControl>
+                                DataContext="{Binding File}" Width="44" Height="44" Margin="0,0,14,0"
+                                VerticalAlignment="Top" />
                 <StackPanel Grid.Column="1">
                   <TextBlock Style="{StaticResource Name}" TextWrapping="Wrap" TextTrimming="None"
                              Text="{Binding Headline}" AutomationProperties.LiveSetting="Polite" />
@@ -56,7 +52,7 @@
                 </StackPanel>
               </Grid>
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-                <Button Style="{StaticResource TextButton}" Content="Show in folder" Margin="0,0,6,0"
+                <Button Style="{StaticResource TextButton}" Content="Show in Folder" Margin="0,0,6,0"
                         VerticalAlignment="Center" Command="{Binding Reveal}"
                         Visibility="{Binding Single, Converter={StaticResource Shown}}" />
                 <Button Style="{StaticResource RaisedButton}" Content="{Binding PressLabel}"
@@ -80,11 +76,12 @@
               <TextBlock Style="{StaticResource Name}" TextWrapping="Wrap" TextTrimming="None"
                          Text="{Binding Headline}" AutomationProperties.LiveSetting="Assertive" />
               <TextBlock Style="{StaticResource Figures}" Margin="0,3,0,0" Text="{Binding Status}" />
-              <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-                <Button Style="{StaticResource RaisedButton}" Content="Decline" Margin="0,0,10,0"
+              <UniformGrid Columns="2" Margin="0,14,0,0">
+                <Button Style="{StaticResource RaisedButton}" Content="Decline" Margin="0,0,5,0"
                         Command="{Binding Decline}" />
-                <Button Style="{StaticResource AccentButton}" Content="Accept" Command="{Binding Accept}" />
-              </StackPanel>
+                <Button Style="{StaticResource AccentButton}" Content="Accept" Margin="5,0,0,0"
+                        Command="{Binding Accept}" />
+              </UniformGrid>
             </StackPanel>
           </ContentControl>
         </DataTemplate>

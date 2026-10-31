@@ -226,13 +226,19 @@ class EngineTest(unittest.TestCase):
     def test_everyone_for_a_while_goes_back_to_the_known_senders(self):
         running, heard, _ = self.engine('--contacts-only', '--known-sender', 'friend@example.com')
         identity = ('Receiver PC', 'MacBookPro18,3')
-        running.handle({'do': 'set', 'everyone_for': 1})
+        running.handle({'do': 'set', 'everyone_for': 600})
         said = heard.wait('settings')
         self.assertFalse(said['contacts_only'])
-        self.assertGreater(said['everyone_until'], time.time())
+        self.assertGreater(said['everyone_until'], time.time() + 590)
         heard.wait('receiving', on=True)
         self.assertEqual(sender.receiver_identity('::1', running.settings.port, LOOPBACK_SCOPE,
                                                   self.client_context), identity)
+        # The time runs out now rather than after a wait: a short real wait
+        # could end before the handshake above on a slow machine.
+        timer = running._everyone_timer
+        self.assertEqual(timer.interval, 600)
+        timer.cancel()
+        timer.function()
         ended = heard.wait('settings')
         self.assertEqual((ended['contacts_only'], ended['everyone_until']), (True, None))
         heard.wait('receiving', on=True)

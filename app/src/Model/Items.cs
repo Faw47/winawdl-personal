@@ -56,6 +56,8 @@ public sealed class FileItem : Observable
     public ICommand? PlayVideo { get; init; }
     public bool HasVideo => PlayVideo is not null;
     public string Hint => HasVideo ? $"{Name}, a Live Photo" : Name;
+    /// <summary>What a list row says under the name.</summary>
+    public string Detail => HasVideo ? $"Live Photo · {Words.Size(Bytes)}" : Words.Size(Bytes);
     public string RemoveName => $"Remove {Name}";
 
     public ImageSource? Thumbnail { get => _thumbnail; private set => Set(ref _thumbnail, value); }
@@ -151,7 +153,7 @@ public sealed class ArrivalModel
     public ICommand? Press { get; init; }
     public ICommand? Reveal { get; init; }
     public ICommand? Dismiss { get; init; }
-    public string PressLabel => Single ? "Open" : "Show in folder";
+    public string PressLabel => Single ? "Open" : "Show in Folder";
     public string PressName => Single ? $"Open {File.Name}" : "Show what arrived in its folder";
 }
 

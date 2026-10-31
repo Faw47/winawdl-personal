@@ -91,6 +91,15 @@ public sealed class ThemeService
         _resources["ShadeStrength"] = palette.Shade;
         _resources["Plain"] = palette.Plain;
         _resources["TableColor"] = palette.Table.Color;
+        // An avatar is a soft sphere of the well's grey, lit from above, as
+        // Apple draws a contact without a picture.
+        var avatar = new LinearGradientBrush(
+            (palette.Dark ? palette.Well.Mix(Rgb.White, 0.10) : palette.Well.Mix(Rgb.White, 0.35)).Color,
+            (palette.Dark ? palette.Well.Mix(Rgb.Black, 0.18) : palette.Well.Mix(Rgb.Black, 0.10)).Color,
+            90);
+        if (palette.Plain) avatar = new LinearGradientBrush(palette.Table.Color, palette.Table.Color, 90);
+        avatar.Freeze();
+        _resources["Avatar"] = avatar;
         Changed?.Invoke();
     }
 }
