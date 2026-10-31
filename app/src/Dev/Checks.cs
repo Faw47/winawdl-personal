@@ -9,6 +9,9 @@ using System.Windows;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Documents;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Winawdl.Engine;
 using Winawdl.Model;
 using Winawdl.Radio;
@@ -39,6 +42,18 @@ public static class Checks
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Program.Dress(app).Apply(Palette.Light(Rgb.Hex("#0078D4")));
             Motion.Reduced = true;
+            if (args.Skip(1).Contains("compact"))
+            {
+                Compact(app);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
+            if (args.Skip(1).Contains("selection"))
+            {
+                Selection(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("explorer"))
             {
                 Explorer(app, folder);
@@ -57,6 +72,8 @@ public static class Checks
             States(app);
             Startup(app);
             Explorer(app, folder);
+            Selection(app, folder);
+            Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
         }
         catch (Exception error)
@@ -66,6 +83,185 @@ public static class Checks
         }
         log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static void Compact(Application app)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        Stage.Scenes([]).First(scene => scene.Name == "incoming-ask").Build(world);
+        var view = new MainView { DataContext = world.Model };
+        // Stage's 380 x 560 smallest window includes its 32-DIP caption strip.
+        view.Measure(new Size(380, 528));
+        view.Arrange(new Rect(0, 0, 380, 528));
+        view.UpdateLayout();
+        var across = (ScrollViewer)view.FindName("AcrossScroll");
+        var hand = (FrameworkElement)view.FindName("Hand");
+        var acrossBounds = across.TransformToAncestor(view).TransformBounds(new Rect(across.RenderSize));
+        var handBounds = hand.TransformToAncestor(view).TransformBounds(new Rect(hand.RenderSize));
+        _log.WriteLine($"Compact across={acrossBounds}, hand={handBounds}, viewport={across.ViewportHeight}, extent={across.ExtentHeight}");
+        Expect(handBounds.Top - acrossBounds.Bottom >= 16 && across.ViewportHeight > 0,
+               "the compact peer viewport keeps 16 DIPs clear above the drop well and retains scroll space");
+        var belowViewport = new Point(across.ActualWidth / 2, across.ActualHeight + 8);
+        Expect(VisualTreeHelper.HitTest(across, belowViewport) is null,
+               "compact peer content cannot receive input beyond its scroll viewport");
+        across.ScrollToEnd();
+        view.UpdateLayout();
+        Expect(across.VerticalOffset > 0 && across.VerticalOffset + across.ViewportHeight >= across.ExtentHeight - 1,
+               "the compact peer region scrolls to its final device controls");
+        var lastPeer = Stage.Controls(view).First(item => item.Line.Contains("\"Stand-in MacBook\"")).Control;
+        var peerBounds = lastPeer.TransformToAncestor(view).TransformBounds(new Rect(lastPeer.RenderSize));
+        Expect(peerBounds.Top >= acrossBounds.Top && peerBounds.Bottom <= acrossBounds.Bottom,
+               "the final peer tile is fully accessible after scrolling the compact viewport");
+        Expect(Stage.Controls(view).Any(item => item.Line.Contains("\"Choose Files…\""))
+               && Stage.Controls(view).Any(item => item.Line.Contains("\"Paste\"")),
+               "the compact drop well retains Choose Files and Paste controls");
+        world.Model.Dispose();
+    }
+
+    private static void Selection(Application app, string folder)
+    {
+        var root = Directory.CreateDirectory(Path.Combine(folder, "selection-" + Guid.NewGuid().ToString("N"))).FullName;
+        Directory.CreateDirectory(Path.Combine(root, "nested"));
+        File.WriteAllText(Path.Combine(root, "a.txt"), "a");
+        File.WriteAllText(Path.Combine(root, "nested", "b.txt"), "b");
+        var world = Stage.NewWorld(app.Dispatcher);
+        var selectionView = Show(world);
+        bool NoticeUses(string token)
+        {
+            selectionView.UpdateLayout();
+            return ((TextBlock)selectionView.FindName("HeldNoticeText")).Foreground is SolidColorBrush brush
+                && brush.Color == ((SolidColorBrush)selectionView.FindResource(token)).Color;
+        }
+        world.Model.Hold([root]);
+        Expect(world.Model.Held.Select(file => file.Name).SequenceEqual(["a.txt", "b.txt"]),
+               "folders expand into a deterministic flat file list");
+        Expect(NoticeUses("InkSoft"), "successful flat-folder explanation uses informational ink");
+        world.Model.Hold([Path.Combine(root, "a.txt")]);
+        Expect(world.Model.Held.Count == 2, "a file selected directly and through a folder counts once");
+        var twin = Directory.CreateDirectory(Path.Combine(root, "twins")).FullName;
+        File.WriteAllText(Path.Combine(twin, "a.txt"), "second");
+        world.Model.Hold([twin]);
+        Expect(world.Model.Held.Count == 2 && world.Model.HeldNotice.Contains("second was left out"),
+               "flat basename collisions keep the first file and explain the omission");
+        Expect(NoticeUses("Ember"), "basename omissions retain failure ink");
+
+        var many = Directory.CreateDirectory(Path.Combine(root, "many")).FullName;
+        for (var index = 0; index < TableModel.MaxSendFiles; index++)
+            File.WriteAllText(Path.Combine(many, $"{index:D3}.txt"), "");
+        world.Model.Hold([many]);
+        Expect(world.Model.Held.Count == 2 && world.Model.HeldNotice.Contains("Nothing was added"),
+               "combined existing files and folder expansion cannot exceed 500; the batch is refused intact");
+        Expect(NoticeUses("Ember"), "an exceeded selection budget retains failure ink");
+        world.Engine.Say(new { @event = "peer", id = "limit-peer", name = "Stand-in iPhone", model = "iPhone" });
+        var limitedPeer = world.Model.Peers.Single();
+        world.Model.SendTo(limitedPeer, [many]);
+        Expect(!limitedPeer.IsBusy && !world.Engine.Told.Last().Contains("\"do\":\"send\""),
+               "a refused drop on a device cannot send the files already held by mistake");
+        world.Engine.Say(new { @event = "peer_gone", id = "limit-peer" });
+        world.Model.ClearHeld.Execute(null);
+        world.Model.Hold([many]);
+        Expect(world.Model.Held.Count == 500, "exactly 500 files fit the staging budget");
+        world.Model.Hold([Path.Combine(root, "a.txt")]);
+        Expect(world.Model.Held.Count == 500 && world.Model.HasHeldNotice, "a 501st file cannot enter the hand");
+        Expect(TableModel.FitsSelection(0, 0, TableModel.MaxSendBytes)
+               && !TableModel.FitsSelection(0, 0, TableModel.MaxSendBytes + 1)
+               && TableModel.FitsSelection(499, TableModel.MaxSendBytes - 1, 1)
+               && !TableModel.FitsSelection(499, TableModel.MaxSendBytes, 1),
+               "the staging byte predicate includes the exact 2 GiB boundary and combines existing bytes");
+        world.Model.ClearHeld.Execute(null);
+
+        var chosen = Directory.CreateDirectory(Path.Combine(root, "chosen")).FullName;
+        File.WriteAllText(Path.Combine(chosen, "safe.txt"), "safe");
+        var outside = Directory.CreateDirectory(Path.Combine(root, "outside")).FullName;
+        File.WriteAllText(Path.Combine(outside, "private.txt"), "private");
+        var junction = Path.Combine(chosen, "escape");
+        var start = new ProcessStartInfo("cmd.exe") { UseShellExecute = false, CreateNoWindow = true };
+        foreach (var argument in new[] { "/c", "mklink", "/J", junction, outside }) start.ArgumentList.Add(argument);
+        using (var process = Process.Start(start)!)
+        {
+            Expect(process.WaitForExit(10000) && process.ExitCode == 0, "a native junction fixture is created in this check's GUID folder");
+        }
+        world.Model.Hold([chosen]);
+        Expect(world.Model.Held.Select(file => file.Name).SequenceEqual(["safe.txt"])
+               && world.Model.HeldNotice.Contains("junctions were left out"),
+               "the native junction cannot export a file outside the chosen folder");
+        world.Model.ClearHeld.Execute(null);
+
+        world.Desk.Clipboard = new([chosen]);
+        world.Model.Paste.Execute(null);
+        Expect(world.Model.Held.Count == 1 && world.Model.Held[0].Name == "safe.txt", "Paste stages a copied folder through the clipboard seam");
+        world.Model.ClearHeld.Execute(null);
+        world.Desk.Clipboard = new([], Text: "https://example.org/page");
+        world.Model.Paste.Execute(null);
+        Expect(world.Model.LinkDraft == "https://example.org/page", "Paste puts a web URL in the existing link field");
+        Expect(NoticeUses("InkSoft"), "successful link paste resets failure ink to informational ink");
+        foreach (var unsafeText in new[] { "file:///C:/private", "javascript:alert(1)", "https://example.org/\u200bhidden", "https://example.org/\nhidden" })
+        {
+            world.Model.LinkDraft = "";
+            world.Desk.Clipboard = new([], Text: unsafeText);
+            world.Model.Paste.Execute(null);
+            Expect(world.Model.LinkDraft.Length == 0 && world.Model.HasHeldNotice, "unsafe or hidden clipboard URL is rejected");
+            Expect(NoticeUses("Ember"), "rejected clipboard URLs retain failure ink");
+        }
+        world.Desk.Clipboard = new([], Problem: "The clipboard is busy. Try Paste again.");
+        world.Model.Paste.Execute(null);
+        Expect(world.Model.HeldNotice.Contains("clipboard is busy"), "clipboard contention has a retry message");
+        Expect(!MainView.ShouldPasteToTable(new TextBox()) && !MainView.ShouldPasteToTable(new RichTextBox())
+               && !MainView.ShouldPasteToTable(new PasswordBox()) && MainView.ShouldPasteToTable(new Button()),
+               "Ctrl+V retains text editor paste and handles the rest of the main window");
+
+        world.Desk.Clipboard = new([], Image: BitmapSource.Create(2, 2, 96, 96, PixelFormats.Bgra32, null, new byte[16], 8));
+        world.Model.Paste.Execute(null);
+        var image = world.Model.Held.Single().Path;
+        Expect(File.ReadAllBytes(image).Take(8).SequenceEqual(new byte[] { 137, 80, 78, 71, 13, 10, 26, 10 }),
+               "clipboard bitmap is encoded as a real PNG owned by this session");
+        world.Model.Held[0].Remove!.Execute(null);
+        Expect(!File.Exists(image), "removing a staged clipboard image deletes its temporary PNG");
+        world.Model.Paste.Execute(null);
+        image = world.Model.Held.Single().Path;
+        world.Engine.Say(new { @event = "peer", id = "paste-peer", name = "Stand-in iPhone", model = "iPhone" });
+        var peer = world.Model.Peers.Single();
+        world.Model.SendTo(peer);
+        world.Engine.Say(new { @event = "send", id = peer.SendId, state = "failed", reason = "no_answer" });
+        Expect(File.Exists(image), "a failed send retains the staged PNG for retry");
+        world.Model.SendTo(peer);
+        world.Model.ClearHeld.Execute(null);
+        Expect(File.Exists(image), "clearing the hand while a send is active retains the PNG");
+        world.Engine.Say(new { @event = "send", id = peer.SendId, state = "sent" });
+        Expect(!File.Exists(image), "the PNG is deleted when the active send finishes after a clear");
+        world.Model.Paste.Execute(null);
+        image = world.Model.Held.Single().Path;
+        world.Model.SendTo(peer);
+        world.Engine.Say(new { @event = "send", id = peer.SendId, state = "sent" });
+        Expect(world.Model.Held.Count == 0 && !File.Exists(image), "a successful send clears and deletes its temporary clipboard image");
+        world.Model.Paste.Execute(null);
+        image = world.Model.Held.Single().Path;
+        world.Model.ClearHeld.Execute(null);
+        Expect(!File.Exists(image), "Clear deletes an idle staged PNG");
+        world.Model.Paste.Execute(null);
+        image = world.Model.Held.Single().Path;
+        world.Engine.Say(new { @event = "peer", id = "second-paste-peer", name = "Stand-in iPad", model = "iPad" });
+        var secondPeer = world.Model.Peers.Single(item => item.Id == "second-paste-peer");
+        world.Model.SendTo(peer);
+        world.Model.SendTo(secondPeer);
+        world.Model.ClearHeld.Execute(null);
+        world.Engine.Say(new { @event = "send", id = peer.SendId, state = "sent" });
+        Expect(File.Exists(image), "one finished send cannot delete an image another device is still using");
+        world.Engine.Say(new { @event = "send", id = secondPeer.SendId, state = "declined" });
+        Expect(!File.Exists(image), "the final concurrent send releases its PNG after the hand was cleared");
+        world.Model.Paste.Execute(null);
+        image = world.Model.Held.Single().Path;
+        world.Model.SendTo(peer);
+        var lostId = peer.SendId;
+        world.Model.ClearHeld.Execute(null);
+        world.Engine.Say(new { @event = "link", up = false });
+        Expect(File.Exists(image), "link loss cannot delete an image still used by the engine");
+        world.Engine.Say(new { @event = "send", id = lostId, state = "failed", reason = "gone" });
+        Expect(!File.Exists(image), "terminal send after peer removal releases the PNG");
+        world.Model.Paste.Execute(null);
+        image = world.Model.Held.Single().Path;
+        world.Model.Dispose();
+        Expect(!File.Exists(image) && File.Exists(Path.Combine(chosen, "safe.txt")), "shutdown deletes session PNGs and preserves selected user files");
     }
 
     private static void Explorer(Application app, string folder)

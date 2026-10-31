@@ -9,6 +9,7 @@ import os
 import plistlib
 import safeplist
 import secrets
+import stat
 import socket
 import ssl
 import subprocess
@@ -51,6 +52,10 @@ UNIFORM_TYPES = {
 }
 DEFAULT_UNIFORM_TYPE = 'public.data'
 MAX_LINK_BYTES = 8192
+# Below the receiver's 512-member cap (the archive also has its root folder).
+# Keep these in step with TableModel's selection budgets.
+MAX_SEND_FILES = 500
+MAX_SEND_BYTES = 2 * 1024 * 1024 * 1024
 BEACON_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                              'scripts', 'airdrop-beacon.ps1')
 BEACON_READY = 'advertising'
@@ -197,17 +202,49 @@ class Unsendable(SystemExit):
         self.kind = kind
 
 
+def _selected(paths):
+    """Walk in name order without following symlinks or Windows reparse points."""
+    pending = list(reversed(paths))
+    while pending:
+        path = os.path.abspath(pending.pop())
+        status = os.lstat(path)
+        if (stat.S_ISLNK(status.st_mode)
+                or getattr(status, 'st_file_attributes', 0) & 0x400):
+            continue
+        if stat.S_ISDIR(status.st_mode):
+            with os.scandir(path) as entries:
+                children = sorted((entry.path for entry in entries),
+                                  key=lambda item: (item.lower(), item))
+            pending.extend(reversed(children))
+        elif stat.S_ISREG(status.st_mode):
+            yield path, status
+        else:
+            raise Unsendable('not_a_file', f'{path} is not a regular file')
+
+
 def outgoing(paths):
-    """The files to send, refusing what an archive cannot hold apart."""
-    files = []
-    for path in paths:
-        if not os.path.isfile(path):
-            raise Unsendable('not_a_file', f'{path} is not a file')
-        status = os.stat(path)
-        files.append(Outgoing(path, os.path.basename(path), status.st_size, status.st_mtime))
+    """Expand folders flat until nested archives are proven with an iPhone.
+
+    A duplicate path counts once; distinct files with the same safe basename
+    are refused, as before. No file contents are loaded while selecting.
+    """
+    files, seen = [], set()
+    total = 0
+    for path, status in _selected(paths):
+        key = os.path.normcase(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        total += status.st_size
+        if len(files) >= MAX_SEND_FILES or total > MAX_SEND_BYTES:
+            raise Unsendable('limit', 'send at most 500 files and 2 GiB at once')
+        name = transfer.safe_name(os.path.basename(path), 'file')
+        files.append(Outgoing(path, name, status.st_size, status.st_mtime))
     names = [file.name.lower() for file in files]
     if len(set(names)) != len(names):
         raise Unsendable('same_name', 'two of the files have the same name')
+    if not files:
+        raise Unsendable('not_a_file', 'the selection contains no regular files')
     return files
 
 

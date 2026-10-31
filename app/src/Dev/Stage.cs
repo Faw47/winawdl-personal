@@ -113,12 +113,13 @@ public sealed class ScriptedDesk(Dispatcher dispatcher) : IDesk
 {
     public IReadOnlyList<string> Picked { get; set; } = [];
     public string? PickedFolder { get; set; }
+    public ClipboardContent? Clipboard { get; set; }
     public List<string> Opened { get; } = [];
     public double Now { get; set; }
 
     public IReadOnlyList<string> PickFiles() => Picked;
     public string? PickFolder(string from) => PickedFolder;
-    public IReadOnlyList<string> ClipboardFiles() => Picked;
+    public ClipboardContent ReadClipboard() => Clipboard ?? new(Picked);
     public void Open(string path) => Opened.Add("open " + path);
     public void Reveal(string path) => Opened.Add("reveal " + path);
     public Task<ImageSource?> Thumbnail(string path) => Thumbnails.Load(path);
@@ -202,6 +203,7 @@ public static class Stage
                 }
                 Save(view, 460, 720, Path.Combine(folder, $"{name}-{themeName}.png"));
                 File.WriteAllLines(Path.Combine(folder, $"{name}.txt"), Controls(view).Select(one => one.Line));
+                if (view.DataContext is TableModel model) model.Dispose();
             }
         }
         if (only.Count == 0 || only.Contains("request-card"))
@@ -216,9 +218,13 @@ public static class Stage
         }
         if (only.Count == 0 || only.Contains("sizes"))
         {
-            theme.Apply(Palette.Night(blue));
             var busy = Scenes(files).First(scene => scene.Name == "incoming-ask").Build;
-            Save(Build(busy, app.Dispatcher), 380, 560, Path.Combine(folder, "size-smallest-dark.png"));
+            foreach (var (themeName, palette) in themes)
+            {
+                theme.Apply(palette);
+                Save(Build(busy, app.Dispatcher), 380, 560, Path.Combine(folder, $"size-smallest-{themeName}.png"));
+            }
+            theme.Apply(Palette.Night(blue));
             Save(Build(busy, app.Dispatcher), 900, 820, Path.Combine(folder, "size-wide-dark.png"));
         }
         if (only.Count == 0 || only.Contains("accents"))
@@ -320,6 +326,56 @@ public static class Stage
         {
             Devices(world);
             world.Model.Hold(files);
+        });
+        yield return ("folder-flat", world =>
+        {
+            Devices(world);
+            world.Model.Hold([Path.GetDirectoryName(files[0])!]);
+        });
+        yield return ("folder-limit", world =>
+        {
+            Devices(world);
+            var many = Directory.CreateDirectory(Path.Combine(Path.GetDirectoryName(files[0])!, "limit")).FullName;
+            for (var index = 0; index <= TableModel.MaxSendFiles; index++)
+                File.WriteAllText(Path.Combine(many, $"{index:D3}.txt"), "");
+            world.Model.Hold([many]);
+        });
+        yield return ("clipboard-files", world =>
+        {
+            Devices(world);
+            world.Desk.Clipboard = new(files[..2]);
+            world.Model.Paste.Execute(null);
+        });
+        yield return ("clipboard-image", world =>
+        {
+            Devices(world);
+            world.Desk.Clipboard = new([], Image: BitmapFrame.Create(new Uri(files[0]), BitmapCreateOptions.None, BitmapCacheOption.OnLoad));
+            world.Model.Paste.Execute(null);
+        });
+        yield return ("clipboard-link", world =>
+        {
+            Devices(world);
+            world.Desk.Clipboard = new([], Text: "https://example.org/photos");
+            world.Model.Paste.Execute(null);
+        });
+        yield return ("clipboard-link-held", world =>
+        {
+            Devices(world);
+            world.Model.Hold(files[..2]);
+            world.Desk.Clipboard = new([], Text: "https://example.org/photos");
+            world.Model.Paste.Execute(null);
+        });
+        yield return ("clipboard-rejected", world =>
+        {
+            Devices(world);
+            world.Desk.Clipboard = new([], Text: "file:///C:/private");
+            world.Model.Paste.Execute(null);
+        });
+        yield return ("clipboard-busy", world =>
+        {
+            Devices(world);
+            world.Desk.Clipboard = new([], Problem: "The clipboard is busy. Try Paste again.");
+            world.Model.Paste.Execute(null);
         });
         yield return ("asking-out", world => Sending(world, files, new { @event = "send", id = "s1", state = "asking" }));
         yield return ("sending", world =>

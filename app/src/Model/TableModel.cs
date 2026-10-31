@@ -3,7 +3,9 @@ using System.IO;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Globalization;
 using System.Windows.Input;
+using System.Windows.Media.Imaging;
 
 namespace Winawdl.Model;
 
@@ -12,11 +14,15 @@ public enum Across { EngineDown, RadioOff, RadioStarting, RadioProblem, Nearby }
 
 /// <summary>Everything the window shows: the devices across the table, what they
 /// want to send, and the files on this side.</summary>
-public sealed class TableModel : Observable
+public sealed class TableModel : Observable, IDisposable
 {
     public const string Project = "https://github.com/raph559/winawdl";
     private const int MostReceived = 24;
     public const int MostTrayText = 127;
+    // Keep these in step with airdrop/sender.py. The archive also has one root member.
+    public const int MaxSendFiles = 500;
+    public const long MaxSendBytes = 2L * 1024 * 1024 * 1024;
+    public const string SelectionLimits = "Up to 500 files · 2 GiB total. Folder contents are sent flat.";
     private static readonly TimeSpan SentShownFor = TimeSpan.FromSeconds(4);
     private static readonly double[] Turns = [-2.5, 1.5, -1, 2, -1.5];
 
@@ -34,8 +40,12 @@ public sealed class TableModel : Observable
     private bool _engineUp, _wantsLook, _linkUp, _looking, _beaconOn = true, _receiving, _settingsOpen;
     private bool _radioHasRun;
     private string _beaconWhy = "", _receivingProblem = "", _heldNotice = "", _radioNotice = "";
+    private bool _heldNoticeIsProblem;
     private string _engineProblem = "", _engineDetail = "", _nameDraft = "", _nameError = "", _folderError = "";
     private string _linkDraft = "";
+    private readonly HashSet<string> _temporaryImages = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, IReadOnlyList<string>> _activeSends = new();
+    private readonly string _imageFolder = Path.Combine(Path.GetTempPath(), "winawdl-paste-" + Guid.NewGuid().ToString("N"));
     private string _senderDraft = "", _senderError = "";
     /// <summary>While everyone may send for a while, when that ends.</summary>
     private DateTime? _everyoneUntil;
@@ -59,7 +69,7 @@ public sealed class TableModel : Observable
 
         TurnOnRadio = new Command(() => RadioOn = true);
         ChooseFiles = new Command(() => Hold(_desk.PickFiles()));
-        Paste = new Command(() => Hold(_desk.ClipboardFiles()));
+        Paste = new Command(PasteClipboard);
         ClearHeld = new Command(() =>
         {
             Held.Clear();
@@ -313,6 +323,8 @@ public sealed class TableModel : Observable
         _engineUp = false;
         _linkUp = _looking = _receiving = false;
         Peers.Clear();
+        _activeSends.Clear();
+        CollectImages();
         Incoming.Clear();
         (_engineProblem, _engineDetail) = why switch
         {
@@ -534,23 +546,23 @@ public sealed class TableModel : Observable
         else Peers.Remove(peer);
     }
 
-    private static bool ValidLink(string text)
-    {
-        var url = text.Trim();
-        return url.Length > 0 && Encoding.UTF8.GetByteCount(url) <= 8192
-            && !url.Any(char.IsWhiteSpace)
+    private static bool ValidLink(string url) =>
+        url.Length > 0 && Encoding.UTF8.GetByteCount(url) <= 8192
+            && (url.StartsWith("http://", StringComparison.Ordinal) || url.StartsWith("https://", StringComparison.Ordinal))
+            && !url.Any(ch => char.IsWhiteSpace(ch) || char.IsControl(ch)
+                || char.GetUnicodeCategory(ch) is UnicodeCategory.Format or UnicodeCategory.Surrogate)
             && Uri.TryCreate(url, UriKind.Absolute, out var parsed)
+            && parsed.Host.Length > 0
             && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps);
-    }
 
     public void SendTo(PeerModel peer, IEnumerable<string>? dropped = null)
     {
         if (peer.IsBusy) return;
-        if (dropped is not null) Hold(dropped);
-        var link = dropped is null && Held.Count == 0 ? LinkDraft.Trim() : "";
+        if (dropped is not null && !Hold(dropped)) return;
+        var link = dropped is null && Held.Count == 0 ? LinkDraft : "";
         if (link.Length > 0 && !ValidLink(link))
         {
-            HeldChanged("Enter a valid HTTP or HTTPS link.");
+            HeldChanged("Enter a valid HTTP or HTTPS link.", problem: true);
             return;
         }
         if (link.Length == 0 && dropped is null && Held.Count == 0) Hold(_desk.PickFiles());
@@ -558,6 +570,7 @@ public sealed class TableModel : Observable
         peer.SendId = $"s{++_sends}";
         peer.Sending = link.Length > 0 ? [] : Held.Select(file => file.Path).ToList();
         peer.SendingLink = link;
+        _activeSends[peer.SendId] = peer.Sending;
         peer.Progress = 0;
         peer.State = PeerState.Asking;
         peer.Status = "Accept on the device to start";
@@ -573,7 +586,13 @@ public sealed class TableModel : Observable
     private void Sent(JsonElement said)
     {
         var id = Text(said, "id");
-        if (Peers.FirstOrDefault(known => known.SendId == id) is not { } peer) return;
+        if (Text(said, "state") is "sent" or "declined" or "refused" or "cancelled" or "failed")
+            _activeSends.Remove(id);
+        if (Peers.FirstOrDefault(known => known.SendId == id) is not { } peer)
+        {
+            CollectImages();
+            return;
+        }
         var total = Number(said, "total") ?? 0;
         var done = Number(said, "done") ?? 0;
         switch (Text(said, "state"))
@@ -600,7 +619,7 @@ public sealed class TableModel : Observable
                     : $"Sent {Words.Count(peer.Sending.Count, "file", "files")}";
                 if (peer.SendingLink.Length > 0)
                 {
-                    if (LinkDraft.Trim() == peer.SendingLink) LinkDraft = "";
+                    if (LinkDraft == peer.SendingLink) LinkDraft = "";
                 }
                 else if (peer.Sending.SequenceEqual(Held.Select(file => file.Path)))
                 {
@@ -629,11 +648,13 @@ public sealed class TableModel : Observable
                     "gone" => "It is no longer nearby.",
                     "not_a_file" => "One of these is no longer a file. Remove it and send again.",
                     "same_name" => "Two of the files have the same name. Remove one and send again.",
+                    "limit" => "Send at most 500 files and 2 GiB at once. Remove some files and send again.",
                     "unreadable" => "One of the files could not be read. Remove it and send again.",
                     _ => "The connection broke partway. Send again.",
                 });
                 break;
         }
+        CollectImages();
     }
 
     private void Stopped(PeerModel peer, PeerState state, string status)
@@ -869,6 +890,7 @@ public sealed class TableModel : Observable
     public bool HoldsNothing => Held.Count == 0;
     public bool HasReceived => Received.Count > 0;
     public string HeldNotice => _heldNotice;
+    public bool HeldNoticeIsProblem => _heldNoticeIsProblem;
     public bool HasHeldNotice => _heldNotice.Length > 0;
     public string HeldSummary =>
         $"{Words.Count(Held.Count, "file", "files")} · {Words.Size(Held.Sum(file => file.Bytes))}";
@@ -876,24 +898,71 @@ public sealed class TableModel : Observable
         ? "Press a device above to send them"
         : "They go to the device you press, once one shows up";
 
-    /// <summary>Take these files in hand. Folders and second files of the same
-    /// name stay out, because an AirDrop archive cannot carry them.</summary>
-    public void Hold(IEnumerable<string> paths)
+    /// <summary>Expand folders without following reparse points. Distinct files
+    /// with the same basename keep the first, as the flat archive requires.</summary>
+    public bool Hold(IEnumerable<string> paths)
     {
-        int folders = 0, clashes = 0;
-        foreach (var path in paths)
+        bool folders = false, links = false, containsHeld = false;
+        int clashes = 0;
+        var added = new List<string>();
+        var seen = new HashSet<string>(Held.Select(file => file.Path), StringComparer.OrdinalIgnoreCase);
+        var names = new HashSet<string>(Held.Select(file => file.Name), StringComparer.OrdinalIgnoreCase);
+        var bytes = Held.Sum(file => file.Bytes);
+        IEnumerable<string> Expand(IEnumerable<string> selected)
         {
-            if (Directory.Exists(path))
+            var pending = new Stack<string>(selected.Reverse());
+            while (pending.TryPop(out var selectedPath))
             {
-                folders++;
-                continue;
+                var path = Path.GetFullPath(selectedPath);
+                var attributes = File.GetAttributes(path);
+                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    links = true;
+                    continue;
+                }
+                if ((attributes & FileAttributes.Directory) != 0)
+                {
+                    folders = true;
+                    foreach (var child in Directory.GetFileSystemEntries(path)
+                                 .OrderByDescending(item => item, StringComparer.OrdinalIgnoreCase)
+                                 .ThenByDescending(item => item, StringComparer.Ordinal))
+                        pending.Push(child);
+                }
+                else yield return path;
             }
-            if (!File.Exists(path) || Held.Any(file => Same(file.Path, path))) continue;
-            if (Held.Any(file => Same(file.Name, Path.GetFileName(path))))
+        }
+        try
+        {
+            foreach (var path in Expand(paths))
             {
-                clashes++;
-                continue;
+                if (!seen.Add(path))
+                {
+                    containsHeld |= Held.Any(file => string.Equals(file.Path, path, StringComparison.OrdinalIgnoreCase));
+                    continue;
+                }
+                if (!names.Add(Path.GetFileName(path)))
+                {
+                    clashes++;
+                    continue;
+                }
+                var size = new FileInfo(path).Length;
+                if (!FitsSelection(Held.Count + added.Count, bytes, size))
+                {
+                    HeldChanged("Nothing was added. Send at most 500 files and 2 GiB at once.", problem: true);
+                    return false;
+                }
+                bytes += size;
+                added.Add(path);
             }
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException
+                                      or NotSupportedException or System.Security.SecurityException)
+        {
+            HeldChanged("Nothing was added. One of these items could not be read. Check it and try again.", problem: true);
+            return false;
+        }
+        foreach (var path in added)
+        {
             FileItem? item = null;
             item = new FileItem(path, _desk)
             {
@@ -906,17 +975,85 @@ public sealed class TableModel : Observable
             };
             Held.Add(item);
         }
-        HeldChanged(folders > 0 ? "Folders cannot be sent. Drop the files inside instead."
-            : clashes > 0 ? "Two files with the same name cannot go together. The second was left out."
-            : "");
+        var notices = new List<string>();
+        if (folders) notices.Add("Folder contents are sent flat; subfolders are not kept.");
+        if (links) notices.Add("Links and junctions were left out.");
+        if (clashes > 0) notices.Add("Two files with the same name cannot go together. The second was left out.");
+        if (added.Count == 0 && notices.Count == 0) notices.Add("No new files to add.");
+        HeldChanged(string.Join(" ", notices), problem: clashes > 0);
+        return added.Count > 0 || containsHeld;
     }
 
-    private static bool Same(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+    internal static bool FitsSelection(int currentCount, long currentBytes, long nextBytes) =>
+        currentCount < MaxSendFiles && nextBytes >= 0 && nextBytes <= MaxSendBytes - currentBytes;
 
-    private void HeldChanged(string notice)
+    private void HeldChanged(string notice, bool problem = false)
     {
         _heldNotice = notice;
+        _heldNoticeIsProblem = problem;
+        CollectImages();
         Refresh();
+    }
+
+    private void PasteClipboard()
+    {
+        var content = _desk.ReadClipboard();
+        if (content.Problem.Length > 0) { HeldChanged(content.Problem, problem: true); return; }
+        if (content.Files.Count > 0) { Hold(content.Files); return; }
+        if (content.Image is { } image)
+        {
+            try
+            {
+                Directory.CreateDirectory(_imageFolder);
+                var path = Path.Combine(_imageFolder, "Clipboard-" + Guid.NewGuid().ToString("N")[..8] + ".png");
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+                using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write))
+                {
+                    _temporaryImages.Add(path);
+                    encoder.Save(output);
+                }
+                Hold([path]);
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or ArgumentException
+                                           or InvalidOperationException or NotSupportedException)
+            {
+                HeldChanged("The clipboard image could not be saved. Copy it again and try Paste.", problem: true);
+            }
+            CollectImages();
+            return;
+        }
+        if (ValidLink(content.Text))
+        {
+            LinkDraft = content.Text;
+            HeldChanged(HasHeld ? "Link added. Clear the files to send the link." : "Link added. Press a device to send it.");
+            return;
+        }
+        HeldChanged("Copy files, an image, or a valid HTTP or HTTPS link, then try Paste.", problem: true);
+    }
+
+    private void CollectImages()
+    {
+        var needed = new HashSet<string>(Held.Select(file => file.Path), StringComparer.OrdinalIgnoreCase);
+        foreach (var paths in _activeSends.Values) needed.UnionWith(paths);
+        foreach (var path in _temporaryImages.Where(path => !needed.Contains(path)).ToArray())
+        {
+            try { File.Delete(path); _temporaryImages.Remove(path); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        }
+        if (_temporaryImages.Count == 0)
+        {
+            try { if (Directory.Exists(_imageFolder)) Directory.Delete(_imageFolder); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+        }
+    }
+
+    /// <summary>After the engine stops, release only images this model created.</summary>
+    public void Dispose()
+    {
+        Held.Clear();
+        _activeSends.Clear();
+        CollectImages();
     }
 
     public bool SettingsOpen

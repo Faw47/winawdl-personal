@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace Winawdl.Model;
 
@@ -44,7 +45,7 @@ public interface IDesk
 {
     IReadOnlyList<string> PickFiles();
     string? PickFolder(string from);
-    IReadOnlyList<string> ClipboardFiles();
+    ClipboardContent ReadClipboard();
     void Open(string path);
     void Reveal(string path);
     Task<ImageSource?> Thumbnail(string path);
@@ -53,6 +54,10 @@ public interface IDesk
     /// <summary>Seconds on a clock that only goes forward.</summary>
     double Now { get; }
 }
+
+/// <summary>A clipboard snapshot; checks provide this without touching Windows' clipboard.</summary>
+public sealed record ClipboardContent(IReadOnlyList<string> Files, BitmapSource? Image = null,
+                                      string Text = "", string Problem = "");
 
 /// <summary>The current user's Windows startup entry. Checks supply a stand-in.</summary>
 public interface IStartup

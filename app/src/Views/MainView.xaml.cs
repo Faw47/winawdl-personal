@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -25,9 +26,27 @@ public partial class MainView : UserControl
         DragOver += OnDragOverTable;
         DragLeave += (_, _) => HandIsTarget(false);
         Drop += OnDropOnTable;
+        PreviewKeyDown += OnPasteKey;
     }
 
     private TableModel? Model => DataContext as TableModel;
+
+    internal static bool ShouldPasteToTable(DependencyObject? focus)
+    {
+        for (var current = focus; current is not null; current = current is Visual
+                 ? VisualTreeHelper.GetParent(current) : LogicalTreeHelper.GetParent(current))
+            if (current is TextBoxBase or PasswordBox) return false;
+        return true;
+    }
+
+    private void OnPasteKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.V || Keyboard.Modifiers != ModifierKeys.Control
+            || Model is not { SettingsOpen: false } model
+            || !ShouldPasteToTable(Keyboard.FocusedElement as DependencyObject)) return;
+        model.Paste.Execute(null);
+        e.Handled = true;
+    }
 
     /// <summary>Two rings leave the middle in turn and fade, for as long as the
     /// window looks. Still when Windows has animation effects turned off.</summary>
