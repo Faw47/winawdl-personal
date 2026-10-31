@@ -377,7 +377,7 @@ public static class Drive
 
             Say("Holding files");
             _desk.Picked = files[..3];
-            Press("Choose files");
+            Press("Choose Files…");
             Check(_model.Held.Count == 3, "Choose files -> 3 files in hand (the file dialog itself is Windows' own and was answered by the test)");
             Check(Until(() => _model.Held.All(file => file.Thumbnail is not null)), "each picture shows Explorer's thumbnail");
             Shot("holding");
@@ -391,7 +391,7 @@ public static class Drive
                   $"Add with a folder and a same-named file -> only the text file joins, notice: \"{_model.HeldNotice}\"");
             Shot("held-notice");
             Press("Clear the files");
-            Check(_model.Held.Count == 0 && Named("Choose files") is not null, "Clear -> the hand is empty again");
+            Check(_model.Held.Count == 0 && Named("Choose Files…") is not null, "Clear -> the hand is empty again");
             _model.Hold([files[1]]);
             Check(_model.Held.Count == 1, "a drop on the table: its handler's call takes the file in hand (the drag itself needs a pointer and was not made)");
             _model.ClearHeld.Execute(null);
@@ -410,7 +410,7 @@ public static class Drive
                 if (peer.Progress is > 0.2 and < 0.9) midway = Status(peer);
             };
             _desk.Picked = [big, files[0]];
-            Press("Choose files");
+            Press("Choose Files…");
             Press("Other device");
             var asked = _other.Heard(Trying, "asked");
             Check(asked is not null && peer.State == PeerState.Asking, $"press the plate -> the other device is asked; plate says \"{peer.Status}\"");
@@ -428,7 +428,7 @@ public static class Drive
 
             Say("Sending, declined at the other end");
             _desk.Picked = [files[1]];
-            Press("Choose files");
+            Press("Choose Files…");
             Press("Other device");
             asked = _other.Heard(Trying, "asked");
             _other.Tell(new { @do = "answer", id = OtherDevice.Text(asked!.Value, "id"), accept = false });
@@ -453,7 +453,7 @@ public static class Drive
             _other.Tell(new { @do = "send", id = "x1", peer = meId, files = new[] { files[1] } });
             Check(Until(() => _model.Incoming.Count == 1 && _model.Incoming[0].IsAsking),
                   $"it sends -> a request card: \"{(_model.Incoming.Count > 0 ? _model.Incoming[0].Headline : "")}\"");
-            Check(Named("Choose files")?.Background != _app.Resources["Accent"], "while a request waits, Accept is the only accent button");
+            Check(Named("Choose Files…")?.Background != _app.Resources["Accent"], "while a request waits, Accept is the only accent button");
             Shot("request");
             Press("Decline");
             Check(Until(() => _model.Incoming.Count == 0), "Decline -> the card goes");
@@ -480,8 +480,8 @@ public static class Drive
             Shot("received");
             Press("stand-in-dune.png");
             Check(_desk.Opened.LastOrDefault() == "open " + Path.Combine(mine, "stand-in-dune.png"), "press a received file -> it is opened (recorded, not launched)");
-            Press("Open folder");
-            Check(_desk.Opened.LastOrDefault() == "open " + mine, "Open folder -> the folder is opened (recorded)");
+            Press("Show in Folder");
+            Check(_desk.Opened.LastOrDefault() == "open " + mine, "Show in Folder -> the folder is opened (recorded)");
             _model.Received[0].Reveal!.Execute(null);
             Check(_desk.Opened.Last().StartsWith("reveal "), "Show in folder: the menu item's command runs (the menu was not opened: that takes a right click)");
 
@@ -609,7 +609,7 @@ public static class Drive
             Shot("contrast-theme");
             _theme.Apply(Palette.Night(ThemeService.SystemAccent()));
             _desk.Picked = files;
-            Press("Choose files");
+            Press("Choose Files…");
             foreach (var (width, height) in new[] { (380.0, 560.0), (900.0, 820.0), (460.0, 720.0) })
             {
                 (_window.Width, _window.Height) = (width, height);
@@ -665,7 +665,7 @@ public static class Drive
             Say("Motion");
             Motion.Reduced = false;
             _desk.Picked = files[..3];
-            Press("Choose files");
+            Press("Choose Files…");
             var frames = new List<string>();
             for (var frame = 0; frame < 6; frame++)
             {
@@ -678,7 +678,7 @@ public static class Drive
             Stage.Sheet(frames, Path.Combine(folder, "motion-drop.png"), 360);
             Motion.Reduced = true;
             Press("Clear the files");
-            Press("Choose files");
+            Press("Choose Files…");
             Check(Hash(Shot("drop-reduced-first")) == Hash(Shot("drop-reduced-later")),
                   "with animation effects off in Windows, they are at rest at once");
             Press("Clear the files");

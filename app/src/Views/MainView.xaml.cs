@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Winawdl.Model;
@@ -23,21 +22,27 @@ public partial class MainView : UserControl
         };
         DragEnter += OnDragOverTable;
         DragOver += OnDragOverTable;
-        DragLeave += (_, _) => Hand.IsTarget = false;
+        DragLeave += (_, _) => HandIsTarget(false);
         Drop += OnDropOnTable;
     }
 
     private TableModel? Model => DataContext as TableModel;
 
-    private void OnRadioSwitch(object sender, RoutedEventArgs e)
+    /// <summary>The pill opens its menu under itself, as a pop-up button does.</summary>
+    private void OnFindMe(object sender, RoutedEventArgs e)
     {
-        if (Model is not { } model || sender is not Switch radio) return;
-        var wanted = radio.IsChecked == true;
-        // The same event comes when the model moves the switch; only a person asks for a change.
-        if (wanted == model.RadioOn) return;
-        model.RadioOn = wanted;
-        // The radio may not follow the switch: Windows asks first, and the answer can be no.
-        radio.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateTarget();
+        if (sender is not Button { ContextMenu: { } menu } pill) return;
+        menu.PlacementTarget = pill;
+        menu.DataContext = DataContext;
+        menu.IsOpen = true;
+    }
+
+    /// <summary>Files held over the window: the hand lights up where they would land.</summary>
+    private void HandIsTarget(bool target)
+    {
+        HandFill.Opacity = target ? 1 : 0;
+        HandEdge.Stroke = (Brush)FindResource(target ? "Accent" : "InkSoft");
+        HandEdge.Opacity = target ? 1 : 0.55;
     }
 
     /// <summary>Something new on the table shows where it came to rest: a file
@@ -66,13 +71,13 @@ public partial class MainView : UserControl
     {
         var files = FilesIn(e) is not null;
         e.Effects = files ? DragDropEffects.Copy : DragDropEffects.None;
-        Hand.IsTarget = files;
+        HandIsTarget(files);
         e.Handled = true;
     }
 
     private void OnDropOnTable(object sender, DragEventArgs e)
     {
-        Hand.IsTarget = false;
+        HandIsTarget(false);
         if (FilesIn(e) is { } files) Model?.Hold(files);
         e.Handled = true;
     }
@@ -81,7 +86,7 @@ public partial class MainView : UserControl
     {
         // Over a device the files go to it, not into the hand.
         e.Effects = FilesIn(e) is not null ? DragDropEffects.Copy : DragDropEffects.None;
-        Hand.IsTarget = false;
+        HandIsTarget(false);
         e.Handled = true;
     }
 

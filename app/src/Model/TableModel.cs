@@ -68,6 +68,10 @@ public sealed class TableModel : Observable
         PanelAction = new Command(RunPanelAction);
         foreach (var device in _settings.AlwaysAccept) Trusted.Add(Listed(device));
         AddSender = new Command(AddTheSender);
+        TurnOff = new Command(() => RadioOn = false);
+        FindByContacts = new Command(() => FindBy(() => OnlyKnownSenders = true));
+        FindByEveryoneForAWhile = new Command(() => FindBy(() => EveryoneForAWhile = true));
+        FindByEveryone = new Command(() => FindBy(() => AnyoneCanSend = true));
         ShowSenders();
     }
 
@@ -91,6 +95,10 @@ public sealed class TableModel : Observable
     public ICommand OpenProject { get; }
     public ICommand StartEngine { get; }
     public ICommand AddSender { get; }
+    public ICommand TurnOff { get; }
+    public ICommand FindByContacts { get; }
+    public ICommand FindByEveryoneForAWhile { get; }
+    public ICommand FindByEveryone { get; }
     public ICommand PanelAction { get; }
 
     /// <summary>Something wants an answer; the window may be out of sight.</summary>
@@ -216,6 +224,28 @@ public sealed class TableModel : Observable
                 _radioNotice = "The radio was started from a terminal. Stop it there with Ctrl+C.";
             Refresh();
         }
+    }
+
+    // Who can find this PC, as AirDrop's own setting puts it: off, contacts,
+    // everyone for ten minutes, everyone. Choosing one also turns the radio on.
+
+    public bool FindMeOff => !RadioOn;
+    public bool FindMeContacts => RadioOn && OnlyKnownSenders;
+    public bool FindMeForAWhile => RadioOn && EveryoneForAWhile;
+    public bool FindMeEveryone => RadioOn && AnyoneCanSend;
+
+    public string FindMeLabel => !RadioOn ? "Receiving Off"
+        : EveryoneForAWhile ? "Everyone for 10 Minutes"
+        : OnlyKnownSenders ? "Contacts Only"
+        : "Everyone";
+
+    public string FindMeName => $"Who can find this PC: {FindMeLabel}";
+
+    private void FindBy(Action choose)
+    {
+        choose();
+        if (!RadioOn) RadioOn = true;
+        ChangedAll();
     }
 
     public string Presence => _linkUp && _receiving ? $"Visible as {Name}"

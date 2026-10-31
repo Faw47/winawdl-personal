@@ -193,8 +193,13 @@ public static class Checks
         world = Stage.NewWorld(app.Dispatcher);
         view = Show(world);
         model = world.Model;
-        Expect(Press(view, "Radio") && world.Radio.Starts == 1 && model.RadioOn, "the Radio switch, off -> the radio is started");
-        Expect(Press(view, "Radio") && world.Radio.Phase == RadioPhase.Off && !model.RadioOn, "the Radio switch, on -> the radio the app started is stopped");
+        Expect(model.FindMeLabel == "Receiving Off" && model.FindMeOff, "the pill says receiving is off while the radio is");
+        model.FindByEveryone.Execute(null);
+        Expect(world.Radio.Starts == 1 && model.RadioOn && model.FindMeEveryone && model.FindMeLabel == "Everyone",
+               "choosing Everyone in the pill -> the radio is started, and the pill says Everyone");
+        model.TurnOff.Execute(null);
+        Expect(world.Radio.Phase == RadioPhase.Off && !model.RadioOn && model.FindMeOff,
+               "Receiving Off in the pill -> the radio the app started is stopped");
 
         // A transfer that the device walks away from, and one that is lost on the way in.
         world = Stage.NewWorld(app.Dispatcher);

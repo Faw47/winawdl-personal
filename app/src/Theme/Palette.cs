@@ -135,15 +135,18 @@ public sealed class Palette
 
     public IEnumerable<Rgb> Surfaces => [Table, Raised, Well];
 
+    // Neutral greys as Apple's system colors are, with every ink at 4.5:1 or
+    // more on each surface. The window is the grouped background, a card is
+    // the surface on it, and a well is the fill behind an avatar or a field.
     public static Palette Light(Rgb accent) => Build(dark: false, accent,
-        table: "#F4F0EA", raised: "#FFFDFA", well: "#E8E1D7", ink: "#221E1A", inkSoft: "#5C544B",
-        line: "#D8CFC2", ember: "#A8321A", shadow: 0.30, shadowTone: "#5A3F22", edge: Rgb.White,
-        edgeOpacity: 0.9, shade: 0.10);
+        table: "#F2F2F7", raised: "#FFFFFF", well: "#E8E8ED", ink: "#1D1D1F", inkSoft: "#5E5E63",
+        line: "#D8D8DD", ember: "#C4111C", shadow: 0.16, shadowTone: "#000000", edge: Rgb.White,
+        edgeOpacity: 0, shade: 0);
 
     public static Palette Night(Rgb accent) => Build(dark: true, accent,
-        table: "#1C1A18", raised: "#2B2825", well: "#131110", ink: "#F2EDE6", inkSoft: "#B8B0A5",
-        line: "#3B3733", ember: "#F2957A", shadow: 0.60, shadowTone: "#000000", edge: Rgb.White,
-        edgeOpacity: 0.09, shade: 0.38);
+        table: "#1C1C1E", raised: "#2C2C2E", well: "#38383B", ink: "#F5F5F7", inkSoft: "#AEAEB2",
+        line: "#3A3A3C", ember: "#FF8A82", shadow: 0.5, shadowTone: "#000000", edge: Rgb.White,
+        edgeOpacity: 0, shade: 0);
 
     /// <summary>The system's own colors, for a Windows contrast theme.</summary>
     public static Palette System(Rgb window, Rgb text, Rgb highlight, Rgb highlightText, Rgb hotTrack) => new()
