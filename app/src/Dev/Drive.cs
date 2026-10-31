@@ -360,6 +360,7 @@ public static class Drive
                 _window.Quitting = true;
                 _window.Close();
                 _engine.Stop();
+                _model.Dispose();
                 _other.Dispose();
             }
             Say(_failed == 0 ? "ALL PASSED" : $"{_failed} FAILED");
@@ -385,16 +386,33 @@ public static class Drive
             Check(_model.Held.Count == 2, "Remove on one file -> 2 files in hand");
             var twin = Path.Combine(Directory.CreateDirectory(Path.Combine(folder, "twin")).FullName, "stand-in-dune.png");
             File.Copy(files[0], twin, overwrite: true);
-            _desk.Picked = [Path.GetDirectoryName(files[0])!, twin, files[3]];
+            var selectedFolder = Directory.CreateDirectory(Path.Combine(folder, "selected-folder")).FullName;
+            File.Copy(files[1], Path.Combine(selectedFolder, Path.GetFileName(files[1])));
+            _desk.Picked = [selectedFolder, twin, files[3]];
             Press("Add files");
-            Check(_model.Held.Count == 3 && _model.HasHeldNotice,
-                  $"Add with a folder and a same-named file -> only the text file joins, notice: \"{_model.HeldNotice}\"");
+            Check(_model.Held.Count == 4 && _model.HasHeldNotice
+                  && _model.Held.Select(file => file.Name).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 4,
+                  $"Add with a folder and a same-named file -> folder contents join once, notice: \"{_model.HeldNotice}\"");
             Shot("held-notice");
             Press("Clear the files");
             Check(_model.Held.Count == 0 && Named("Choose Files…") is not null, "Clear -> the hand is empty again");
             _model.Hold([files[1]]);
             Check(_model.Held.Count == 1, "a drop on the table: its handler's call takes the file in hand (the drag itself needs a pointer and was not made)");
             _model.ClearHeld.Execute(null);
+
+            Say("Pasting through the clipboard seam without changing Windows' clipboard");
+            _desk.Clipboard = new([files[0]]);
+            Press("Paste");
+            Check(_model.Held.Count == 1 && _model.Held[0].Path == files[0], "Paste -> the copied file joins the hand");
+            _model.ClearHeld.Execute(null);
+            _desk.Clipboard = new([], Image: BitmapFrame.Create(new Uri(files[0]), BitmapCreateOptions.None, BitmapCacheOption.OnLoad));
+            Press("Paste");
+            var pastedImage = _model.Held.Single().Path;
+            Check(File.Exists(pastedImage) && Path.GetExtension(pastedImage) == ".png", "Paste -> a copied image is staged as a temporary PNG");
+            Shot("clipboard-image");
+            _model.ClearHeld.Execute(null);
+            Check(!File.Exists(pastedImage), "Clear -> the temporary clipboard PNG is deleted");
+            _desk.Clipboard = null;
 
             Say("Sending, accepted at the other end");
             var states = new List<PeerState>();

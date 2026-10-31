@@ -5,6 +5,12 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Send folders and paste from the clipboard.** Folder contents are sent as
+  files without their subfolders. Links and junctions are left out. A send
+  holds at most 500 files and 2 GiB. Paste adds copied files, an image as a
+  temporary PNG, or a web link. Temporary images are removed when no longer
+  needed, or when the app quits.
+
 - **Send with AirDrop from Explorer.** A switch adds a Send to shortcut and
   classic file and folder menu entries for this account. Selected items open
   in the one running copy of winawdl, ready to send.

@@ -112,16 +112,18 @@ public sealed class Desk(Dispatcher dispatcher) : IDesk
         return dialog.ShowDialog() == true ? dialog.FolderName : null;
     }
 
-    public IReadOnlyList<string> ClipboardFiles()
+    public ClipboardContent ReadClipboard()
     {
         try
         {
-            return Clipboard.ContainsFileDropList() ? [.. Clipboard.GetFileDropList().Cast<string>()] : [];
+            if (Clipboard.ContainsFileDropList()) return new([.. Clipboard.GetFileDropList().Cast<string>()]);
+            if (Clipboard.ContainsImage()) return new([], Image: Clipboard.GetImage());
+            return new([], Text: Clipboard.ContainsText() ? Clipboard.GetText() : "");
         }
         catch (COMException)
         {
             // Another program holds the clipboard open.
-            return [];
+            return new([], Problem: "The clipboard is busy. Try Paste again.");
         }
     }
 

@@ -96,6 +96,7 @@ public static class Program
         if (request.Surface) window.Show();
         app.Run();
         engine.Stop();
+        model.Dispose();
         radio.Stop();
         return 0;
     }
