@@ -334,7 +334,16 @@ def encode_dvzip(pieces):
 
 
 def decode_dvzip(source, target, byte_limit, disk):
-    """Stream a gzip or block-framed DVZip body into a bounded CPIO stream."""
+    """Stream a gzip or block-framed DVZip body into a bounded CPIO stream.
+    Corrupt compressed data raises ValueError, as any other malformed body
+    does, not zlib.error."""
+    try:
+        return _decode_dvzip(source, target, byte_limit, disk)
+    except zlib.error as error:
+        raise ValueError(f'corrupt compressed data: {error}') from None
+
+
+def _decode_dvzip(source, target, byte_limit, disk):
     writer = LimitedWriter(target, byte_limit, 'decompressed archive', disk=disk)
     source.seek(0)
     magic = source.read(2)

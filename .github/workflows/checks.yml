@@ -64,6 +64,20 @@ jobs:
             ./build/awdl/$test.exe
           done
 
+  fuzz:
+    name: Fuzzing what a stranger sends, a minute a target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: OWL, without the vendor trees a recursive clone would pull
+        run: |
+          git submodule update --init upstream/owl
+          git -C upstream/owl submodule update --init radiotap
+      - name: The patched copy of OWL
+        run: cmake -S awdl -B build/awdl
+      - name: Fuzz
+        run: awdl/fuzz/run.sh 60
+
   app:
     name: Windows app
     runs-on: windows-latest
