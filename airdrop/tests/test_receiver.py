@@ -188,6 +188,30 @@ class ReceiverTest(unittest.TestCase):
         self.assertEqual(os.listdir(self.temp.name), [])
         self.assertEqual(len(failed), 1)
 
+    def test_a_sender_that_closes_mid_upload_has_left(self):
+        # What a reset can look like through TLS: the stream just ends.
+        failed = []
+        left = threading.Event()
+
+        def upload_failed(token, reason):
+            failed.append(reason)
+            left.set()
+        self.server.watcher.upload_failed = upload_failed
+        reading = threading.Event()
+        self.server.watcher.upload_progress = lambda token, done: reading.set()
+        trusting = ssl.create_default_context()
+        trusting.check_hostname = False
+        trusting.verify_mode = ssl.CERT_NONE
+        plain = socket.create_connection(('::1', self.server.server_address[1]), timeout=10)
+        tls = trusting.wrap_socket(plain)
+        tls.sendall(b'POST /Upload HTTP/1.1\r\nHost: receiver\r\n'
+                    b'Content-Type: application/x-dvzip\r\n'
+                    b'Transfer-Encoding: chunked\r\n\r\n1000\r\n' + b'x' * 100)
+        self.assertTrue(reading.wait(10))
+        tls.close()
+        self.assertTrue(left.wait(10))
+        self.assertIn('the sender left', failed[0])
+
     def test_a_sender_that_leaves_mid_upload_is_not_a_storage_failure(self):
         failed = []
         left = threading.Event()

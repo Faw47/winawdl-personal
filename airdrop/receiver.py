@@ -441,9 +441,7 @@ class Handler(BaseHTTPRequestHandler):
             refused = 408, f'upload {tid}: {deadline.stall_report(error, expected)}'
         except (transfer.BodyTooLarge, transfer.UploadLimitError) as error:
             refused = 413, str(error)
-        except transfer.RequestBodyError as error:
-            refused = error.status, str(error)
-        except (ConnectionError, ssl.SSLError) as error:
+        except (ConnectionError, ssl.SSLError, transfer.BodyEnded) as error:
             # Socket errors are OSErrors too, but the disk is fine: the sender
             # went away, and there is nobody to answer.
             reason = (f'upload {tid}: the sender left after {deadline.transferred} '
@@ -452,6 +450,8 @@ class Handler(BaseHTTPRequestHandler):
             watcher.upload_failed(token, reason)
             self.close_connection = True
             return
+        except transfer.RequestBodyError as error:
+            refused = error.status, str(error)
         except OSError as error:
             refused = 507, f'storage failed: {error}'
         except Exception as error:

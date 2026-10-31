@@ -78,6 +78,12 @@ class BodyTooLarge(RequestBodyError):
     status = 413
 
 
+class BodyEnded(RequestBodyError):
+    """The connection ended inside the body: the sender left. A reset can
+    arrive as this rather than as an error, depending on how TLS reports an
+    abrupt close."""
+
+
 class UploadLimitError(ValueError):
     pass
 
@@ -202,7 +208,7 @@ def _copy_exact(source, writer, size, truncated, deadline):
         deadline.awaiting = f'the last {left} of {size} bytes'
         data = read(min(left, IO_CHUNK_BYTES))
         if not data:
-            raise RequestBodyError(truncated)
+            raise BodyEnded(truncated)
         deadline.note(len(data))
         writer.write(data)
         left -= len(data)
@@ -215,7 +221,9 @@ def _read_chunked(rfile, writer, deadline):
         line = rfile.readline(MAX_CHUNK_LINE_BYTES + 1)
         deadline.between_chunks = False
         deadline.note(len(line))
-        if not line or len(line) > MAX_CHUNK_LINE_BYTES or not line.endswith(b'\n'):
+        if not line:
+            raise BodyEnded('the connection ended before a chunk header')
+        if len(line) > MAX_CHUNK_LINE_BYTES or not line.endswith(b'\n'):
             raise RequestBodyError('invalid or overlong chunk-size line')
         token = line.split(b';', 1)[0].strip()
         try:
