@@ -32,6 +32,37 @@ jobs:
       - name: Tests, over loopback
         run: python -m unittest discover -s airdrop\tests
 
+  radio:
+    name: Windows RTL8852CE radio build (no hardware)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Windows PCIe devourer sources
+        shell: pwsh
+        run: git submodule update --init upstream/devourer
+      - name: Locate vcpkg
+        shell: pwsh
+        run: |
+          $roots = @($env:VCPKG_INSTALLATION_ROOT, 'C:\vcpkg', 'C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\vcpkg', 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\vcpkg')
+          $root = $roots | Where-Object { $_ -and (Test-Path (Join-Path $_ 'vcpkg.exe')) } | Select-Object -First 1
+          if (-not $root) { throw 'vcpkg.exe unavailable on this runner' }
+          "VCPKG_ROOT=$root" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+      - name: Build Windows radio and its hardware-free tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S radio -B build/radio -G 'Visual Studio 17 2022' -A x64 "-DVCPKG_MANIFEST_DIR=$PWD/deps"
+          if ($LASTEXITCODE -ne 0) { throw 'radio configure failed' }
+          cmake --build build/radio --config Release --target winawdl_radio channel_width_test ack_cam_experiment_test -- /m /v:minimal
+          if ($LASTEXITCODE -ne 0) { throw 'radio build failed' }
+      - name: Headless RTL8852CE radio tests
+        shell: pwsh
+        run: |
+          & build/radio/Release/ack_cam_experiment_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'CAM selftest failed' }
+          & build/radio/Release/channel_width_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'subcarrier test failed' }
+
   awdl:
     name: AWDL daemon, with OWL patched
     runs-on: windows-latest
