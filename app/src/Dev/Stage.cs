@@ -237,6 +237,15 @@ public static class Stage
                     SaveRequestCard(app.Dispatcher, files, backdrop, Path.Combine(folder, $"request-card-{themeName}-on-{ground}.png"));
                 }
         }
+        if (only.Count == 0 || only.Contains("notification-fallback"))
+        {
+            foreach (var (themeName, palette) in themes)
+            {
+                theme.Apply(palette);
+                SaveRequestCard(app.Dispatcher, files, "#20262E",
+                    Path.Combine(folder, $"notification-fallback-{themeName}.png"));
+            }
+        }
         if (only.Count == 0 || only.Contains("sizes"))
         {
             var busy = Scenes(files).First(scene => scene.Name == "incoming-ask").Build;

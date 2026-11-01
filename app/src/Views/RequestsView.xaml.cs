@@ -98,9 +98,9 @@ public sealed class RequestWindow : Window
 
     /// <summary>A request has arrived. False when it will not be shown here,
     /// and has to be said some other way.</summary>
-    public bool Announce()
+    public bool Announce(bool toastFallback = false)
     {
-        if (!_model.ShowRequests || !WindowsTakesNotices()) return false;
+        if (!_model.ShowRequests || !toastFallback && !WindowsTakesNotices()) return false;
         _announced = true;
         Reconsider();
         return true;
@@ -108,9 +108,9 @@ public sealed class RequestWindow : Window
 
     /// <summary>Something has arrived. False when it will not be said here.
     /// It stays for a while, and for as long as the pointer is on the cards.</summary>
-    public bool Announce(ArrivalModel arrival)
+    public bool Announce(ArrivalModel arrival, bool toastFallback = false)
     {
-        if (!_model.ShowRequests || !WindowsTakesNotices()) return false;
+        if (!_model.ShowRequests || !toastFallback && !WindowsTakesNotices()) return false;
         _model.Arrivals.Add(arrival);
         var leaving = new DispatcherTimer(DispatcherPriority.Normal, Dispatcher) { Interval = ArrivalShownFor };
         leaving.Tick += (_, _) =>

@@ -12,6 +12,8 @@ function Remove-UserRegistration([string]$app) {
   if (Test-Path $app) {
     $result = Start-Process -FilePath $app -ArgumentList '--explorer-remove' -Wait -PassThru -WindowStyle Hidden
     if ($result.ExitCode -ne 0) { throw 'Send with AirDrop could not be removed for this account.' }
+    $result = Start-Process -FilePath $app -ArgumentList '--notifications-remove' -Wait -PassThru -WindowStyle Hidden
+    if ($result.ExitCode -ne 0) { throw 'Notifications could not be removed for this account.' }
   }
   $user = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
     [Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)

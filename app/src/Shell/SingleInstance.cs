@@ -5,7 +5,7 @@ using System.Text.Json;
 
 namespace Winawdl.Shell;
 
-public sealed record LaunchRequest(string[] Paths, bool Surface)
+public sealed record LaunchRequest(string[] Paths, bool Surface, string Notice = "")
 {
     public const int MaxBytes = 256 * 1024;
     public const int MaxPaths = 1024;
@@ -13,6 +13,7 @@ public sealed record LaunchRequest(string[] Paths, bool Surface)
     public static LaunchRequest FromArguments(string[] args)
     {
         var own = args.TakeWhile(arg => arg != "--engine").ToArray();
+        if (own.Length == 1 && NoticeActivation.Valid(own[0])) return new([], true, own[0]);
         var paths = Sanitize(own.Where(arg => arg != WindowsStartup.TrayFlag));
         return new(paths, paths.Length > 0 || !own.Contains(WindowsStartup.TrayFlag));
     }
@@ -54,8 +55,9 @@ public sealed record LaunchRequest(string[] Paths, bool Surface)
         {
             var request = JsonSerializer.Deserialize<LaunchRequest>(bytes);
             if (request?.Paths == null || request.Paths.Length > MaxPaths) return null;
+            if (request.Notice is null || request.Notice.Length > 0 && !NoticeActivation.Valid(request.Notice)) return null;
             var paths = Sanitize(request.Paths);
-            return new(paths, request.Surface || paths.Length > 0);
+            return new(paths, request.Surface || paths.Length > 0, request.Notice);
         }
         catch (Exception error) when (error is JsonException or ArgumentException) { return null; }
     }

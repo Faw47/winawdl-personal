@@ -268,6 +268,9 @@ Step 'a shortcut, and an entry in the list of installed apps' {
   $link.WorkingDirectory = $Target
   $link.Description = 'AirDrop on Windows'
   $link.Save()
+  $app = Join-Path $Target 'winawdl.exe'
+  $result = Start-Process -FilePath $app -ArgumentList '--notification-shortcut',('"' + $Shortcut + '"') -Wait -PassThru -WindowStyle Hidden
+  if ($result.ExitCode -ne 0) { throw 'The Start Menu notification identity could not be set.' }
   New-Item $UninstallKey -Force | Out-Null
   $entry = @{
     DisplayName = 'winawdl'; DisplayVersion = $Version; Publisher = 'winawdl project'
@@ -290,6 +293,8 @@ if (-not $SkipExplorer) {
     $app = Join-Path $Target 'winawdl.exe'
     $result = Start-Process -FilePath $app -ArgumentList '--explorer-install' -Wait -PassThru -WindowStyle Hidden
     if ($result.ExitCode -ne 0) { throw 'Send with AirDrop could not be added for this account.' }
+    $result = Start-Process -FilePath $app -ArgumentList '--notifications-install' -Wait -PassThru -WindowStyle Hidden
+    if ($result.ExitCode -ne 0) { throw 'Notifications could not be registered for this account.' }
   }
 }
 

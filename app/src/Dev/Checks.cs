@@ -66,6 +66,12 @@ public static class Checks
                 log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
                 return _failed == 0 ? 0 : 1;
             }
+            if (args.Skip(1).Contains("notifications"))
+            {
+                Notifications(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("explorer"))
             {
                 Explorer(app, folder);
@@ -87,6 +93,7 @@ public static class Checks
             Selection(app, folder);
             SenderFolders(app, folder);
             History(app, folder);
+            Notifications(app, folder);
             Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
         }
@@ -492,6 +499,89 @@ public static class Checks
         {
             native.Stop();
         }
+    }
+
+    private sealed class CheckToast : IToast
+    {
+        public List<Notice> Shown { get; } = [];
+        public Action? Failed { get; private set; }
+        public bool Available { get; set; } = true;
+        public bool Cleared { get; private set; }
+        public bool Show(Notice notice, Action failed) { Shown.Add(notice); Failed = failed; return Available; }
+        public void Clear() => Cleared = true;
+    }
+
+    private static void Notifications(Application app, string folder)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        var toast = new CheckToast();
+        var front = false;
+        var cards = 0;
+        var arrivalCards = 0;
+        var now = DateTimeOffset.UtcNow;
+        using var notices = new NoticeActivation(world.Model, () => front, toast, () => cards++,
+            _ => arrivalCards++, () => now);
+        world.Engine.Say(Ask("n1", "Phone <&>\u202e", "iPhone"));
+        notices.Request();
+        var shown = toast.Shown.Single();
+        Expect(NoticeActivation.Valid(new Uri(shown.Accept).AbsoluteUri),
+               "URI parsing preserves notification action capabilities");
+        var xml = System.Xml.Linq.XElement.Parse(WindowsToast.Xml(shown));
+        Expect(xml.Descendants("action").Select(action => (string?)action.Attribute("content"))
+               .SequenceEqual(["Accept", "Decline"]) && !xml.Value.Contains('\u202e'),
+               "native toast XML escapes hostile text and has Accept and Decline actions");
+        var request = LaunchRequest.FromArguments([shown.Accept]);
+        Expect(LaunchRequest.Decode(request.Encode()) is { Notice: var uri, Paths.Length: 0 }
+               && uri == shown.Accept, "toast activation survives the bounded single-instance protocol");
+        Expect(notices.Activate(shown.Accept) && world.Engine.Told.Last().Contains("\"accept\":true")
+               && !notices.Activate(shown.Accept), "Accept targets the pending request once using a random capability");
+        notices.Request();
+        Expect(notices.Activate(toast.Shown.Last().Decline)
+               && world.Engine.Told.Last().Contains("\"accept\":false"), "Decline targets the pending request");
+        notices.Request();
+        now = now.AddMinutes(3);
+        Expect(!notices.Activate(toast.Shown.Last().Accept)
+               && !NoticeActivation.Valid("winawdl-notice://../accept")
+               && !notices.Activate(NoticeActivation.Prefix + new string('a', 64)),
+               "expired, malformed and unknown notification actions cannot accept a transfer");
+        toast.Available = false;
+        notices.Request();
+        Expect(cards == 1, "unavailable toasts fall back to request cards");
+        toast.Available = true;
+        notices.Request();
+        toast.Failed!();
+        Expect(cards == 2, "an asynchronous toast failure falls back to request cards");
+        var stale = toast.Shown.Last().Accept;
+        world.Engine.Say(new { @event = "answered", id = "n1", how = "declined" });
+        world.Engine.Say(Ask("n1", "Another Phone", "iPhone"));
+        var commands = world.Engine.Told.Count;
+        notices.Activate(stale);
+        Expect(world.Engine.Told.Count == commands, "an old toast cannot accept a new request that reused an engine id");
+        var count = toast.Shown.Count;
+        front = true;
+        notices.Request();
+        front = false;
+        world.Settings.ShowRequests = false;
+        notices.Request();
+        Expect(toast.Shown.Count == count && cards == 2, "the front window and Show Requests setting suppress both routes");
+        world.Settings.ShowRequests = true;
+        var file = Path.Combine(folder, "notification-note.txt");
+        File.WriteAllText(file, "test");
+        var arrival = new ArrivalModel { Headline = "Files Received", Detail = "note.txt",
+            File = new FileItem(file, world.Desk), Single = true };
+        notices.Arrival(arrival);
+        Expect(toast.Shown.Last().Title == "Files Received" && toast.Shown.Last().Accept.Length == 0,
+               "files received uses a native toast with an activation back to the app");
+        toast.Available = false;
+        notices.Arrival(arrival);
+        Expect(arrivalCards == 1, "unavailable arrival toasts fall back to arrival cards");
+        var shortcut = Path.Combine(folder, "notification-test.lnk");
+        WindowsExplorer.WriteShortcut(shortcut, Environment.ProcessPath!);
+        Expect(ToastRegistration.Stamp(shortcut) == 0 && ToastRegistration.ShortcutAppId(shortcut) == WindowsToast.AppId,
+               "a throwaway Start Menu shortcut stores the native AppUserModelID");
+        notices.Dispose();
+        Expect(toast.Cleared, "shutdown clears notification capabilities and native toast history");
+        world.Model.Dispose();
     }
 
     private static void History(Application app, string folder)

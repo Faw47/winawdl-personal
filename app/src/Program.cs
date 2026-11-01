@@ -26,6 +26,9 @@ public static class Program
         [Dev.Checks.Flag, .. var rest] => Dev.Checks.Run(rest),
         [WindowsExplorer.InstallFlag] => WindowsExplorer.Register(true),
         [WindowsExplorer.RemoveFlag] => WindowsExplorer.Register(false),
+        [ToastRegistration.InstallFlag] => ToastRegistration.Register(true),
+        [ToastRegistration.RemoveFlag] => ToastRegistration.Register(false),
+        [ToastRegistration.ShortcutFlag, var path] => ToastRegistration.Stamp(path),
         _ => RunApp(args),
     };
 
@@ -80,17 +83,17 @@ public static class Program
         var requests = new RequestWindow(model, () => window.IsActive);
         window.Activated += (_, _) => requests.Reconsider();
         window.Deactivated += (_, _) => requests.Reconsider();
-        model.Attention += headline =>
-        {
-            if (!window.IsActive && !requests.Announce()) tray.Say(headline);
-        };
-        model.Arrived += arrival =>
-        {
-            if (!window.IsActive && !requests.Announce(arrival))
-                tray.Say(arrival.Headline, () => arrival.Press?.Execute(null));
-        };
+        using var notices = new NoticeActivation(model, () => window.IsActive, new WindowsToast(),
+            () => requests.Announce(toastFallback: true),
+            arrival => requests.Announce(arrival, toastFallback: true), () => DateTimeOffset.UtcNow);
+        model.Attention += _ => notices.Request();
+        model.Arrived += notices.Arrival;
 
-        only.Listen(next => app.Dispatcher.BeginInvoke(() => Deliver(next, model, window.Surface)));
+        only.Listen(next => app.Dispatcher.BeginInvoke(() =>
+        {
+            if (next.Notice.Length > 0) notices.Activate(next.Notice);
+            Deliver(next, model, window.Surface);
+        }));
 
         Deliver(request, model, () => { });
         model.StartTheEngine();

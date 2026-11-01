@@ -597,7 +597,7 @@
                     <StackPanel>
                       <TextBlock Text="Show Requests on Screen" />
                       <TextBlock Style="{StaticResource Caption}"
-                                 Text="As cards in the corner while this window is not in front." />
+                                 Text="Windows notifications, or cards when unavailable, while this window is not in front." />
                     </StackPanel>
                   </t:Switch>
                   <Border Style="{StaticResource Hairline}" />
