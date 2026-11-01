@@ -5,6 +5,10 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **iPhones that keep their model to themselves are still drawn as iPhones.**
+  An iPhone answering who it is may leave its model out; its name, such as
+  "Fawaz's iPhone", now says what it is instead.
+
 - **The radio starts by itself, without a prompt.** If the radio was on when
   you left winawdl, it comes back on when winawdl starts. Setup registers a
   task that lets the installing account start the radio with no UAC prompt;

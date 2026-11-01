@@ -1508,6 +1508,12 @@ public static class Checks
                && Words.KindOfDevice("MacBookPro18,3") == DeviceKind.Computer && Words.KindOfDevice("Macmini9,1") == DeviceKind.Computer
                && Words.KindOfDevice(null) == DeviceKind.Other && Words.KindOfDevice("RealityDevice14,1") == DeviceKind.Other,
                "a device's kind comes from the model it reports");
+        Expect(Words.KindOfDevice(null, "Fawaz’s iPhone") == DeviceKind.Phone && Words.KindOfDevice("", "Studio iPad") == DeviceKind.Tablet
+               && Words.KindOfDevice(null, "Sam's MacBook Air") == DeviceKind.Computer && Words.KindOfDevice(null, "Office iMac") == DeviceKind.Computer
+               && Words.KindOfDevice(null, "Mackenzie's phone") == DeviceKind.Other && Words.KindOfDevice(null, "Kitchen") == DeviceKind.Other
+               && Words.KindOfDevice("iPad13,1", "Fawaz's iPhone") == DeviceKind.Tablet
+               && new PeerModel("p", "Fawaz’s iPhone", null).Kind == DeviceKind.Phone,
+               "without a model, the name Apple gives a device says what it is; a reported model still wins");
         Expect(Words.Percent(0.999) == "99%" && Words.Percent(1) == "100%" && Words.Percent(-1) == "0%",
                "a percentage never shows 100 before the end");
     }

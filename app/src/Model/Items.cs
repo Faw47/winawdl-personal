@@ -78,7 +78,7 @@ public sealed class PeerModel(string id, string name, string? model) : Observabl
     public string Id { get; } = id;
     public string Name { get; } = name;
     public string Model { get; } = model ?? "";
-    public DeviceKind Kind { get; } = Words.KindOfDevice(model);
+    public DeviceKind Kind { get; } = Words.KindOfDevice(model, name);
     public string Glyph => Words.Glyph(Kind);
     public RateMeter Rate { get; private set; } = new();
     public string? SendId { get; set; }
@@ -128,7 +128,7 @@ public sealed class TrustedModel(KnownDevice device)
 {
     public KnownDevice Device { get; } = device;
     public string Name => Device.Name;
-    public string Glyph => Words.Glyph(Words.KindOfDevice(Device.Model.Length > 0 ? Device.Model : null));
+    public string Glyph => Words.Glyph(Words.KindOfDevice(Device.Model, Device.Name));
     public ICommand? Forget { get; init; }
     public string ForgetName => $"Forget inactive saved name {Name}";
 }
@@ -174,7 +174,7 @@ public sealed class IncomingModel : Observable
     public required string What { get; init; }
     public required string Detail { get; init; }
     public string Model { get; init; } = "";
-    public DeviceKind Kind => Words.KindOfDevice(Model.Length > 0 ? Model : null);
+    public DeviceKind Kind => Words.KindOfDevice(Model, Sender);
     public string Glyph => Words.Glyph(Kind);
     public long? Total { get; set; }
     public RateMeter Rate { get; } = new();

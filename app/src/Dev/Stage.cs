@@ -471,6 +471,12 @@ public static class Stage
             world.Engine.Say(new { @event = "peer", id = "tablet", name = "Stand-in iPad", model = "iPad13,4" });
             world.Engine.Say(new { @event = "peer", id = "other", name = "Nearby Device", model = "Unknown" });
         });
+        // An iPhone that answers without its model, as real ones do: its name says what it is.
+        yield return ("device-no-model", world =>
+        {
+            Up(world);
+            world.Engine.Say(new { @event = "peer", id = "phone", name = "Fawaz’s iPhone", model = (string?)null });
+        });
         yield return ("device-drop-target", world =>
         {
             Devices(world);
