@@ -578,20 +578,75 @@
     </Canvas>
   </Viewbox>
   <Viewbox x:Key="DeviceArt.Tablet" x:Shared="False" IsHitTestVisible="False">
-    <Canvas Width="38" Height="48">
-      <Path Fill="#FF18181B" Stroke="#FF3F3F46" StrokeThickness="0.8">
-        <Path.Data><RectangleGeometry Rect="3,3,32,42" RadiusX="4" RadiusY="4" /></Path.Data>
-      </Path>
-      <Path >
-        <Path.Data><RectangleGeometry Rect="4.8,4.8,28.4,38.4" RadiusX="2.6" RadiusY="2.6" /></Path.Data>
-        <Path.Fill>
-          <LinearGradientBrush StartPoint="4,4" EndPoint="34,44" MappingMode="Absolute">
-            <GradientStop Offset="0" Color="#FF38BDF8" />
-            <GradientStop Offset="0.5" Color="#FF6366F1" />
-            <GradientStop Offset="1" Color="#FF9333EA" />
-          </LinearGradientBrush>
-        </Path.Fill>
-      </Path>
+    <!-- Based on the supplied paired iPad mini XAML, cropped to its device silhouette
+         so it stays readable alongside the existing iPhone and Mac illustrations. -->
+    <Canvas Width="540" Height="660" ClipToBounds="True">
+      <Canvas Width="1000" Height="1000" Canvas.Left="-220" Canvas.Top="-195">
+        <Canvas.Resources>
+<LinearGradientBrush x:Key="TuckBottomGrad" MappingMode="Absolute" StartPoint="355,765" EndPoint="415,725"><GradientStop Offset="0" Color="#230E60"/><GradientStop Offset="0.5" Color="#4E2BC2"/><GradientStop Offset="1" Color="#190A48"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="TailShortGrad" MappingMode="Absolute" StartPoint="350,722" EndPoint="508,768"><GradientStop Offset="0" Color="#4B27B8"/><GradientStop Offset="0.35" Color="#754EF0"/><GradientStop Offset="0.75" Color="#8F6BF8"/><GradientStop Offset="1" Color="#7C56E8"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="LeftBend1Grad" MappingMode="Absolute" StartPoint="372,732" EndPoint="378,655"><GradientStop Offset="0" Color="#1E0E5C"/><GradientStop Offset="0.35" Color="#4933C8"/><GradientStop Offset="0.75" Color="#5C48E6"/><GradientStop Offset="1" Color="#3E2EB8"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="LeftBend2Grad" MappingMode="Absolute" StartPoint="372,662" EndPoint="378,585"><GradientStop Offset="0" Color="#1C2270"/><GradientStop Offset="0.35" Color="#3F59D8"/><GradientStop Offset="0.75" Color="#587BF0"/><GradientStop Offset="1" Color="#3D5CC8"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="LeftBend3Grad" MappingMode="Absolute" StartPoint="372,435" EndPoint="378,362"><GradientStop Offset="0" Color="#1D5258"/><GradientStop Offset="0.35" Color="#46A89C"/><GradientStop Offset="0.75" Color="#68D8C2"/><GradientStop Offset="1" Color="#48B09C"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="RightFold1Grad" MappingMode="Absolute" StartPoint="485,572" EndPoint="685,658"><GradientStop Offset="0" Color="#1B2A68"/><GradientStop Offset="0.35" Color="#3E62BD"/><GradientStop Offset="0.75" Color="#537DE0"/><GradientStop Offset="1" Color="#3858AD"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="RightFold2Grad" MappingMode="Absolute" StartPoint="505,498" EndPoint="685,582"><GradientStop Offset="0" Color="#22416B"/><GradientStop Offset="0.35" Color="#4C7EB8"/><GradientStop Offset="0.75" Color="#659DE0"/><GradientStop Offset="1" Color="#4674AB"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="RightFold3Grad" MappingMode="Absolute" StartPoint="465,330" EndPoint="685,432"><GradientStop Offset="0" Color="#1D4A44"/><GradientStop Offset="0.35" Color="#429E8D"/><GradientStop Offset="0.75" Color="#5BC4B0"/><GradientStop Offset="1" Color="#3D9180"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="TopHookGrad" MappingMode="Absolute" StartPoint="568,275" EndPoint="685,345"><GradientStop Offset="0" Color="#3D8E7C"/><GradientStop Offset="0.35" Color="#58BD9F"/><GradientStop Offset="0.75" Color="#64D4B6"/><GradientStop Offset="1" Color="#357D6C"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="Diag1Grad" MappingMode="Absolute" StartPoint="352,654" EndPoint="690,764"><GradientStop Offset="0" Color="#4D38CF"/><GradientStop Offset="0.16" Color="#6C58F5"/><GradientStop Offset="0.58" Color="#736AF6"/><GradientStop Offset="0.86" Color="#6866F0"/><GradientStop Offset="1" Color="#5856DC"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="Diag2Grad" MappingMode="Absolute" StartPoint="352,582" EndPoint="690,668"><GradientStop Offset="0" Color="#4362D8"/><GradientStop Offset="0.16" Color="#648DF8"/><GradientStop Offset="0.58" Color="#7CA8FA"/><GradientStop Offset="0.86" Color="#6A95EE"/><GradientStop Offset="1" Color="#466CC2"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="Diag3Grad" MappingMode="Absolute" StartPoint="415,515" EndPoint="690,590"><GradientStop Offset="0" Color="#9EC8FF"/><GradientStop Offset="0.35" Color="#8CC0FA"/><GradientStop Offset="0.75" Color="#78ACEE"/><GradientStop Offset="1" Color="#4D7EC0"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="Diag4Grad" MappingMode="Absolute" StartPoint="352,422" EndPoint="690,532"><GradientStop Offset="0" Color="#6CAEF5"/><GradientStop Offset="0.16" Color="#82D2F7"/><GradientStop Offset="0.58" Color="#82EBDF"/><GradientStop Offset="0.86" Color="#7CE4D4"/><GradientStop Offset="1" Color="#5DC2B4"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="Diag5Grad" MappingMode="Absolute" StartPoint="352,358" EndPoint="690,442"><GradientStop Offset="0" Color="#52BDAB"/><GradientStop Offset="0.16" Color="#84F4DC"/><GradientStop Offset="0.58" Color="#7EF0D6"/><GradientStop Offset="0.86" Color="#6ADBC2"/><GradientStop Offset="1" Color="#45A691"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="Diag6Grad" MappingMode="Absolute" StartPoint="415,296" EndPoint="690,352"><GradientStop Offset="0" Color="#9CFCE2"/><GradientStop Offset="0.35" Color="#82F4D6"/><GradientStop Offset="0.75" Color="#6CE2C4"/><GradientStop Offset="1" Color="#44AB92"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="RearAluminum" StartPoint="0,0" EndPoint="0,1"><GradientStop Offset="0" Color="#8C8E94"/><GradientStop Offset="0.18" Color="#76787E"/><GradientStop Offset="0.55" Color="#585A60"/><GradientStop Offset="0.88" Color="#43454A"/><GradientStop Offset="1" Color="#383A3F"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="EdgeBevel" StartPoint="0,0" EndPoint="0,1"><GradientStop Offset="0" Color="#B8BAC0"/><GradientStop Offset="0.5" Color="#6E7076"/><GradientStop Offset="1" Color="#4A4C52"/></LinearGradientBrush>
+<LinearGradientBrush x:Key="CamRingGrad" StartPoint="0,0" EndPoint="1,1"><GradientStop Offset="0" Color="#D0D2D8"/><GradientStop Offset="0.5" Color="#64666C"/><GradientStop Offset="1" Color="#989AA0"/></LinearGradientBrush>
+<RadialGradientBrush x:Key="FlashGrad" Center=".5,.5" GradientOrigin=".5,.5" RadiusX=".5" RadiusY=".5"><GradientStop Offset="0" Color="#FFFFFF"/><GradientStop Offset="0.55" Color="#EEE9DC"/><GradientStop Offset="1" Color="#B8B4A8"/></RadialGradientBrush>
+<RadialGradientBrush x:Key="DotMidGrad" Center=".38,.32" GradientOrigin=".38,.32" RadiusX=".68" RadiusY=".68"><GradientStop Offset="0" Color="#B8DAFF"/><GradientStop Offset="0.55" Color="#8EBEF8"/><GradientStop Offset="1" Color="#6899DC"/></RadialGradientBrush>
+<RadialGradientBrush x:Key="DotTopGrad" Center=".38,.32" GradientOrigin=".38,.32" RadiusX=".68" RadiusY=".68"><GradientStop Offset="0" Color="#B4FFEA"/><GradientStop Offset="0.55" Color="#82F4D6"/><GradientStop Offset="1" Color="#58C8AD"/></RadialGradientBrush>
+<DropShadowEffect x:Key="OverlapShadow" Direction="198.4" ShadowDepth="6.3" BlurRadius="18" Color="#000000" Opacity=".55"/>
+<DropShadowEffect x:Key="FoldOcclusion" Direction="270" ShadowDepth="7" BlurRadius="15" Color="#040408" Opacity=".68"/>
+<DropShadowEffect x:Key="CamShadow" Direction="270" ShadowDepth="2" BlurRadius="6" Color="#000000" Opacity=".45"/>
+<BlurEffect x:Key="SatinSheen" Radius="8"/>
+        </Canvas.Resources>
+        <!-- Rear aluminum iPad mini and camera -->
+        <Canvas><Rectangle Canvas.Left="280" Canvas.Top="212.5" Width="22" Height="3" RadiusX="1.5" RadiusY="1.5" Fill="#7A7C82" Stroke="#5A5C60" StrokeThickness=".5"/>
+<Rectangle Canvas.Left="240" Canvas.Top="215" Width="424" Height="616" RadiusX="42" RadiusY="42" Fill="{StaticResource RearAluminum}" Stroke="{StaticResource EdgeBevel}" StrokeThickness="2"/>
+<Rectangle Canvas.Left="241.5" Canvas.Top="216.5" Width="421" Height="613" RadiusX="40.5" RadiusY="40.5" Stroke="#38FFFFFF" StrokeThickness="1"/>
+<Canvas><Canvas.Clip><RectangleGeometry Rect="240,215,424,616" RadiusX="42" RadiusY="42"/></Canvas.Clip><Rectangle Canvas.Left="238" Canvas.Top="268" Width="5" Height="2.5" Fill="#43454A" Opacity=".7"/><Rectangle Canvas.Left="238" Canvas.Top="775" Width="5" Height="2.5" Fill="#2C2D30" Opacity=".7"/></Canvas>
+<Canvas Effect="{StaticResource CamShadow}"><Ellipse Canvas.Left="261" Canvas.Top="237" Width="38" Height="38" Fill="{StaticResource CamRingGrad}" Stroke="#45474C" StrokeThickness=".8"/><Ellipse Canvas.Left="264.5" Canvas.Top="240.5" Width="31" Height="31" Fill="#0D0E11"/><Ellipse Canvas.Left="269.5" Canvas.Top="245.5" Width="21" Height="21" Fill="#181C24" Stroke="#2C3038" StrokeThickness=".8"/><Ellipse Canvas.Left="274" Canvas.Top="250" Width="12" Height="12" Fill="#0F1726"/><Ellipse Canvas.Left="275.3" Canvas.Top="251.3" Width="4.4" Height="4.4" Fill="#5B82B8" Opacity=".65"/><Ellipse Canvas.Left="281.3" Canvas.Top="257.3" Width="2.4" Height="2.4" Fill="#8CB6E8" Opacity=".5"/><Ellipse Canvas.Left="276.1" Canvas.Top="252.1" Width="1.8" Height="1.8" Fill="#FFFFFF" Opacity=".9"/></Canvas>
+<Ellipse Canvas.Left="277.7" Canvas.Top="282.7" Width="4.6" Height="4.6" Fill="#2B2D31" Stroke="#686A70" StrokeThickness=".5"/>
+<Ellipse Canvas.Left="274" Canvas.Top="298" Width="12" Height="12" Fill="{StaticResource FlashGrad}" Stroke="#6E7076" StrokeThickness=".6"/>
+<Ellipse Canvas.Left="276.8" Canvas.Top="300.8" Width="6.4" Height="6.4" Fill="#FFFFFF" Opacity=".6"/></Canvas>
+        <!-- Front glass iPad mini with mint to violet 3D ribbon wallpaper -->
+        <Canvas Effect="{StaticResource OverlapShadow}"><Rectangle Canvas.Left="350" Canvas.Top="212.5" Width="23" Height="3" RadiusX="1.2" RadiusY="1.2" Fill="#7D7F85" Stroke="#4D4F54" StrokeThickness=".5"/>
+<Rectangle Canvas.Left="383" Canvas.Top="212.5" Width="23" Height="3" RadiusX="1.2" RadiusY="1.2" Fill="#7D7F85" Stroke="#4D4F54" StrokeThickness=".5"/>
+<Rectangle Canvas.Left="640" Canvas.Top="212" Width="44" Height="3.5" RadiusX="1.5" RadiusY="1.5" Fill="#686A70" Stroke="#3D3F44" StrokeThickness=".6"/>
+<Rectangle Canvas.Left="309" Canvas.Top="215" Width="424" Height="616" RadiusX="42" RadiusY="42" Fill="#1E1F22" Stroke="{StaticResource EdgeBevel}" StrokeThickness="2.5"/>
+<Rectangle Canvas.Left="311.5" Canvas.Top="217.5" Width="419" Height="611" RadiusX="39.5" RadiusY="39.5" Fill="#050507"/>
+<Rectangle Canvas.Left="311.5" Canvas.Top="217.5" Width="419" Height="611" RadiusX="39.5" RadiusY="39.5" Stroke="#1FFFFFFF" StrokeThickness="1"/>
+<Ellipse Canvas.Left="517.4" Canvas.Top="227.4" Width="7.2" Height="7.2" Fill="#11141C"/>
+<Ellipse Canvas.Left="519.2" Canvas.Top="229.2" Width="3.6" Height="3.6" Fill="#1E314D"/>
+<Ellipse Canvas.Left="519.6" Canvas.Top="229.6" Width="1.4" Height="1.4" Fill="#6AA4DE" Opacity=".85"/>
+<Canvas><Canvas.Clip><RectangleGeometry Rect="336,244,370,562" RadiusX="18" RadiusY="18"/></Canvas.Clip><Rectangle Canvas.Left="336" Canvas.Top="244" Width="370" Height="562" Fill="#0A0A0D"/>
+<Path Data="M 412,752 C 384,768 368,762 378,728" Stroke="{StaticResource TuckBottomGrad}" StrokeThickness="54" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+<Canvas Effect="{StaticResource FoldOcclusion}"><Path Data="M 378,728 C 398,724 442,746 482,760" Stroke="{StaticResource TailShortGrad}" StrokeThickness="54" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path Data="M 384,725 C 402,722 440,742 476,755" Stroke="#B59AFF" StrokeThickness="20" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Opacity=".32" Effect="{StaticResource SatinSheen}"/></Canvas>
+<Path Data="M 398,730 C 366,712 365,674 382,658" Stroke="{StaticResource LeftBend1Grad}" StrokeThickness="55" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+<Canvas Effect="{StaticResource FoldOcclusion}"><Path Data="M 380,659 C 406,652 578,726 664,758" Stroke="{StaticResource Diag1Grad}" StrokeThickness="55" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path Data="M 386,656 C 412,649 574,721 658,753" Stroke="#A39EFF" StrokeThickness="20" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Opacity=".30" Effect="{StaticResource SatinSheen}"/></Canvas>
+<Path Data="M 398,662 C 366,644 365,604 382,588" Stroke="{StaticResource LeftBend2Grad}" StrokeThickness="55" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+<Path Data="M 662,658 C 674,646 650,632 608,614 C 564,596 520,580 486,568" Stroke="{StaticResource RightFold1Grad}" StrokeThickness="54" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+<Canvas Effect="{StaticResource FoldOcclusion}"><Path Data="M 380,588 C 408,580 596,662 662,658" Stroke="{StaticResource Diag2Grad}" StrokeThickness="56" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path Data="M 386,585 C 414,577 592,656 656,653" Stroke="#B6D4FF" StrokeThickness="22" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Opacity=".36" Effect="{StaticResource SatinSheen}"/></Canvas>
+<Path Data="M 662,582 C 674,570 650,554 608,538 C 570,522 535,508 506,496" Stroke="{StaticResource RightFold2Grad}" StrokeThickness="54" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+<Canvas Effect="{StaticResource FoldOcclusion}"><Path Data="M 442,522 C 495,538 602,586 662,582" Stroke="{StaticResource Diag3Grad}" StrokeThickness="55" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path Data="M 448,519 C 498,534 598,580 656,577" Stroke="#D9ECFF" StrokeThickness="22" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Opacity=".40" Effect="{StaticResource SatinSheen}"/></Canvas>
+<Ellipse Canvas.Left="351" Canvas.Top="474" Width="56" Height="56" Fill="{StaticResource DotMidGrad}"/>
+<Path Data="M 398,432 C 366,416 365,378 382,365" Stroke="{StaticResource LeftBend3Grad}" StrokeThickness="55" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+<Canvas Effect="{StaticResource FoldOcclusion}"><Path Data="M 379,430 C 442,448 584,498 664,526" Stroke="{StaticResource Diag4Grad}" StrokeThickness="55" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path Data="M 385,427 C 446,444 580,493 658,521" Stroke="#CBFFF8" StrokeThickness="22" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Opacity=".38" Effect="{StaticResource SatinSheen}"/></Canvas>
+<Path Data="M 662,432 C 674,420 650,404 604,385 C 554,365 496,342 456,326" Stroke="{StaticResource RightFold3Grad}" StrokeThickness="55" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+<Canvas Effect="{StaticResource FoldOcclusion}"><Path Data="M 380,365 C 408,357 596,436 662,432" Stroke="{StaticResource Diag5Grad}" StrokeThickness="57" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path Data="M 386,361 C 414,353 592,430 656,427" Stroke="#C8FFF0" StrokeThickness="23" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Opacity=".42" Effect="{StaticResource SatinSheen}"/></Canvas>
+<Path Data="M 662,342 C 675,326 646,304 592,283" Stroke="{StaticResource TopHookGrad}" StrokeThickness="55" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+<Canvas Effect="{StaticResource FoldOcclusion}"><Path Data="M 442,304 C 498,322 604,354 662,342" Stroke="{StaticResource Diag6Grad}" StrokeThickness="56" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/><Path Data="M 448,300 C 502,317 600,348 656,337" Stroke="#DCFFF5" StrokeThickness="22" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Opacity=".45" Effect="{StaticResource SatinSheen}"/></Canvas>
+<Ellipse Canvas.Left="351" Canvas.Top="256" Width="56" Height="56" Fill="{StaticResource DotTopGrad}"/></Canvas></Canvas>
+      </Canvas>
     </Canvas>
   </Viewbox>
 </ResourceDictionary>
