@@ -99,6 +99,7 @@ public sealed class Desk(Dispatcher dispatcher) : IDesk
     private readonly Stopwatch _clock = Stopwatch.StartNew();
 
     public double Now => _clock.Elapsed.TotalSeconds;
+    public DateTimeOffset UtcNow => DateTimeOffset.UtcNow;
 
     public IReadOnlyList<string> PickFiles()
     {
