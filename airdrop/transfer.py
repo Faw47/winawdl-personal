@@ -547,13 +547,17 @@ def _hold_directory(path):
             raise ctypes.WinError(ctypes.get_last_error())
     try:
         info = os.lstat(path)
-        if (not stat.S_ISDIR(info.st_mode)
-                or getattr(info, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT):
-            raise OSError('sender folder must be a directory, not a link or reparse point')
+        if not stat.S_ISDIR(info.st_mode) or redirects_path(info):
+            raise OSError('sender folder must be a directory, not a link or junction')
         yield
     finally:
         if handle is not None:
             close(handle)
+
+
+def redirects_path(info):
+    """Name-surrogate reparse tags redirect paths; cloud placeholders do not."""
+    return stat.S_ISLNK(info.st_mode) or bool(getattr(info, 'st_reparse_tag', 0) & 0x20000000)
 
 
 @contextlib.contextmanager

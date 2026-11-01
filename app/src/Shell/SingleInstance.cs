@@ -70,6 +70,7 @@ public sealed class SingleInstance : IDisposable
     public bool IsFirst { get; }
     internal string PipeName { get; }
     internal string MutexName { get; }
+    internal Func<NamedPipeServerStream>? PipeFactory { get; init; }
 
     public SingleInstance(string name = "winawdl-app")
     {
@@ -113,12 +114,25 @@ public sealed class SingleInstance : IDisposable
                     }
                     catch (Exception error) when (error is IOException or OperationCanceledException or UnauthorizedAccessException) { }
                 }
-                if (!_stop.IsCancellationRequested) pipe = NewPipe();
+                while (!_stop.IsCancellationRequested)
+                {
+                    try
+                    {
+                        pipe = NewPipe();
+                        break;
+                    }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                    {
+                        System.Diagnostics.Trace.TraceWarning("AirDrop activation pipe unavailable: {0}", error.Message);
+                        try { await Task.Delay(250, _stop.Token); }
+                        catch (OperationCanceledException) { break; }
+                    }
+                }
             }
         });
     }
 
-    private NamedPipeServerStream NewPipe() => new(PipeName, PipeDirection.InOut, 1,
+    private NamedPipeServerStream NewPipe() => PipeFactory?.Invoke() ?? new(PipeName, PipeDirection.InOut, 1,
         PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | PipeOptions.FirstPipeInstance);
 
     public async Task<bool> Forward(LaunchRequest request)
