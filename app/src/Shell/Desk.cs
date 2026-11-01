@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -125,6 +126,71 @@ public sealed class Desk(Dispatcher dispatcher) : IDesk
         {
             // Another program holds the clipboard open.
             return new([], Problem: "The clipboard is busy. Try Paste again.");
+        }
+    }
+
+    private static readonly HashSet<string> ClipboardPictures = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tif", ".tiff",
+        ".heic", ".heif", ".avif", ".webp",
+    };
+
+    /// <summary>Copy an arrived file when requested, never on unsolicited arrival.
+    /// A picture becomes a bitmap when WIC can safely decode it, a web link
+    /// becomes text, and other files (or missing codecs) remain copyable files.</summary>
+    public string CopyReceived(string path)
+    {
+        try
+        {
+            if (!Path.IsPathFullyQualified(path) || !File.Exists(path))
+                return "File is no longer available.";
+            if (StoredWebLink(path) is { } link)
+            {
+                Clipboard.SetText(link);
+                return "";
+            }
+
+            if (ClipboardPictures.Contains(Path.GetExtension(path))
+                && new FileInfo(path).Length <= 32 * 1024 * 1024)
+            {
+                try
+                {
+                    // WIC supports HEIC/AVIF only where the corresponding Windows
+                    // codec is installed. A missing or failing codec is not fatal.
+                    var frame = BitmapDecoder.Create(new Uri(path, UriKind.Absolute),
+                        BitmapCreateOptions.DelayCreation, BitmapCacheOption.OnDemand).Frames[0];
+                    if (frame.PixelWidth > 0 && frame.PixelHeight > 0
+                        && (long)frame.PixelWidth * frame.PixelHeight <= 20_000_000)
+                    {
+                        var bitmap = new BitmapImage();
+                        bitmap.BeginInit();
+                        bitmap.UriSource = new Uri(path, UriKind.Absolute);
+                        bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                        bitmap.DecodePixelWidth = Math.Min(2048, frame.PixelWidth);
+                        bitmap.EndInit();
+                        bitmap.Freeze();
+                        Clipboard.SetImage(bitmap);
+                        return "";
+                    }
+                }
+                catch (Exception error) when (error is IOException or NotSupportedException
+                                              or ArgumentException or System.IO.FileFormatException
+                                              or COMException)
+                {
+                    // Still offer the original file. Never modify it to make
+                    // the clipboard work, especially not a HEIC original.
+                }
+            }
+
+            var files = new StringCollection { path };
+            Clipboard.SetFileDropList(files);
+            return "";
+        }
+        catch (Exception error) when (error is ExternalException or IOException
+                                      or UnauthorizedAccessException or ArgumentException
+                                      or NotSupportedException or System.Security.SecurityException)
+        {
+            return "The clipboard is busy or the file cannot be copied. Try again.";
         }
     }
 

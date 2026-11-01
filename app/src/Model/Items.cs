@@ -39,6 +39,16 @@ public sealed class FileItem : Observable
         catch (IOException)
         {
         }
+        Copy = new Command(() =>
+        {
+            var error = desk.CopyReceived(Path);
+            CopyNotice = error.Length == 0 ? "Copied to clipboard" : error;
+            var message = CopyNotice;
+            desk.Later(TimeSpan.FromSeconds(4), () =>
+            {
+                if (CopyNotice == message) CopyNotice = "";
+            });
+        });
         _ = Load(desk);
     }
 
@@ -52,6 +62,17 @@ public sealed class FileItem : Observable
     public ICommand? Press { get; init; }
     public ICommand? Remove { get; init; }
     public ICommand? Reveal { get; init; }
+    public ICommand Copy { get; }
+    private string _copyNotice = "";
+    public string CopyNotice
+    {
+        get => _copyNotice;
+        private set
+        {
+            if (Set(ref _copyNotice, value)) Changed(nameof(HasCopyNotice));
+        }
+    }
+    public bool HasCopyNotice => CopyNotice.Length > 0;
     /// <summary>Set on the still of a Live Photo: opens the video stored beside it.</summary>
     public ICommand? PlayVideo { get; init; }
     public bool HasVideo => PlayVideo is not null;

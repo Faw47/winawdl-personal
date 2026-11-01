@@ -30,6 +30,43 @@ public sealed class TransferRecord
     public string Result { get; set; } = "";
 }
 
+/// <summary>One displayed history file, with a clipboard action only for a
+/// successfully received file that still exists. Historical records stay plain JSON.</summary>
+public sealed class HistoryFile : Observable
+{
+    private string _copyNotice = "";
+    public HistoryFile(TransferFile file, bool received, IDesk desk)
+    {
+        Name = file.Name;
+        SizeLabel = file.SizeLabel;
+        CanCopy = received && !string.IsNullOrWhiteSpace(file.Path) && File.Exists(file.Path);
+        Copy = new Command(() =>
+        {
+            if (!CanCopy) return;
+            var error = desk.CopyReceived(file.Path);
+            CopyNotice = error.Length == 0 ? "Copied to clipboard" : error;
+            var notice = CopyNotice;
+            desk.Later(TimeSpan.FromSeconds(4), () =>
+            {
+                if (CopyNotice == notice) CopyNotice = "";
+            });
+        });
+    }
+    public string Name { get; }
+    public string SizeLabel { get; }
+    public bool CanCopy { get; }
+    public ICommand Copy { get; }
+    public string CopyNotice
+    {
+        get => _copyNotice;
+        private set
+        {
+            if (Set(ref _copyNotice, value)) Changed(nameof(HasCopyNotice));
+        }
+    }
+    public bool HasCopyNotice => CopyNotice.Length > 0;
+}
+
 /// <summary>A saved transfer as one expandable row in the history sheet.</summary>
 public sealed class HistoryRow : Observable
 {
@@ -40,6 +77,8 @@ public sealed class HistoryRow : Observable
     {
         Record = record;
         _desk = desk;
+        Files = record.Files.Select(file => new HistoryFile(file,
+            record.Direction == "Received" && record.Result == "Finished", desk)).ToList();
         Toggle = new Command(() => Expanded = !Expanded);
         Reveal = new Command(() =>
         {
@@ -48,7 +87,7 @@ public sealed class HistoryRow : Observable
     }
 
     public TransferRecord Record { get; }
-    public IReadOnlyList<TransferFile> Files => Record.Files;
+    public IReadOnlyList<HistoryFile> Files { get; }
     public string Title => Record.Direction == "Sent" ? $"Sent to {Record.Who}" : $"Received from {Record.Who}";
     public string Detail => $"{Record.Result} · {Record.When.ToLocalTime():g} · {Words.Size(Math.Max(0, Record.TotalSize))}";
     public string Device => Words.FriendlyDeviceModel(Record.Device);

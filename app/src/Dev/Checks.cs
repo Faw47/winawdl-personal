@@ -1041,6 +1041,33 @@ public static class Checks
         notices.Arrival(arrival);
         Expect(toast.Shown.Last().Title == "Files Received" && toast.Shown.Last().Accept.Length == 0,
                "files received uses a native toast with an activation back to the app");
+        var previewFolder = Path.Combine(folder, "test-toast-previews");
+        var pixels = new byte[4 * 4 * 4];
+        for (var index = 0; index < pixels.Length; index += 4)
+        {
+            pixels[index] = 120;
+            pixels[index + 1] = 180;
+            pixels[index + 2] = 220;
+            pixels[index + 3] = 255;
+        }
+        var bitmap = BitmapSource.Create(4, 4, 96, 96, PixelFormats.Bgra32, null, pixels, 16);
+        var preview = "";
+        for (var index = 0; index < 12; index++)
+            preview = ToastPreviews.Save(bitmap, previewFolder);
+        var xmlWithPhoto = System.Xml.Linq.XElement.Parse(
+            WindowsToast.Xml(new Notice("Photo arrived", "photo.jpg", shown.Open, Preview: preview)));
+        var photo = xmlWithPhoto.Descendants("image").SingleOrDefault();
+        Expect(photo is not null && (string?)photo.Attribute("placement") == "appLogoOverride"
+               && (string?)photo.Attribute("src") == preview
+               && Directory.EnumerateFiles(previewFolder, "*.jpg").Count() == 10,
+               "photo toasts use a bounded ten-JPEG cache and a local image URL");
+        Expect(!System.Xml.Linq.XElement.Parse(
+                   WindowsToast.Xml(new Notice("Unexpected", "", shown.Open, Preview: "https://evil.example/p.jpg")))
+                   .Descendants("image").Any()
+               && ToastPreviews.Candidate(new Uri(preview).LocalPath)
+               && !ToastPreviews.Candidate(Path.Combine(folder, "notification-note.txt")),
+               "non-local toast images are refused and non-photos remain text-only");
+
         toast.Available = false;
         notices.Arrival(arrival);
         Expect(arrivalCards == 1, "unavailable arrival toasts fall back to arrival cards");
@@ -1149,6 +1176,28 @@ public static class Checks
                && received.Files.Single().Path == file
                && received.TotalSize == new FileInfo(file).Length,
                "a finished receive records the actual path and file size");
+        var recentFile = world.Model.Received[0];
+        recentFile.Copy.Execute(null);
+        Expect(world.Desk.Copied.Last() == file && recentFile.CopyNotice == "Copied to clipboard",
+               "explicit Copy on Recent sends the stored file through the clipboard seam");
+        var historicFile = world.Model.HistoryRows[0].Files.Single();
+        Expect(historicFile.CanCopy, "finished received history files can be copied after their session");
+        historicFile.Copy.Execute(null);
+        Expect(world.Desk.Copied.Count(path => path == file) == 2
+               && historicFile.CopyNotice == "Copied to clipboard",
+               "History file Copy reuses the received-file clipboard seam");
+        world.Desk.CopyProblem = "The clipboard is busy.";
+        recentFile.Copy.Execute(null);
+        Expect(recentFile.CopyNotice == "The clipboard is busy."
+               && world.Desk.Copied.Count(path => path == file) == 2,
+               "clipboard errors are visible instead of silently losing the action");
+        world.Desk.CopyProblem = "";
+        File.Delete(file);
+        recentFile.Copy.Execute(null);
+        Expect(recentFile.CopyNotice == "File is no longer available.",
+               "a missing received file cannot be copied as if it were still present");
+        File.WriteAllText(file, "only the name and path belong in history");
+
         world.Engine.Say(new { @event = "asked", id = "r3", sender = "../CON .txt", model = "iPhone",
                                files = new[] { new { name = "../CON .txt", size = 5, type = "" } },
                                links = 0, total = 5, waits = true });

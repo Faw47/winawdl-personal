@@ -47,6 +47,8 @@ public interface IDesk
     IReadOnlyList<string> PickFiles();
     string? PickFolder(string from);
     ClipboardContent ReadClipboard();
+    /// <summary>Copy a stored arrival as an image, safe web link, or file drop; empty on success.</summary>
+    string CopyReceived(string path);
     void Open(string path);
     void Reveal(string path);
     Task<ImageSource?> Thumbnail(string path);
