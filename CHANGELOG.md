@@ -5,6 +5,8 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Setup, History and iPad art.** Setup shows a single Skip Setup action. History renders a friendly device model and filename instead of raw hardware codes and full paths; Show in Folder and the saved paths remain available. iPads use the supplied paired iPad mini artwork with mint-to-violet layered ribbon wallpaper.
+
 - **iPhones that keep their model to themselves are still drawn as iPhones.**
   An iPhone answering who it is may leave its model out; its name, such as
   "Fawaz's iPhone", now says what it is instead.
