@@ -60,7 +60,7 @@ jobs:
         run: |
           set -e
           for test in rx_amsdu_bounds_test election_order_test peer_heard_test host_frame_test \
-                      tcp_merge_test frame_fixup_test service_bridge_test redact_test; do
+                      tcp_merge_test frame_fixup_test service_bridge_test redact_test psf_ht_test; do
             echo "== $test"
             ./build/awdl/$test.exe
           done
