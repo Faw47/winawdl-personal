@@ -15,6 +15,7 @@ import ssl
 import subprocess
 import sys
 import time
+import unicodedata
 import uuid
 from urllib.parse import urlsplit
 from typing import NamedTuple
@@ -301,6 +302,24 @@ def outline(body):
         return f'<{len(body)} bytes that are no plist>'
 
 
+def clean_peer_name(value):
+    """Safe human-visible UTF-8 text: preserve Arabic and accents, reject
+    controls, direction overrides, invisible format characters and excess."""
+    if not isinstance(value, str):
+        return ''
+    chars = []
+    size = 0
+    for char in value:
+        if unicodedata.category(char) in ('Cc', 'Cf', 'Cs'):
+            continue
+        encoded = char.encode('utf-8')
+        if size + len(encoded) > 255:
+            break
+        chars.append(char)
+        size += len(encoded)
+    return ''.join(chars).strip()
+
+
 def receiver_identity(address, port, scope, context):
     """(name, model) the receiver here gives for itself; None from one that
     keeps its name for its contacts. The model may be None. Unwilling is
@@ -314,10 +333,9 @@ def receiver_identity(address, port, scope, context):
         answer = safeplist.loads(body)
         if not isinstance(answer, dict):
             return None
-        name = answer.get('ReceiverComputerName')
-        if not isinstance(name, str):
-            return None
-        return (name, answer.get('ReceiverModelName')) if name else None
+        name = clean_peer_name(answer.get('ReceiverComputerName'))
+        model = clean_peer_name(answer.get('ReceiverModelName'))
+        return (name, model) if name else None
     except (OSError, http.client.HTTPException) as error:
         if refuses_certificate(error):
             raise Unwilling(str(error)) from None
