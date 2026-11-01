@@ -76,6 +76,7 @@ public sealed class ThemeService
         Set("Ink", palette.Ink);
         Set("InkSoft", palette.InkSoft);
         Set("Line", palette.Line);
+        Set("ControlLine", palette.ControlLine);
         Set("Ember", palette.Ember);
         Set("Accent", palette.Accent);
         Set("OnAccent", palette.OnAccent);
@@ -83,8 +84,8 @@ public sealed class ThemeService
         Set("AccentSoft", palette.AccentSoft);
         Set("Edge", palette.Edge, palette.EdgeOpacity);
         Set("Veil", palette.Dark ? Rgb.Black : palette.Ink, palette.Plain ? 0.75 : palette.Dark ? 0.5 : 0.28);
-        Set("Hover", palette.Ink, palette.Plain ? 0.2 : 0.07);
-        Set("Scroll", palette.InkSoft, palette.Plain ? 1 : 0.45);
+        Set("Hover", palette.Well);
+        Set("Scroll", palette.InkSoft);
         Set("Outline", palette.Line, palette.Plain ? 1 : 0.6);
         _resources["ShadowStrength"] = palette.Shadow;
         _resources["ShadowColor"] = palette.ShadowTone.Color;
@@ -93,10 +94,7 @@ public sealed class ThemeService
         _resources["TableColor"] = palette.Table.Color;
         // An avatar is a soft sphere of the well's grey, lit from above, as
         // Apple draws a contact without a picture.
-        var avatar = new LinearGradientBrush(
-            (palette.Dark ? palette.Well.Mix(Rgb.White, 0.10) : palette.Well.Mix(Rgb.White, 0.35)).Color,
-            (palette.Dark ? palette.Well.Mix(Rgb.Black, 0.18) : palette.Well.Mix(Rgb.Black, 0.10)).Color,
-            90);
+        var avatar = new LinearGradientBrush(palette.Raised.Color, palette.Well.Color, 90);
         if (palette.Plain) avatar = new LinearGradientBrush(palette.Table.Color, palette.Table.Color, 90);
         avatar.Freeze();
         _resources["Avatar"] = avatar;

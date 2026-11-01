@@ -6,10 +6,12 @@ using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
 using System.Text;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Documents;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Winawdl.Engine;
@@ -42,6 +44,13 @@ public static class Checks
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Program.Dress(app).Apply(Palette.Light(Rgb.Hex("#0078D4")));
             Motion.Reduced = true;
+            if (args.Skip(1).Contains("accessibility"))
+            {
+                Colors();
+                Accessibility(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("setup"))
             {
                 Setup(app, folder);
@@ -101,6 +110,7 @@ public static class Checks
             History(app, folder);
             Notifications(app, folder);
             Setup(app, folder);
+            Accessibility(app, folder);
             Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
         }
@@ -111,6 +121,131 @@ public static class Checks
         }
         log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        yield return root;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+            foreach (var child in Descendants(VisualTreeHelper.GetChild(root, index))) yield return child;
+    }
+
+    // Routes WPF key events without creating a window or taking the user's keyboard.
+    private sealed class KeySource : PresentationSource
+    {
+        public override Visual RootVisual { get; set; } = null!;
+        public override bool IsDisposed => false;
+        protected override CompositionTarget GetCompositionTargetCore() => null!;
+    }
+
+    private static bool KeyboardPress(FrameworkElement view, string name, Key key = Key.Enter)
+    {
+        view.UpdateLayout();
+        var control = Stage.Controls(view).FirstOrDefault(one => one.Control.IsEnabled
+            && AutomationProperties.GetName(one.Control) == name).Control;
+        if (control is null) return false;
+        var source = new KeySource { RootVisual = view };
+        foreach (var routed in new[] { Keyboard.KeyDownEvent, Keyboard.KeyUpEvent })
+            control.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice, source, 0, key) { RoutedEvent = routed });
+        Stage.Pump(view.Dispatcher, 80);
+        return true;
+    }
+
+    private static void Accessibility(Application app, string folder)
+    {
+        var files = Stage.SampleFiles(Path.Combine(folder, "accessible-files"));
+        foreach (var scene in Stage.Scenes(files))
+        {
+            var world = Stage.NewWorld(app.Dispatcher, setup: scene.Name.StartsWith("setup-"));
+            scene.Build(world);
+            var view = Show(world);
+            var controls = Stage.Controls(view).Where(one => one.Control.IsEnabled).ToList();
+            var missing = controls.Where(one => string.IsNullOrWhiteSpace(
+                System.Windows.Automation.AutomationProperties.GetName(one.Control))
+                || one.Control.FocusVisualStyle is null || !one.Control.IsTabStop).Select(one => one.Line).ToList();
+            Expect(missing.Count == 0, $"{scene.Name}: named tab stops with focus indicators: {string.Join("; ", missing)}");
+            var menus = Descendants(view).OfType<FrameworkElement>().Select(element => element.ContextMenu)
+                .OfType<ContextMenu>().SelectMany(menu => menu.Items.OfType<MenuItem>());
+            Expect(menus.All(item => !string.IsNullOrWhiteSpace(System.Windows.Automation.AutomationProperties.GetName(item))),
+                $"{scene.Name}: context-menu commands have automation names");
+            Expect(Descendants(view).OfType<Image>().All(image => UIElementAutomationPeer.CreatePeerForElement(image) is null)
+                && Descendants(view).OfType<GlyphText>().All(glyph => UIElementAutomationPeer.CreatePeerForElement(glyph) is null),
+                $"{scene.Name}: decorative pictures and glyphs stay out of the automation tree");
+            var parts = Descendants(view).OfType<Control>().Where(control => control is
+                System.Windows.Controls.Primitives.Thumb or System.Windows.Controls.Primitives.RepeatButton
+                or System.Windows.Controls.Primitives.ScrollBar);
+            Expect(parts.All(part => !string.IsNullOrWhiteSpace(AutomationProperties.GetName(part))
+                   && part.FocusVisualStyle is not null), $"{scene.Name}: scroll parts have names and focus styles");
+            Expect(Descendants(view).OfType<Ring>().All(progress => !string.IsNullOrWhiteSpace(AutomationProperties.GetName(progress))),
+                $"{scene.Name}: progress ranges name their device");
+            world.Model.Dispose();
+        }
+        var ring = new Ring { Progress = .42 };
+        var range = UIElementAutomationPeer.CreatePeerForElement(ring)?.GetPattern(PatternInterface.RangeValue) as IRangeValueProvider;
+        Expect(range is { IsReadOnly: true, Minimum: 0, Maximum: 100, Value: 42 }, "transfer rings expose a read-only percentage range");
+        ring.Progress = 2;
+        Expect(range?.Value == 100, "ring automation clamps the same value it draws");
+        ring.Progress = double.NaN;
+        Expect(range?.Value == 0, "non-finite ring progress cannot escape to automation");
+        var readOnly = false;
+        try { range?.SetValue(80); } catch (InvalidOperationException) { readOnly = true; }
+        Expect(readOnly, "a screen reader cannot change transfer progress");
+        var asking = Stage.NewWorld(app.Dispatcher);
+        asking.Engine.Say(Ask("keyboard-accept", "Phone", "iPhone"));
+        var main = Show(asking);
+        var headlines = Descendants(main).OfType<TextBlock>().Where(text => text.Text == asking.Model.Incoming[0].Headline);
+        Expect(headlines.Any(text => System.Windows.Automation.AutomationProperties.GetLiveSetting(text)
+                   == AutomationLiveSetting.Assertive), "incoming requests are assertive live regions");
+        Expect(headlines.OfType<LiveText>().Any(), "request live regions also raise WPF change events");
+        var order = Stage.Controls(main).Where(one => one.Control.IsEnabled).Select(one => AutomationProperties.GetName(one.Control)).ToList();
+        Expect(order.IndexOf("Decline") >= 0 && order.IndexOf("Decline") < order.IndexOf("Accept"), "request tab order follows Decline then Accept as drawn");
+        Expect(KeyboardPress(main, "Accept") && asking.Engine.Told.Last().Contains("\"accept\":true"), "Enter accepts a request through WPF's keyboard handler");
+        asking.Engine.Say(new { @event = "answered", id = "keyboard-accept", how = "accepted" });
+        asking.Engine.Say(Ask("keyboard-decline", "Phone", "iPhone"));
+        Expect(KeyboardPress(main, "Decline") && asking.Engine.Told.Last().Contains("\"accept\":false"), "Enter declines a request through WPF's keyboard handler");
+        var cards = new RequestsView { DataContext = asking.Model };
+        cards.Measure(new Size(380, 720)); cards.Arrange(new Rect(0, 0, 380, 720)); cards.UpdateLayout();
+        Expect(Stage.Controls(cards).All(one => !string.IsNullOrWhiteSpace(AutomationProperties.GetName(one.Control))
+                   && one.Control.FocusVisualStyle is not null && one.Control.IsTabStop), "corner card actions are named tab stops with focus indicators");
+        Expect(KeyboardPress(cards, "Decline") && asking.Engine.Told.Last().Contains("\"accept\":false"), "the corner card also accepts a keyboard Decline");
+        asking.Engine.Say(Ask("keyboard-third", "Another Phone", "iPhone"));
+        cards.LayoutTransform = new ScaleTransform(2, 2);
+        cards.Measure(new Size(760, 600)); cards.Arrange(new Rect(0, 0, 760, 600)); cards.UpdateLayout();
+        var cardScroll = Descendants(cards).OfType<ScrollViewer>().First();
+        Expect(cardScroll.ScrollableHeight > 0, "enlarged corner cards can scroll within a limited desktop height");
+        asking.Engine.Say(new { @event = "link", up = true });
+        asking.Engine.Say(new { @event = "peer", id = "key-peer", name = "Keyboard Phone", model = "iPhone" });
+        asking.Model.Hold([files[0]]);
+        Expect(KeyboardPress(main, "Keyboard Phone") && asking.Engine.Told.Last().Contains("\"do\":\"send\""), "Enter on a chosen device sends the staged file");
+        var progress = Descendants(main).OfType<LiveText>().Where(text => AutomationProperties.GetLiveSetting(text) == AutomationLiveSetting.Polite);
+        Expect(progress.Any(), "transfer status has polite live regions");
+        Expect(KeyboardPress(main, "Settings") && asking.Model.SettingsOpen, "settings can open using Enter");
+        Expect(KeyboardNavigation.GetTabNavigation((DependencyObject)main.FindName("SheetPanel")) == KeyboardNavigationMode.Cycle,
+            "Tab and Shift+Tab stay in the settings sheet");
+        Expect(KeyboardPress(main, "Keep receiving when the window is closed", Key.Space) && !asking.Settings.KeepInTray,
+            "Space toggles a settings switch through WPF's keyboard handler");
+        Expect(KeyboardPress(main, "Contacts Only", Key.Space) && asking.Settings.ContactsOnly,
+            "Space selects Contacts Only through WPF's radio-button handler");
+        Expect(KeyboardPress(main, "Everyone", Key.Space) && !asking.Settings.ContactsOnly,
+            "Space can select Everyone again");
+        Expect(KeyboardPress(main, "Close settings") && !asking.Model.SettingsOpen, "settings can close using Enter");
+        asking.Model.Dispose();
+        foreach (var sceneName in new[] { "incoming-ask", "settings", "history-received", "setup-1" })
+        {
+            var world = Stage.NewWorld(app.Dispatcher, setup: sceneName.StartsWith("setup-"));
+            Stage.Scenes(files).First(scene => scene.Name == sceneName).Build(world);
+            var scaled = new MainView { DataContext = world.Model, LayoutTransform = new ScaleTransform(2, 2) };
+            var host = new AdornerDecorator { Child = scaled };
+            host.Measure(new Size(760, 960)); host.Arrange(new Rect(0, 0, 760, 960)); host.UpdateLayout();
+            var table = (ScrollViewer)scaled.FindName("TableScroll");
+            Expect(scaled.ActualWidth <= 380.1 && table.ExtentHeight >= 528 && table.ScrollableHeight > 0,
+                $"{sceneName}: at 200% text in a 760 by 960 viewport the whole table can scroll");
+            table.ScrollToEnd(); host.UpdateLayout();
+            Expect(table.VerticalOffset > 0, $"{sceneName}: the bottom of the enlarged table remains reachable");
+            Expect(Stage.Controls(scaled).Where(one => one.Control.IsEnabled).All(one => one.Control.ActualWidth <= 380),
+                $"{sceneName}: enlarged controls fit the logical window width");
+            world.Model.Dispose();
+        }
     }
 
     private static void Setup(Application app, string folder)
@@ -1089,6 +1224,19 @@ public static class Checks
         Expect(onFill >= Palette.TextContrast, $"text on an accent fill, {cases}: lowest {onFill:0.00} to 1");
         Expect(accentText >= Palette.TextContrast, $"accent as text or focus ring on every surface, {cases}: lowest {accentText:0.00} to 1");
         Expect(fill >= Palette.ShapeContrast, $"accent as a fill against every surface, {cases}: lowest {fill:0.00} to 1");
+        var boundary = Accents.Select(Rgb.Hex).SelectMany(accent => new[] { Palette.Light(accent), Palette.Night(accent) })
+            .SelectMany(palette => palette.Surfaces.Select(surface => Rgb.Contrast(palette.ControlLine, surface))).Min();
+        Expect(boundary >= Palette.ShapeContrast, $"interactive boundaries on every surface: lowest {boundary:0.00} to 1");
+        foreach (var palette in new[]
+        {
+            Palette.System(Rgb.Black, Rgb.White, Rgb.Hex("#1AEBFF"), Rgb.Black, Rgb.Hex("#FFFF00")),
+            Palette.System(Rgb.White, Rgb.Black, Rgb.Hex("#000080"), Rgb.White, Rgb.Hex("#0000FF")),
+        })
+            Expect(palette.Surfaces.All(surface => Rgb.Contrast(palette.Ink, surface) >= Palette.TextContrast
+                    && Rgb.Contrast(palette.AccentText, surface) >= Palette.TextContrast
+                    && Rgb.Contrast(palette.ControlLine, surface) >= Palette.ShapeContrast)
+                    && Rgb.Contrast(palette.OnAccent, palette.Accent) >= Palette.TextContrast,
+                "light and dark Windows contrast themes keep system text, highlight and control colors readable");
         Expect(tinted >= Palette.TextContrast, $"ink on the tint of a transfer in progress, {cases}: lowest {tinted:0.00} to 1");
     }
 

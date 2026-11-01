@@ -273,6 +273,51 @@ public static class Stage
             theme.Apply(Palette.System(Rgb.Black, Rgb.White, Rgb.Hex("#1AEBFF"), Rgb.Black, Rgb.Hex("#FFFF00")));
             Save(Build(holding, app.Dispatcher), 460, 720, Path.Combine(folder, "contrast-theme.png"));
         }
+        if (only.Count == 0 || only.Contains("accessibility"))
+        {
+            foreach (var dark in new[] { true, false })
+            {
+                theme.Apply(dark
+                    ? Palette.System(Rgb.Black, Rgb.White, Rgb.Hex("#1AEBFF"), Rgb.Black, Rgb.Hex("#FFFF00"))
+                    : Palette.System(Rgb.White, Rgb.Black, Rgb.Hex("#000080"), Rgb.White, Rgb.Hex("#0000FF")));
+                SaveRequestCard(app.Dispatcher, files, "#20262E", Path.Combine(folder, $"contrast-cards-{(dark ? "dark" : "light")}.png"));
+            }
+            foreach (var sceneName in new[] { "incoming-ask", "settings", "history-received", "setup-1" })
+            {
+                var scene = Scenes(files).First(scene => scene.Name == sceneName).Build;
+                foreach (var (themeName, palette) in themes)
+                {
+                    theme.Apply(palette);
+                    var view = Build(scene, app.Dispatcher, sceneName.StartsWith("setup-"));
+                    view.LayoutTransform = new ScaleTransform(2, 2);
+                    Save(view, 920, 1080, Path.Combine(folder, $"large-text-{sceneName}-{themeName}.png"));
+                    ((TableModel)view.DataContext).Dispose();
+                }
+                foreach (var dark in new[] { true, false })
+                {
+                    theme.Apply(dark
+                        ? Palette.System(Rgb.Black, Rgb.White, Rgb.Hex("#1AEBFF"), Rgb.Black, Rgb.Hex("#FFFF00"))
+                        : Palette.System(Rgb.White, Rgb.Black, Rgb.Hex("#000080"), Rgb.White, Rgb.Hex("#0000FF")));
+                    var view = Build(scene, app.Dispatcher, sceneName.StartsWith("setup-"));
+                    Save(view, 460, 720, Path.Combine(folder, $"contrast-{sceneName}-{(dark ? "dark" : "light")}.png"));
+                    ((TableModel)view.DataContext).Dispose();
+                }
+            }
+            foreach (var (themeName, palette) in themes)
+            {
+                theme.Apply(palette);
+                SaveRequestCard(app.Dispatcher, files, "#20262E", Path.Combine(folder, $"large-text-cards-{themeName}.png"), textScale: 2);
+                var view = Build(Scenes(files).First(scene => scene.Name == "sending").Build, app.Dispatcher);
+                view.Measure(new Size(460, 688)); view.Arrange(new Rect(0, 0, 460, 688)); view.UpdateLayout();
+                var host = new AdornerDecorator { Child = view };
+                host.Measure(new Size(460, 688)); host.Arrange(new Rect(0, 0, 460, 688)); host.UpdateLayout();
+                var layer = AdornerLayer.GetAdornerLayer(view)!;
+                foreach (var control in Controls(view).Select(one => one.Control).Where(control => control.IsEnabled))
+                    layer.Add(new RingAdorner(control));
+                Save(host, 460, 720, Path.Combine(folder, $"keyboard-focus-{themeName}.png"));
+                ((TableModel)view.DataContext).Dispose();
+            }
+        }
         return 0;
     }
 
@@ -613,7 +658,7 @@ public static class Stage
     /// <summary>The card that shows a request outside the window, on a stand-in
     /// for whatever is on the screen behind it.</summary>
     private static void SaveRequestCard(Dispatcher dispatcher, string[] files, string backdrop, string path,
-                                        bool listed = true)
+                                        bool listed = true, double textScale = 1)
     {
         var world = NewWorld(dispatcher);
         Devices(world);
@@ -635,7 +680,7 @@ public static class Stage
             files = new[] { new { name = "IMG_0042.pvt", size = 0, type = "com.apple.private.live-photo-bundle" } },
             links = 0, total = 0, waits = true,
         });
-        var card = new RequestsView { DataContext = world.Model };
+        var card = new RequestsView { DataContext = world.Model, LayoutTransform = new ScaleTransform(textScale, textScale) };
         var screen = new Border
         {
             Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(backdrop)),

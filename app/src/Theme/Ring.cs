@@ -1,4 +1,7 @@
 using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Automation.Peers;
+using System.Windows.Automation.Provider;
 using System.Windows.Media;
 
 namespace Winawdl.Theme;
@@ -7,7 +10,13 @@ namespace Winawdl.Theme;
 /// the top around a device, the way AirDrop draws it. Empty draws nothing.</summary>
 public sealed class Ring : FrameworkElement
 {
-    public static readonly DependencyProperty ProgressProperty = Register(nameof(Progress), 0.0);
+    public static readonly DependencyProperty ProgressProperty = DependencyProperty.Register(nameof(Progress), typeof(double), typeof(Ring),
+        new FrameworkPropertyMetadata(0.0, FrameworkPropertyMetadataOptions.AffectsRender, (owner, change) =>
+        {
+            if (UIElementAutomationPeer.FromElement((Ring)owner) is RingPeer peer)
+                peer.RaisePropertyChangedEvent(RangeValuePatternIdentifiers.ValueProperty,
+                    Percent((double)change.OldValue), Percent((double)change.NewValue));
+        }));
     public static readonly DependencyProperty ThicknessProperty = Register(nameof(Thickness), 3.0);
     public static readonly DependencyProperty StrokeProperty = Register<Brush?>(nameof(Stroke), null);
     public static readonly DependencyProperty TrackProperty = Register<Brush?>(nameof(Track), null);
@@ -19,13 +28,31 @@ public sealed class Ring : FrameworkElement
     /// <summary>The whole circle under the ring, while there is a ring.</summary>
     public Brush? Track { get => (Brush?)GetValue(TrackProperty); set => SetValue(TrackProperty, value); }
 
+    private static double Percent(double progress) => double.IsFinite(progress) ? Math.Clamp(progress, 0, 1) * 100 : 0;
+
+    protected override AutomationPeer OnCreateAutomationPeer() => new RingPeer(this);
+
+    private sealed class RingPeer(Ring owner) : FrameworkElementAutomationPeer(owner), IRangeValueProvider
+    {
+        protected override string GetClassNameCore() => nameof(Ring);
+        protected override AutomationControlType GetAutomationControlTypeCore() => AutomationControlType.ProgressBar;
+        public override object? GetPattern(PatternInterface pattern) => pattern == PatternInterface.RangeValue ? this : base.GetPattern(pattern);
+        public bool IsReadOnly => true;
+        public double Minimum => 0;
+        public double Maximum => 100;
+        public double Value => Percent(owner.Progress);
+        public double SmallChange => double.NaN;
+        public double LargeChange => double.NaN;
+        public void SetValue(double value) => throw new InvalidOperationException("Transfer progress is read-only.");
+    }
+
     private static DependencyProperty Register<T>(string name, T value) =>
         DependencyProperty.Register(name, typeof(T), typeof(Ring),
             new FrameworkPropertyMetadata(value, FrameworkPropertyMetadataOptions.AffectsRender));
 
     protected override void OnRender(DrawingContext dc)
     {
-        var progress = Math.Clamp(Progress, 0, 1);
+        var progress = Percent(Progress) / 100;
         var thickness = Thickness;
         var radius = Math.Min(ActualWidth, ActualHeight) / 2 - thickness / 2;
         if (progress <= 0 || radius <= 0) return;
