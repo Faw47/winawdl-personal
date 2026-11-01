@@ -174,7 +174,8 @@ public sealed class Desk(Dispatcher dispatcher) : IDesk
                     }
                 }
                 catch (Exception error) when (error is IOException or NotSupportedException
-                                              or ArgumentException or System.IO.FileFormatException)
+                                              or ArgumentException or System.IO.FileFormatException
+                                              or COMException)
                 {
                     // Still offer the original file. Never modify it to make
                     // the clipboard work, especially not a HEIC original.
