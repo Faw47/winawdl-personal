@@ -203,13 +203,12 @@ class Unsendable(SystemExit):
 
 
 def _selected(paths):
-    """Walk in name order without following symlinks or Windows reparse points."""
+    """Walk in name order without following symlinks or junctions."""
     pending = list(reversed(paths))
     while pending:
         path = os.path.abspath(pending.pop())
         status = os.lstat(path)
-        if (stat.S_ISLNK(status.st_mode)
-                or getattr(status, 'st_file_attributes', 0) & 0x400):
+        if transfer.redirects_path(status):
             continue
         if stat.S_ISDIR(status.st_mode):
             with os.scandir(path) as entries:

@@ -395,6 +395,28 @@ public static class Checks
         }
         Expect(await other.Forward(LaunchRequest.FromArguments([first])),
                "the pipe server survives an oversized hostile frame");
+        var retryName = "winawdl-check-retry-" + Guid.NewGuid().ToString("N");
+        var attempts = 0;
+        SingleInstance? retryOwner = null;
+        using (retryOwner = new SingleInstance(retryName)
+        {
+            PipeFactory = () =>
+            {
+                if (Interlocked.Increment(ref attempts) == 2) throw new IOException("test recreation failure");
+                return new System.IO.Pipes.NamedPipeServerStream(retryOwner!.PipeName,
+                    System.IO.Pipes.PipeDirection.InOut, 1, System.IO.Pipes.PipeTransmissionMode.Byte,
+                    System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly
+                    | System.IO.Pipes.PipeOptions.FirstPipeInstance);
+            },
+        })
+        using (var retryClient = new SingleInstance(retryName))
+        {
+            var delivered = 0;
+            retryOwner.Listen(_ => Interlocked.Increment(ref delivered));
+            Expect(await retryClient.Forward(new LaunchRequest([], true)), "the retry fixture accepts its first activation");
+            Expect(await retryClient.Forward(new LaunchRequest([], true)) && delivered == 2 && attempts >= 3,
+                   "the activation listener recovers after pipe recreation fails and disposes normally");
+        }
     }
 
     private static void SenderFolders(Application app, string folder)

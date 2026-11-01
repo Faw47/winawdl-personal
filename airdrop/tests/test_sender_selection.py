@@ -59,13 +59,27 @@ class SelectionTest(unittest.TestCase):
         def status(path):
             value = real(path)
             if path in (linked, branch):
-                return mock.Mock(st_mode=value.st_mode, st_file_attributes=0x400)
+                return mock.Mock(st_mode=value.st_mode, st_file_attributes=0x400,
+                                 st_reparse_tag=0xA000000C)
             return value
 
         with mock.patch.object(sender.os, 'lstat', side_effect=status):
             self.assertEqual([item.path for item in sender.outgoing([os.path.dirname(good)])],
                              [good])
         self.assertTrue(os.path.isfile(outside))
+
+    def test_cloud_files_and_directories_are_sent(self):
+        good = self.file('cloud/photo.jpg')
+        real = sender.os.lstat
+
+        def cloud_status(path):
+            value = real(path)
+            return mock.Mock(st_mode=value.st_mode, st_size=value.st_size,
+                             st_file_attributes=0x400, st_reparse_tag=0x9000001A)
+
+        with mock.patch.object(sender.os, 'lstat', side_effect=cloud_status):
+            self.assertEqual([item.path for item in sender.outgoing([os.path.dirname(good)])],
+                             [good])
 
     def test_hostile_unix_basename_cannot_create_archive_path(self):
         path = self.file('ordinary.txt')

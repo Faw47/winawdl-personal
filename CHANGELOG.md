@@ -5,6 +5,10 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Cloud files are no longer mistaken for links.** Sending and per-sender
+  receive folders allow cloud placeholders while still refusing symlinks and
+  junctions. Explorer activation retries if its pipe cannot be recreated.
+
 - **Transfer history.** History shows finished, failed and declined sends and
   receives with their device, time, file names and paths, size and result. It
   keeps the newest 500 transfers, stores no file contents, and can be cleared.

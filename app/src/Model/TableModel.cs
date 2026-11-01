@@ -1088,7 +1088,9 @@ public sealed class TableModel : Observable, IDisposable
             {
                 var path = Path.GetFullPath(selectedPath);
                 var attributes = File.GetAttributes(path);
-                if ((attributes & FileAttributes.ReparsePoint) != 0)
+                FileSystemInfo item = (attributes & FileAttributes.Directory) != 0
+                    ? new DirectoryInfo(path) : new FileInfo(path);
+                if (item.LinkTarget is not null)
                 {
                     links = true;
                     continue;

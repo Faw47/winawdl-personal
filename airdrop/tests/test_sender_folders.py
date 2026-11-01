@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import transfer  # noqa: E402
@@ -13,6 +14,21 @@ from test_transfer import Budget, archive, dvzip, portable_member  # noqa: E402
 
 
 class SenderFolderTest(unittest.TestCase):
+    def test_cloud_receive_directory_is_allowed(self):
+        with tempfile.TemporaryDirectory() as root:
+            real = transfer.os.lstat
+
+            def cloud_status(path):
+                value = real(path)
+                return mock.Mock(st_mode=value.st_mode, st_file_attributes=0x400,
+                                 st_reparse_tag=0x9000001A)
+
+            with (mock.patch.object(transfer.os, 'lstat', side_effect=cloud_status),
+                  transfer.receive_destination(root, 'Phone', True) as dest,
+                  open(os.path.join(dest, 'note.txt'), 'w') as output):
+                output.write('received')
+            self.assertTrue(os.path.isfile(os.path.join(root, 'Phone', 'note.txt')))
+
     def test_sender_names_are_single_windows_components(self):
         cases = {
             'Living Room iPhone': 'Living Room iPhone',
