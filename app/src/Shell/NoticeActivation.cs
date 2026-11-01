@@ -10,6 +10,7 @@ public sealed class NoticeActivation(TableModel model, Func<bool> inFront, IToas
 {
     internal const string Prefix = "winawdl-notice://action/";
     private readonly Dictionary<string, (IncomingModel? Item, bool? Accept, DateTimeOffset Until)> _actions = [];
+    private bool _disposed;
 
     internal static bool Valid(string uri) => uri.Length == Prefix.Length + 64
         && uri.StartsWith(Prefix, StringComparison.Ordinal)
@@ -35,9 +36,27 @@ public sealed class NoticeActivation(TableModel model, Func<bool> inFront, IToas
 
     public void Arrival(ArrivalModel arrival)
     {
-        if (!model.ShowRequests || inFront()) return;
-        if (!toast.Show(new Notice(arrival.Headline, arrival.Detail, Action()),
-                () => { if (model.ShowRequests && !inFront()) arrivalCard(arrival); })) arrivalCard(arrival);
+        if (_disposed || !model.ShowRequests || inFront()) return;
+        // Only an arrival already stored on disk has photo bytes. An incoming
+        // request must never decode untrusted files before consent.
+        if (ToastPreviews.Candidate(arrival.File.Path))
+            _ = PhotoArrival(arrival);
+        else ShowArrival(arrival, "");
+    }
+
+    private async Task PhotoArrival(ArrivalModel arrival)
+    {
+        var preview = await ToastPreviews.CreateAsync(arrival.File.Path);
+        // A timed-out decode must not display an old toast after shutdown.
+        if (!_disposed) ShowArrival(arrival, preview);
+    }
+
+    private void ShowArrival(ArrivalModel arrival, string preview)
+    {
+        if (_disposed || !model.ShowRequests || inFront()) return;
+        if (!toast.Show(new Notice(arrival.Headline, arrival.Detail, Action(), Preview: preview),
+                () => { if (!_disposed && model.ShowRequests && !inFront()) arrivalCard(arrival); }))
+            arrivalCard(arrival);
     }
 
     public bool Activate(string uri)
@@ -54,5 +73,5 @@ public sealed class NoticeActivation(TableModel model, Func<bool> inFront, IToas
         return true;
     }
 
-    public void Dispose() { _actions.Clear(); toast.Clear(); }
+    public void Dispose() { _disposed = true; _actions.Clear(); toast.Clear(); }
 }
