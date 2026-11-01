@@ -313,7 +313,9 @@ public sealed class TableModel : Observable, IDisposable
         ChangedAll();
     }
 
-    public string Presence => _linkUp && _receiving ? $"Visible as {Name}"
+    public bool VisibleNow => _linkUp && _receiving;
+
+    public string Presence => VisibleNow ? $"Visible as {Name}"
         : _linkUp ? "Not visible yet"
         : "Not visible";
 

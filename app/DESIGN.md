@@ -24,6 +24,10 @@ the second.
   corner of the screen, chosen over a Windows notification.
 - **Always accepting a device** (2026-10-13): offered on the request, with a
   list in the settings.
+- **Device pictures** (2026-11-01): the owner's own drawings of an iPhone,
+  iPad and MacBook, converted shape for shape (src/Theme/Devices.xaml), on a
+  white raised plate with a soft shadow, and a green dot beside "Visible as".
+  The plate is an exception to "a shadow only on what floats".
 
 Read as: a desktop utility window for one person handing files between their
 own PC and the phones next to it.

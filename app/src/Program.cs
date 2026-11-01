@@ -37,6 +37,8 @@ public static class Program
     {
         app.Resources.MergedDictionaries.Add((ResourceDictionary)Application.LoadComponent(
             new Uri("/winawdl;component/src/theme/controls.xaml", UriKind.Relative)));
+        app.Resources.MergedDictionaries.Add((ResourceDictionary)Application.LoadComponent(
+            new Uri("/winawdl;component/src/theme/devices.xaml", UriKind.Relative)));
         return new ThemeService(app.Resources, app.Dispatcher);
     }
 

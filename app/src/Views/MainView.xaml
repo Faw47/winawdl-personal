@@ -88,8 +88,12 @@
         </Grid.ColumnDefinitions>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Style="{StaticResource LargeTitle}" Text="AirDrop" />
-          <TextBlock Style="{StaticResource Caption}" Text="{Binding Presence}" TextWrapping="NoWrap"
-                     TextTrimming="CharacterEllipsis" />
+          <DockPanel>
+            <Ellipse Width="7" Height="7" Margin="0,1,6,0" VerticalAlignment="Center" Fill="{DynamicResource Available}"
+                     Visibility="{Binding VisibleNow, Converter={StaticResource Shown}}" />
+            <TextBlock Style="{StaticResource Caption}" Text="{Binding Presence}" TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis" />
+          </DockPanel>
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
           <Button x:Name="FindMe" Style="{StaticResource Pill}" Click="OnFindMe"
@@ -130,8 +134,9 @@
                         <ColumnDefinition Width="*" />
                       </Grid.ColumnDefinitions>
                       <Grid Width="48" Height="48" Margin="0,0,14,0" VerticalAlignment="Top">
-                        <Ellipse Margin="3" Fill="{DynamicResource Avatar}" />
-                        <t:DevicePortrait Width="36" Height="36" Kind="{Binding Kind}" />
+                        <t:Raised Margin="3" Radius="21" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
+                                  Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}" />
+                        <t:DevicePortrait Width="30" Height="30" GlyphSize="20" Kind="{Binding Kind}" />
                         <t:Ring AutomationProperties.Name="{Binding Sender}" AutomationProperties.HelpText="Receiving progress"
                                 Thickness="3" Stroke="{DynamicResource Accent}" Track="{DynamicResource Outline}"
                                 Progress="{Binding Progress}" />

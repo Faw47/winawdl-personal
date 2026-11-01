@@ -545,8 +545,10 @@
           <StackPanel Background="Transparent">
             <Grid Width="76" Height="76" HorizontalAlignment="Center">
               <Grid x:Name="Face" Margin="6" RenderTransformOrigin="0.5,0.5">
-                <Ellipse x:Name="Ground" Fill="{DynamicResource Avatar}" />
-                <t:DevicePortrait Width="56" Height="56" Kind="{Binding Kind}" />
+                <!-- A white plate, lifted off the window as in the owner's mockup. -->
+                <t:Raised x:Name="Ground" Radius="32" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
+                          Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}" />
+                <t:DevicePortrait Width="46" Height="46" Kind="{Binding Kind}" />
               </Grid>
               <Ellipse x:Name="DropMark" Margin="2" Stroke="{DynamicResource AccentText}" StrokeThickness="2" Visibility="Collapsed" />
               <t:Ring AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="Sending progress"

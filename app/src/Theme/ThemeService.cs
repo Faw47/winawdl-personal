@@ -78,6 +78,8 @@ public sealed class ThemeService
         Set("Line", palette.Line);
         Set("ControlLine", palette.ControlLine);
         Set("Ember", palette.Ember);
+        // Apple's system green for "this PC can be found": the darker one on light, as its contrast needs.
+        Set("Available", palette.Plain ? palette.Ink : Rgb.Hex(palette.Dark ? "#30D158" : "#248A3D"));
         Set("Accent", palette.Accent);
         Set("OnAccent", palette.OnAccent);
         Set("AccentText", palette.AccentText);

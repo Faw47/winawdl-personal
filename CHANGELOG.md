@@ -5,10 +5,11 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
-- **Clearer nearby devices.** Small device illustrations distinguish phones,
-  tablets and Macs. Names have more room, and a ring marks the device that
-  will receive dropped files. The installer also includes the runtime files
-  used by Windows notifications.
+- **Nearby devices look like themselves.** iPhones, iPads and Macs are drawn
+  as pictures of the device, on a white plate that sits slightly above the
+  window. A green dot shows when this PC can be found, and a ring marks the
+  device that will receive the files you are dragging. The installer also
+  includes the runtime files used by Windows notifications.
 
 - **Keyboard and screen reader access.** Controls and menus have names and
   visible focus rings. Requests, transfer status and errors announce changes,
