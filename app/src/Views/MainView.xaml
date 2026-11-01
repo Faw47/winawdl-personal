@@ -320,7 +320,8 @@
                           <MenuItem AutomationProperties.Name="Open" Header="Open" Command="{Binding Press}" />
                           <MenuItem AutomationProperties.Name="Play the Video" Header="Play the Video" Command="{Binding PlayVideo}"
                                     Visibility="{Binding HasVideo, Converter={StaticResource Shown}}" />
-                          <MenuItem AutomationProperties.Name="Show in Folder" Header="Show in Folder" Command="{Binding Reveal}" />
+                          <MenuItem AutomationProperties.Name="Copy to Clipboard" Header="Copy to Clipboard" Command="{Binding Copy}" />
+                           <MenuItem AutomationProperties.Name="Show in Folder" Header="Show in Folder" Command="{Binding Reveal}" />
                         </ContextMenu>
                       </Button.ContextMenu>
                       <Grid>
@@ -334,6 +335,9 @@
                           <TextBlock Style="{StaticResource Body}" TextWrapping="NoWrap"
                                      TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
                           <TextBlock Style="{StaticResource Caption}" Text="{Binding Detail}" />
+                           <TextBlock Style="{StaticResource Caption}" Text="{Binding CopyNotice}"
+                                      Visibility="{Binding HasCopyNotice, Converter={StaticResource Shown}}"
+                                      AutomationProperties.LiveSetting="Polite" />
                         </StackPanel>
                       </Grid>
                     </Button>
@@ -729,6 +733,13 @@
                                 <StackPanel Margin="0,8,0,0">
                                   <TextBlock Style="{StaticResource Body}" Text="{Binding Name}" TextWrapping="Wrap" />
                                   <TextBlock Style="{StaticResource Caption}" Text="{Binding SizeLabel}" />
+                                   <Button Style="{StaticResource TextButton}" Content="Copy to Clipboard" Margin="0,4,0,0"
+                                           HorizontalAlignment="Left" Command="{Binding Copy}"
+                                           AutomationProperties.Name="Copy received file to clipboard"
+                                           Visibility="{Binding CanCopy, Converter={StaticResource Shown}}" />
+                                   <TextBlock Style="{StaticResource Caption}" Text="{Binding CopyNotice}"
+                                              Visibility="{Binding HasCopyNotice, Converter={StaticResource Shown}}"
+                                              AutomationProperties.LiveSetting="Polite" />
                                 </StackPanel>
                               </DataTemplate>
                             </ItemsControl.ItemTemplate>
