@@ -9,8 +9,8 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
   any app, pick AirDrop, and it lands in winawdl ready to send; winawdl opens
   if it is not running. A small helper, winawdl-share.exe, takes the share, so
   winawdl itself runs as before. Files an app only lends for the share are
-  copied first and deleted once sent. It is added for the account that
-  installs winawdl, and removed on uninstall.
+  copied first and deleted once sent. It is added for each account that
+  starts winawdl, and removed for every account on uninstall.
 
 - **Nearby devices look like themselves.** iPhones, iPads and Macs are drawn
   as pictures of the device, on a white plate that sits slightly above the

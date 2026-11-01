@@ -101,6 +101,7 @@ public static class Program
         }));
 
         Share.Sweep(DateTime.UtcNow.AddDays(-1));
+        _ = ShareRegistration.Ensure(AppContext.BaseDirectory);
         Deliver(request, model, () => { });
         model.StartTheEngine();
         if (request.Surface || model.SetupOpen) window.Show();

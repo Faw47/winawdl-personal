@@ -63,10 +63,8 @@ Name: "{commonappdata}\winawdl\logs"; Flags: uninsneveruninstall
 Name: "{autoprograms}\winawdl"; Filename: "{app}\winawdl.exe"; WorkingDir: "{app}"; Comment: "AirDrop on Windows"; AppUserModelID: "winawdl.AirDrop"
 
 [Run]
-; Registration must run as the person who launched setup, not the elevated helper.
-Filename: "{app}\winawdl.exe"; Parameters: "--explorer-install"; Flags: runhidden waituntilterminated runasoriginaluser; Check: SetUpWell
-Filename: "{app}\winawdl.exe"; Parameters: "--notifications-install"; Flags: runhidden waituntilterminated runasoriginaluser; Check: SetUpWell
-Filename: "{app}\winawdl.exe"; Parameters: "--share-install"; Flags: runhidden waituntilterminated runasoriginaluser; Check: SetUpWell
+; The per-account registrations run from CurStepChanged instead: Inno runs this
+; section before ssPostInstall, so before install.ps1 has signed what they need.
 ; As the person who started setup, not as administrator: Explorer cannot drop files on a window that is.
 Filename: "{app}\winawdl.exe"; Description: "Start winawdl"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: SetUpWell
 
@@ -232,6 +230,25 @@ begin
            mbError, MB_OK);
 end;
 
+{ As the person who started setup, not the elevated helper, once install.ps1 has
+  signed the Share sheet package. A failure leaves winawdl working; the app also
+  adds itself to the Share sheet when it starts. }
+procedure RegisterForUser;
+var
+  Code: Integer;
+begin
+  WizardForm.StatusLabel.Caption := 'Adding Send with AirDrop to Explorer and the Share sheet...';
+  if not ExecAsOriginalUser(ExpandConstant('{app}\winawdl.exe'), '--explorer-install', '', SW_HIDE,
+                            ewWaitUntilTerminated, Code) or (Code <> 0) then
+    Log('Send with AirDrop could not be added to Explorer.');
+  if not ExecAsOriginalUser(ExpandConstant('{app}\winawdl.exe'), '--notifications-install', '', SW_HIDE,
+                            ewWaitUntilTerminated, Code) or (Code <> 0) then
+    Log('Notifications could not be registered.');
+  if not ExecAsOriginalUser(ExpandConstant('{app}\winawdl.exe'), '--share-install', '', SW_HIDE,
+                            ewWaitUntilTerminated, Code) or (Code <> 0) then
+    Log('AirDrop could not be added to the Share sheet.');
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
@@ -258,8 +275,10 @@ begin
                        'The Wi-Fi card was given back to its own driver. The files are in place: ' +
                        'start this setup again, or uninstall winawdl from Installed apps. ' +
                        'The whole log is in ' + LogFolder + '.', mbError, MB_OK, IDOK);
-  end
-  else if LoadStringFromFile(LogFolder + '\install.log', Said) and
+    exit;
+  end;
+  RegisterForUser;
+  if LoadStringFromFile(LogFolder + '\install.log', Said) and
           (Pos('Lock pages in memory', String(Said)) > 0) then
     SuppressibleMsgBox('The radio will not start yet: this account may not lock pages in memory, ' +
                        'which the radio needs for its buffers.' + #13#10#13#10 +

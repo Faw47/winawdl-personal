@@ -92,21 +92,41 @@ if (Test-Path $layout) { Remove-Item $layout -Recurse -Force }
 New-Item -ItemType Directory -Force "$layout\Assets" | Out-Null
 (Get-Content "$repo\installer\package\AppxManifest.xml" -Raw).Replace('Version="0.0.0.0"', "Version=`"$driverVersion`"") |
   Set-Content "$layout\AppxManifest.xml" -Encoding UTF8 -NoNewline
-# Its pictures, from the largest drawing in the app's icon; Windows scales them down.
+# Its pictures, from the app's icon. The Share sheet asks for the icon by size
+# through resources.pri, and shows nothing without it: each size the icon draws
+# exactly is used as it is, the rest are scaled from its largest drawing.
 Add-Type -AssemblyName System.Drawing
-$icon = New-Object System.Drawing.Icon "$repo\app\winawdl.ico", 256, 256
-$drawing = $icon.ToBitmap()
-try {
-  foreach ($asset in @(@('Square44x44Logo.png', 176), @('Square150x150Logo.png', 256), @('StoreLogo.png', 200))) {
-    $picture = New-Object System.Drawing.Bitmap $asset[1], $asset[1]
+function Save-Picture([int]$size, [string]$name) {
+  $exact = New-Object System.Drawing.Icon "$repo\app\winawdl.ico", $size, $size
+  $drawing = $exact.ToBitmap()
+  try {
+    if ($drawing.Width -eq $size) { $drawing.Save("$layout\Assets\$name", [System.Drawing.Imaging.ImageFormat]::Png); return }
+    $largest = New-Object System.Drawing.Icon "$repo\app\winawdl.ico", 256, 256
+    $source = $largest.ToBitmap()
+    $picture = New-Object System.Drawing.Bitmap $size, $size
     $pen = [System.Drawing.Graphics]::FromImage($picture)
     $pen.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $pen.DrawImage($drawing, 0, 0, $asset[1], $asset[1])
+    $pen.DrawImage($source, 0, 0, $size, $size)
     $pen.Dispose()
-    $picture.Save("$layout\Assets\$($asset[0])", [System.Drawing.Imaging.ImageFormat]::Png)
-    $picture.Dispose()
-  }
-} finally { $drawing.Dispose(); $icon.Dispose() }
+    $picture.Save("$layout\Assets\$name", [System.Drawing.Imaging.ImageFormat]::Png)
+    $picture.Dispose(); $source.Dispose(); $largest.Dispose()
+  } finally { $drawing.Dispose(); $exact.Dispose() }
+}
+foreach ($size in 16, 24, 32, 48, 256) {
+  Save-Picture $size "Square44x44Logo.targetsize-$size.png"
+  Save-Picture $size "Square44x44Logo.targetsize-$($size)_altform-unplated.png"
+}
+foreach ($scale in 100, 200, 400) {
+  Save-Picture (44 * $scale / 100) "Square44x44Logo.scale-$scale.png"
+  Save-Picture (50 * $scale / 100) "StoreLogo.scale-$scale.png"
+}
+Save-Picture 150 'Square150x150Logo.scale-100.png'
+Save-Picture 300 'Square150x150Logo.scale-200.png'
+$priConfig = "$repo\build\installer\priconfig.xml"
+& $tools.MakePri createconfig /cf $priConfig /dq en-US /o | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "MakePri could not make its configuration ($LASTEXITCODE)" }
+& $tools.MakePri new /pr $layout /cf $priConfig /mn "$layout\AppxManifest.xml" /of "$layout\resources.pri" /o | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "MakePri could not index the package's pictures ($LASTEXITCODE)" }
 New-Item -ItemType Directory -Force "$stage\package" | Out-Null
 & $tools.MakeAppx pack /d $layout /p "$stage\package\winawdl.msix" /nv /o | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "MakeAppx could not pack the Share sheet package ($LASTEXITCODE)" }

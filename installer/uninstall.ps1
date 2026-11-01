@@ -124,6 +124,13 @@ Step 'remove this account''s startup entry, Send with AirDrop shortcut and class
   Remove-UserRegistration (Join-Path $Target 'winawdl.exe')
 }
 
+'Share sheet'
+Step 'take AirDrop out of every account''s Share sheet' {
+  # The app adds it for each account that starts it, so each is taken out here.
+  Get-AppxPackage -AllUsers -Name winawdl | Where-Object { $_.Publisher -eq $CertSubject } |
+    Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+}
+
 'Driver'
 Step 'remove it, so that Windows gives the card back to its own driver' {
   foreach ($package in Get-PublishedPackages) {

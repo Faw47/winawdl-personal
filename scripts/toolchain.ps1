@@ -39,5 +39,6 @@ function Initialize-Toolchain {
     Inf2Cat  = "$kit\bin\$kitVersion\x86\Inf2Cat.exe"
     StampInf = "$kit\bin\$kitVersion\x64\stampinf.exe"
     MakeAppx = "$kit\bin\$kitVersion\x64\makeappx.exe"
+    MakePri  = "$kit\bin\$kitVersion\x64\makepri.exe"
   }
 }

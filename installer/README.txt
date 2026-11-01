@@ -50,7 +50,7 @@ would be done and changes nothing.
 To send to an iPhone, iPad or Mac, or to receive from one, set its AirDrop to
 "Everyone for 10 Minutes".
 
-AirDrop also appears in Windows' Share sheet, for the account that installed
+AirDrop also appears in Windows' Share sheet, for each account that starts
 winawdl: share a file or a web link from any app and pick AirDrop.
 
 

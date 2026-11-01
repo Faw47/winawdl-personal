@@ -28,6 +28,20 @@ public static class ShareRegistration
         return Signer.Sign(Path.GetFullPath(package), certificate.Handle) == 0 ? 0 : 1;
     }
 
+    /// <summary>Adds AirDrop to this account's Share sheet when an install left the
+    /// signed package but not the registration: another account, a step that failed,
+    /// or the zip. Off the UI thread; quiet when it cannot.</summary>
+    public static Task Ensure(string folder) => Task.Run(() =>
+    {
+        if (!File.Exists(PackagePath(folder))) return;
+        try
+        {
+            if (new PackageManager().FindPackagesForUser("", PackageName, Publisher).Any()) return;
+        }
+        catch (Exception) { return; }
+        Register(true);
+    });
+
     public static int Register(bool enabled)
     {
         try
