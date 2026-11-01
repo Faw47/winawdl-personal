@@ -7,9 +7,15 @@ using Winawdl.Model;
 namespace Winawdl.Shell;
 
 /// <summary>Only this user's SendTo shortcut and two classic verbs. Windows 11
-/// shows classic verbs under Show more options, not its packaged top-level menu.</summary>
+/// shows classic verbs under Show more options, not its own menu: there, once the
+/// package is registered, the verbs are kept for programs only and winawdl-menu.dll
+/// (app\menu), declared by the package, shows Send with AirDrop in the menu itself.</summary>
 public sealed class WindowsExplorer(string executable) : IExplorerIntegration
 {
+    /// <summary>A documented verb value: the verb works, but no menu lists it. The
+    /// packaged command shows exactly when the verbs carry it.</summary>
+    internal const string HiddenValue = "ProgrammaticAccessOnly";
+
     public const string InstallFlag = "--explorer-install", RemoveFlag = "--explorer-remove";
     public const string SelectionModel = "Document";
     private const string Label = "Send with AirDrop";
@@ -18,6 +24,10 @@ public sealed class WindowsExplorer(string executable) : IExplorerIntegration
     private const string ShortcutHashValue = "winawdl-shortcut-sha256";
     private static readonly string[] Keys =
         [@"Software\Classes\*\shell\winawdl", @"Software\Classes\Directory\shell\winawdl"];
+    /// <summary>Whether the packaged command stands in for the classic verbs.</summary>
+    internal Func<bool> ModernMenu { get; init; } =
+        () => Environment.OSVersion.Version.Build >= 22000 && ShareRegistration.Registered();
+
     private static string Shortcut => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.SendTo), Label + ".lnk");
 
     public static string CommandFor(string executable)
@@ -47,7 +57,11 @@ public sealed class WindowsExplorer(string executable) : IExplorerIntegration
             using var user = RegistryKey.OpenBaseKey(RegistryHive.CurrentUser, RegistryView.Registry64);
             if (value)
             {
-                if (Enabled) return;
+                if (Enabled)
+                {
+                    HideVerbs(user, ModernMenu());
+                    return;
+                }
                 string? existingHash;
                 using (var first = user.OpenSubKey(Keys[0]))
                     existingHash = first?.GetValue(ShortcutHashValue) as string;
@@ -72,6 +86,7 @@ public sealed class WindowsExplorer(string executable) : IExplorerIntegration
                         // A static Document verb invokes once per item. Each joins the same app.
                         key.SetValue("MultiSelectModel", SelectionModel);
                         if (path == Keys[0]) key.SetValue(ShortcutHashValue, hash);
+                        if (ModernMenu()) key.SetValue(HiddenValue, "");
                         using var verb = key.CreateSubKey("command");
                         verb.SetValue("", command);
                     }
@@ -113,6 +128,17 @@ public sealed class WindowsExplorer(string executable) : IExplorerIntegration
         }
     }
 
+    private static void HideVerbs(RegistryKey user, bool hide)
+    {
+        foreach (var path in Keys)
+        {
+            using var key = user.OpenSubKey(path, writable: true);
+            if (key is null) continue;
+            if (hide) key.SetValue(HiddenValue, "");
+            else key.DeleteValue(HiddenValue, false);
+        }
+    }
+
     internal sealed record VerbSnapshot(
         IReadOnlyDictionary<string, object?> Values,
         IReadOnlyDictionary<string, object?> CommandValues,
@@ -140,6 +166,7 @@ public sealed class WindowsExplorer(string executable) : IExplorerIntegration
         };
         if (data.Values.ContainsKey(ShortcutHashValue))
             expected[ShortcutHashValue] = data.Values[ShortcutHashValue] as string ?? "";
+        if (data.Values.ContainsKey(HiddenValue)) expected[HiddenValue] = "";
         return data.Subkeys.Count == 1 && data.Subkeys[0].Equals("command", StringComparison.OrdinalIgnoreCase)
             && data.CommandSubkeys.Count == 0 && data.Values.Count == expected.Count
             && expected.All(pair => data.Values.TryGetValue(pair.Key, out var actual)
@@ -161,6 +188,7 @@ public sealed class WindowsExplorer(string executable) : IExplorerIntegration
         if (data.Values.GetValueOrDefault("MultiSelectModel") as string == SelectionModel)
             values.Add("MultiSelectModel");
         if (data.Values.ContainsKey(ShortcutHashValue)) values.Add(ShortcutHashValue);
+        if (data.Values.GetValueOrDefault(HiddenValue) as string == "") values.Add(HiddenValue);
         var command = string.Equals(data.CommandValues.GetValueOrDefault("") as string,
             CommandFor(executable), StringComparison.OrdinalIgnoreCase) ? new[] { "" } : [];
         return new(values.ToArray(), command);

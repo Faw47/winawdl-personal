@@ -148,6 +148,11 @@ Step 'stop trusting the certificate it was signed with' {
     ForEach-Object { Remove-Item "Cert:\CurrentUser\My\$($_.Thumbprint)" -DeleteKey }
 }
 
+'Radio'
+Step 'remove the task that starts the radio without a prompt' {
+  Unregister-ScheduledTask -TaskName 'winawdl radio' -Confirm:$false -ErrorAction SilentlyContinue
+}
+
 'Firewall'
 Step 'remove the two rules' {
   Get-NetFirewallRule -Group $FirewallGroup -ErrorAction SilentlyContinue | Remove-NetFirewallRule

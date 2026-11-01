@@ -19,6 +19,7 @@ if ($Build) {
   & "$PSScriptRoot\build-radio.ps1" -Targets winawdl_radio | Out-Null
   & "$PSScriptRoot\build-awdl.ps1" | Out-Null
   & "$PSScriptRoot\build-app.ps1" | Out-Null
+  & "$repo\app\menu\build.ps1" | Out-Null
 }
 
 $version = ([xml](Get-Content "$repo\app\winawdl.csproj")).Project.PropertyGroup.Version | Select-Object -First 1
@@ -32,6 +33,7 @@ $files = @(
   @('build\app\winawdl\Microsoft.Windows.SDK.NET.dll', ''), @('build\app\winawdl\WinRT.Runtime.dll', ''),
   @('build\app\winawdl\winawdl-share.exe', ''), @('build\app\winawdl\winawdl-share.dll', ''),
   @('build\app\winawdl\winawdl-share.deps.json', ''), @('build\app\winawdl\winawdl-share.runtimeconfig.json', ''),
+  @('build\menu\winawdl-menu.dll', ''),
   @('installer\install.ps1', ''), @('installer\install.cmd', ''), @('installer\uninstall.ps1', ''),
   @('installer\uninstall.cmd', ''), @('installer\README.txt', ''),
   @('airdrop\*.py', 'airdrop'), @('airdrop\apple-ca\*.pem', 'airdrop\apple-ca'),

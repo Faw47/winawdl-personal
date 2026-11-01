@@ -127,6 +127,7 @@ public static class Checks
             Portraits(app, folder);
             Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
+            RadioStartup(app, Path.Combine(folder, "supervised"));
         }
         catch (Exception error)
         {
@@ -707,6 +708,91 @@ public static class Checks
                "the pipe carries a link and refuses one that is not HTTP or HTTPS");
         SharingPipe(kept).GetAwaiter().GetResult();
         SharePackage();
+        ModernMenu();
+    }
+
+    /// <summary>Windows 11's own menu: the classic verbs hide for the packaged command,
+    /// which shows exactly while they do, so AirDrop is listed once.</summary>
+    private static void ModernMenu()
+    {
+        const string executable = @"C:\Program Files\winawdl\winawdl.exe";
+        var verb = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            [""] = "Send with AirDrop", ["Icon"] = $"\"{executable}\",0", ["MultiSelectModel"] = "Document",
+            ["winawdl-owner"] = "winawdl Explorer integration v1",
+        };
+        var command = new Dictionary<string, object?> { [""] = WindowsExplorer.CommandFor(executable) };
+        WindowsExplorer.VerbSnapshot Snapshot(Dictionary<string, object?> values) => new(values, command, ["command"], []);
+        var hidden = new Dictionary<string, object?>(verb, StringComparer.OrdinalIgnoreCase) { [WindowsExplorer.HiddenValue] = "" };
+        var altered = new Dictionary<string, object?>(verb, StringComparer.OrdinalIgnoreCase) { [WindowsExplorer.HiddenValue] = "1" };
+        Expect(WindowsExplorer.PristineVerb(Snapshot(verb), executable) && WindowsExplorer.PristineVerb(Snapshot(hidden), executable)
+               && !WindowsExplorer.PristineVerb(Snapshot(altered), executable),
+               "a verb hidden for Windows 11's menu is still winawdl's own; one changed by someone else is not");
+        Expect(WindowsExplorer.PlanVerbRemoval(Snapshot(hidden), executable)!.Values.Contains(WindowsExplorer.HiddenValue)
+               && !WindowsExplorer.PlanVerbRemoval(Snapshot(altered), executable)!.Values.Contains(WindowsExplorer.HiddenValue),
+               "turning the switch off takes the hiding away too, and leaves another program's value alone");
+
+        var repo = Repo.Find() ?? throw new InvalidOperationException("the repository was not found");
+        var package = System.Xml.Linq.XDocument.Load(Path.Combine(repo, "installer", "package", "AppxManifest.xml"));
+        var verbs = package.Descendants().Where(element => element.Name.LocalName == "Verb").ToList();
+        var server = package.Descendants().First(element => element.Name.LocalName == "Class");
+        var source = File.ReadAllText(Path.Combine(repo, "app", "menu", "menu.cpp"));
+        var clsid = new Guid((string)server.Attribute("Id")!);
+        Expect(verbs.Count == 2 && verbs.All(one => new Guid((string)one.Attribute("Clsid")!) == clsid)
+               && (string?)server.Attribute("Path") == "winawdl-menu.dll"
+               && source.Contains(clsid.ToString("D").ToUpperInvariant(), StringComparison.Ordinal)
+               && source.Contains($"L\"{WindowsExplorer.HiddenValue}\"", StringComparison.Ordinal),
+               "the package's menu entries, its COM class and winawdl-menu.dll name one command for files and folders");
+
+        // CI does not build the native DLL; a local build or an installed copy is checked.
+        var dll = new[] { Path.Combine(repo, "build", "menu", "winawdl-menu.dll"), Path.Combine(repo, "winawdl-menu.dll") }
+            .FirstOrDefault(File.Exists);
+        if (dll is null)
+        {
+            _log.WriteLine("SKIP  winawdl-menu.dll is not built here: app\\menu\\build.ps1 builds it");
+            return;
+        }
+        var library = System.Runtime.InteropServices.NativeLibrary.Load(dll);
+        var getClassObject = System.Runtime.InteropServices.Marshal.GetDelegateForFunctionPointer<GetClassObject>(
+            System.Runtime.InteropServices.NativeLibrary.GetExport(library, "DllGetClassObject"));
+        var factoryId = typeof(IClassFactory).GUID;
+        var commandId = typeof(IExplorerCommand).GUID;
+        Expect(getClassObject(ref clsid, ref factoryId, out var factory) == 0, "winawdl-menu.dll serves the package's class");
+        ((IClassFactory)factory).CreateInstance(IntPtr.Zero, ref commandId, out var made);
+        var menu = (IExplorerCommand)made;
+        menu.GetTitle(IntPtr.Zero, out var title);
+        menu.GetIcon(IntPtr.Zero, out var icon);
+        menu.GetCanonicalName(out var name);
+        Expect(title == "Send with AirDrop" && name == clsid
+               && icon.EndsWith(@"\winawdl.exe,0", StringComparison.OrdinalIgnoreCase),
+               "the command reads Send with AirDrop, with winawdl's icon beside it");
+    }
+
+    [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.StdCall)]
+    private delegate int GetClassObject(ref Guid clsid, ref Guid iid,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Interface)] out object factory);
+
+    [System.Runtime.InteropServices.ComImport, System.Runtime.InteropServices.Guid("00000001-0000-0000-C000-000000000046"),
+     System.Runtime.InteropServices.InterfaceType(System.Runtime.InteropServices.ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IClassFactory
+    {
+        void CreateInstance(IntPtr outer, ref Guid iid,
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Interface)] out object made);
+        void LockServer(bool lockIt);
+    }
+
+    [System.Runtime.InteropServices.ComImport, System.Runtime.InteropServices.Guid("a08ce4d0-fa25-44ab-b57c-c7b1c323e0b9"),
+     System.Runtime.InteropServices.InterfaceType(System.Runtime.InteropServices.ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IExplorerCommand
+    {
+        void GetTitle(IntPtr items, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] out string title);
+        void GetIcon(IntPtr items, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] out string icon);
+        void GetToolTip(IntPtr items, out IntPtr tip);
+        void GetCanonicalName(out Guid name);
+        void GetState(IntPtr items, int slowOk, out int state);
+        void Invoke(IntPtr items, IntPtr bind);
+        void GetFlags(out int flags);
+        void EnumSubCommands(out IntPtr commands);
     }
 
     private sealed class FakeShare(IReadOnlyList<Share.Item> items, string? link) : Share.ISource
@@ -1817,6 +1903,62 @@ public static class Checks
         {
             return "";
         }
+    }
+
+    /// <summary>The radio comes back as it was left, and starts through install.ps1's
+    /// task with no prompt; that task takes nothing but the two values the app passes.</summary>
+    private static void RadioStartup(Application app, string logs)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        world.Model.StartRadioIfWanted();
+        Expect(world.Radio.Starts == 0, "a radio never turned on stays off when the app starts");
+        world.Model.RadioOn = true;
+        Expect(world.Settings.RadioWanted && world.Radio.Starts == 1, "turning the radio on is remembered");
+        world.Model.RadioOn = false;
+        Expect(!world.Settings.RadioWanted, "turning it off is remembered too");
+        world.Model.Dispose();
+
+        var again = Stage.NewWorld(app.Dispatcher);
+        again.Settings.RadioWanted = true;
+        again.Model.StartRadioIfWanted();
+        again.Model.StartRadioIfWanted();
+        Expect(again.Radio.Starts == 1 && again.Model.RadioOn, "a radio left on starts with the app, once");
+        again.Radio.Become(RadioPhase.Refused);
+        Expect(!again.Settings.RadioWanted, "a radio turned down at Windows' prompt is not asked for at every start");
+        again.Model.Dispose();
+
+        var setup = Stage.NewWorld(app.Dispatcher, setup: true);
+        setup.Settings.RadioWanted = true;
+        setup.Model.StartRadioIfWanted();
+        Expect(setup.Radio.Starts == 0, "while setup is open, the radio waits for it");
+        setup.Model.Dispose();
+
+        var name = $"winawdl-radio-stop-{Environment.ProcessId}-1";
+        Expect(RadioTask.StopName().IsMatch(name) && !RadioTask.StopName().IsMatch(name + " & calc")
+               && !RadioTask.StopName().IsMatch(@"..\other") && !RadioTask.Run(1, "not a stop event"),
+               "the task passes on only a stop event named as the app names it");
+        Expect(RadioSupervisor.Run(["1234", @"Global\anything"]) == 2 && RadioSupervisor.Run(["-1", name]) == 2
+               && RadioSupervisor.Run([name]) == 2,
+               "the elevated copy refuses any arguments but an owner and an app-made stop event");
+        using (var stop = new EventWaitHandle(false, EventResetMode.ManualReset, @"Local\" + name))
+        {
+            stop.Set();
+            var ping = Path.Combine(Environment.SystemDirectory, "ping.exe");
+            var code = RadioSupervisor.Supervise(Environment.ProcessId, name, new("radio", ping, ["-t", "127.0.0.1"]),
+                                                 new("awdld", ping, ["-t", "127.0.0.1"]), logs);
+            Expect(code == 0 && !File.Exists(RadioSupervisor.PidFile(logs, name)),
+                   "the supervisor's process file is gone once it has stopped");
+        }
+
+        var repo = Repo.Find() ?? throw new InvalidOperationException("the repository was not found");
+        var install = File.ReadAllText(Path.Combine(repo, "installer", "install.ps1"));
+        var uninstall = File.ReadAllText(Path.Combine(repo, "installer", "uninstall.ps1"));
+        Expect(install.Contains($"$RadioTask     = '{RadioTask.Name}'", StringComparison.Ordinal)
+               && install.Contains("--radio `$(Arg0) `$(Arg1)", StringComparison.Ordinal)
+               && install.Contains("<RunLevel>HighestAvailable</RunLevel>", StringComparison.Ordinal)
+               && install.Contains("(A;;GRGX;;;$sid)", StringComparison.Ordinal)
+               && uninstall.Contains($"Unregister-ScheduledTask -TaskName '{RadioTask.Name}'", StringComparison.Ordinal),
+               "install.ps1 registers the radio task for its own account only, and uninstall.ps1 removes it");
     }
 
     private static void Supervisor(string logs)

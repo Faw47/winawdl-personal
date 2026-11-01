@@ -5,6 +5,18 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **The radio starts by itself, without a prompt.** If the radio was on when
+  you left winawdl, it comes back on when winawdl starts. Setup registers a
+  task that lets the installing account start the radio with no UAC prompt;
+  it takes only the two values winawdl passes. Other accounts still see the
+  prompt, and declining it keeps the radio off at later starts.
+
+- **Send with AirDrop in Windows 11's own Explorer menu.** It shows with its
+  icon at the top of the right-click menu, no longer only under Show more
+  options. The classic entry is hidden there so AirDrop is listed once, and
+  comes back if the new one cannot be added. Windows 10 keeps the classic
+  entry.
+
 - **AirDrop in the Windows Share sheet.** Share a file, photo or web link from
   any app, pick AirDrop, and it lands in winawdl ready to send; winawdl opens
   if it is not running. A small helper, winawdl-share.exe, takes the share, so

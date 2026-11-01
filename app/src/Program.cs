@@ -101,9 +101,17 @@ public static class Program
         }));
 
         Share.Sweep(DateTime.UtcNow.AddDays(-1));
-        _ = ShareRegistration.Ensure(AppContext.BaseDirectory);
+        // Once it is, Windows 11's menu entry stands in for the classic verbs.
+        _ = ShareRegistration.Ensure(AppContext.BaseDirectory, () =>
+        {
+            var explorer = new WindowsExplorer(Environment.ProcessPath!);
+            try { if (explorer.Enabled) explorer.Enabled = true; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException
+                                           or System.Runtime.InteropServices.COMException) { }
+        });
         Deliver(request, model, () => { });
         model.StartTheEngine();
+        model.StartRadioIfWanted();
         if (request.Surface || model.SetupOpen) window.Show();
         app.Run();
         engine.Stop();

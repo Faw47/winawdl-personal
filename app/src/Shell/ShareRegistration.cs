@@ -31,16 +31,18 @@ public static class ShareRegistration
     /// <summary>Adds AirDrop to this account's Share sheet when an install left the
     /// signed package but not the registration: another account, a step that failed,
     /// or the zip. Off the UI thread; quiet when it cannot.</summary>
-    public static Task Ensure(string folder) => Task.Run(() =>
+    public static Task Ensure(string folder, Action? registered = null) => Task.Run(() =>
     {
-        if (!File.Exists(PackagePath(folder))) return;
-        try
-        {
-            if (new PackageManager().FindPackagesForUser("", PackageName, Publisher).Any()) return;
-        }
-        catch (Exception) { return; }
-        Register(true);
+        if (!File.Exists(PackagePath(folder)) || Registered()) return;
+        if (Register(true) == 0) registered?.Invoke();
     });
+
+    /// <summary>Whether this account has the package, and with it Windows 11's menu entry.</summary>
+    public static bool Registered()
+    {
+        try { return new PackageManager().FindPackagesForUser("", PackageName, Publisher).Any(); }
+        catch (Exception) { return false; }
+    }
 
     public static int Register(bool enabled)
     {

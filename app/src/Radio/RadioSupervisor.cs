@@ -38,10 +38,15 @@ public static class RadioSupervisor
         return File.Exists(place) ? place : Path.Combine(root, built);
     }
 
+    public static string PidFile(string logs, string stopName) => Path.Combine(logs, stopName + ".pid");
+
     /// <summary>The elevated entry point: `--radio owner-pid stop-event-name`.</summary>
     public static int Run(string[] arguments)
     {
-        if (arguments.Length != 2 || !int.TryParse(arguments[0], out var owner) || Repo.Find() is not { } root)
+        // Run by the scheduled task, anything in this account can ask for it: only
+        // the two values RadioControl passes are taken, in their exact form.
+        if (arguments.Length != 2 || !int.TryParse(arguments[0], out var owner) || owner <= 0
+            || !RadioTask.StopName().IsMatch(arguments[1]) || Repo.Find() is not { } root)
             return 2;
         // The same two commands scripts\awdl-run.ps1 runs with its defaults.
         return Supervise(owner, arguments[1],
@@ -66,6 +71,9 @@ public static class RadioSupervisor
         {
             return 2;
         }
+        // Started by Task Scheduler, this is no child of the app: it learns which process to watch from here.
+        var pid = PidFile(logs, stopName);
+        File.WriteAllText(pid, Environment.ProcessId.ToString());
 
         using var job = Native.KillOnCloseJob();
         // A process started by one that ignores Ctrl+C ignores it too, and what
@@ -113,6 +121,7 @@ public static class RadioSupervisor
             lock (log) log.Dispose();
         }
         File.WriteAllText(status, JsonSerializer.Serialize(new Dictionary<string, string> { ["ended"] = ended }));
+        File.Delete(pid);
         return ended is "stopped" or "owner" ? 0 : 3;
     }
 

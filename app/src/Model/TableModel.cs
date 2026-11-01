@@ -280,6 +280,11 @@ public sealed class TableModel : Observable, IDisposable
         set
         {
             _radioNotice = "";
+            if (_settings.RadioWanted != value)
+            {
+                _settings.RadioWanted = value;
+                _settings.Save();
+            }
             if (value && !RadioOn) _radio.Start();
             else if (!value && _radio.Phase is RadioPhase.Starting or RadioPhase.Running) _radio.Stop();
             else if (!value && _linkUp)
@@ -350,8 +355,21 @@ public sealed class TableModel : Observable, IDisposable
         ChangedAll();
     }
 
+    /// <summary>Called once the app is up: the radio comes back as it was left,
+    /// unless setup is still to choose who can find this PC.</summary>
+    public void StartRadioIfWanted()
+    {
+        if (_settings.RadioWanted && !SetupOpen && !RadioOn) _radio.Start();
+    }
+
     private void OnRadioChanged()
     {
+        // Turned down at Windows' prompt: not asked again at every start.
+        if (_radio.Phase == RadioPhase.Refused && _settings.RadioWanted)
+        {
+            _settings.RadioWanted = false;
+            _settings.Save();
+        }
         if (_radio.Phase == RadioPhase.Running) _radioHasRun = true;
         if (_radio.Phase == RadioPhase.Starting) _radioHasRun = false;
         Refresh();

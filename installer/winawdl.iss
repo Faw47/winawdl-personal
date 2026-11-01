@@ -238,15 +238,16 @@ var
   Code: Integer;
 begin
   WizardForm.StatusLabel.Caption := 'Adding Send with AirDrop to Explorer and the Share sheet...';
+  if not ExecAsOriginalUser(ExpandConstant('{app}\winawdl.exe'), '--share-install', '', SW_HIDE,
+                            ewWaitUntilTerminated, Code) or (Code <> 0) then
+    Log('AirDrop could not be added to the Share sheet.');
+  { After the package: on Windows 11 its menu entry then stands in for the classic verbs. }
   if not ExecAsOriginalUser(ExpandConstant('{app}\winawdl.exe'), '--explorer-install', '', SW_HIDE,
                             ewWaitUntilTerminated, Code) or (Code <> 0) then
     Log('Send with AirDrop could not be added to Explorer.');
   if not ExecAsOriginalUser(ExpandConstant('{app}\winawdl.exe'), '--notifications-install', '', SW_HIDE,
                             ewWaitUntilTerminated, Code) or (Code <> 0) then
     Log('Notifications could not be registered.');
-  if not ExecAsOriginalUser(ExpandConstant('{app}\winawdl.exe'), '--share-install', '', SW_HIDE,
-                            ewWaitUntilTerminated, Code) or (Code <> 0) then
-    Log('AirDrop could not be added to the Share sheet.');
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
