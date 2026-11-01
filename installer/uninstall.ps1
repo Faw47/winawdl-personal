@@ -14,6 +14,8 @@ function Remove-UserRegistration([string]$app) {
     if ($result.ExitCode -ne 0) { throw 'Send with AirDrop could not be removed for this account.' }
     $result = Start-Process -FilePath $app -ArgumentList '--notifications-remove' -Wait -PassThru -WindowStyle Hidden
     if ($result.ExitCode -ne 0) { throw 'Notifications could not be removed for this account.' }
+    $result = Start-Process -FilePath $app -ArgumentList '--share-remove' -Wait -PassThru -WindowStyle Hidden
+    if ($result.ExitCode -ne 0) { '  AirDrop could not be taken out of the Share sheet for this account.' }
   }
   $user = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
     [Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)
@@ -122,6 +124,13 @@ Step 'remove this account''s startup entry, Send with AirDrop shortcut and class
   Remove-UserRegistration (Join-Path $Target 'winawdl.exe')
 }
 
+'Share sheet'
+Step 'take AirDrop out of every account''s Share sheet' {
+  # The app adds it for each account that starts it, so each is taken out here.
+  Get-AppxPackage -AllUsers -Name winawdl | Where-Object { $_.Publisher -eq $CertSubject } |
+    Remove-AppxPackage -AllUsers -ErrorAction SilentlyContinue
+}
+
 'Driver'
 Step 'remove it, so that Windows gives the card back to its own driver' {
   foreach ($package in Get-PublishedPackages) {
@@ -137,6 +146,11 @@ Step 'stop trusting the certificate it was signed with' {
   # only knows -DeleteKey when it is given the certificate's path, not from a pipeline.
   Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.Subject -eq $CertSubject } |
     ForEach-Object { Remove-Item "Cert:\CurrentUser\My\$($_.Thumbprint)" -DeleteKey }
+}
+
+'Radio'
+Step 'remove the task that starts the radio without a prompt' {
+  Unregister-ScheduledTask -TaskName 'winawdl radio' -Confirm:$false -ErrorAction SilentlyContinue
 }
 
 'Firewall'

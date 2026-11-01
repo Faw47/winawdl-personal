@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A package with external location: it holds no program, only the identity
+     that lets winawdl-share.exe, in the install folder, be a share target, and
+     winawdl-menu.dll (app\menu) add Send with AirDrop to Windows 11's own menu.
+     scripts\build-installer.ps1 stamps the version and packs it; install.ps1
+     signs it with the certificate it makes, whose subject is the Publisher. -->
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+         xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+         xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+         xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+         xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+         xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+         xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+         IgnorableNamespaces="uap uap10 desktop4 desktop5 desktop6 com rescap">
+  <Identity Name="winawdl" Publisher="CN=winawdl driver (signed on this PC)" Version="0.0.0.0"
+            ProcessorArchitecture="x64" />
+  <Properties>
+    <DisplayName>AirDrop</DisplayName>
+    <PublisherDisplayName>winawdl</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+    <!-- Its files and settings are where winawdl's own are. -->
+    <desktop6:FileSystemWriteVirtualization>disabled</desktop6:FileSystemWriteVirtualization>
+    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+  </Properties>
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+  <Applications>
+    <Application Id="AirDrop" Executable="winawdl-share.exe" uap10:TrustLevel="mediumIL"
+                 uap10:RuntimeBehavior="win32App">
+      <!-- Not a second entry in Start: only in the Share sheet. -->
+      <uap:VisualElements AppListEntry="none" DisplayName="AirDrop" Description="Send with AirDrop"
+                          BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png"
+                          Square44x44Logo="Assets\Square44x44Logo.png" />
+      <Extensions>
+        <uap:Extension Category="windows.shareTarget">
+          <uap:ShareTarget Description="Send with AirDrop">
+            <uap:SupportedFileTypes>
+              <uap:SupportsAnyFileType />
+            </uap:SupportedFileTypes>
+            <uap:DataFormat>StorageItems</uap:DataFormat>
+            <uap:DataFormat>URI</uap:DataFormat>
+          </uap:ShareTarget>
+        </uap:Extension>
+        <!-- Shown only on Windows 11, while the classic verbs are hidden for it:
+             the DLL decides, from what WindowsExplorer.cs wrote. -->
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type="*">
+              <desktop5:Verb Id="SendWithAirDrop" Clsid="B1BE87C1-E0B3-4C75-92A9-2533736CF7B5" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type="Directory">
+              <desktop5:Verb Id="SendWithAirDrop" Clsid="B1BE87C1-E0B3-4C75-92A9-2533736CF7B5" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="Send with AirDrop">
+              <com:Class Id="B1BE87C1-E0B3-4C75-92A9-2533736CF7B5" Path="winawdl-menu.dll" ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>

@@ -9,19 +9,24 @@ using Winawdl.Model;
 namespace Winawdl.Radio;
 
 /// <summary>Starts and stops the radio from the app, which itself has no
-/// administrator rights: it starts a second copy of itself that asks Windows
-/// for them, and signals that copy through a named event.</summary>
+/// administrator rights: a second copy of itself has them, started by the task
+/// install.ps1 registers (RadioTask), or else by asking Windows. The app signals
+/// that copy through a named event.</summary>
 public sealed class RadioControl : IRadio
 {
     private const int CancelledByUser = 1223;
     private const int TailBytes = 4096;
     private const int MostShownChars = 280;
+    /// <summary>How long the task's copy has to show itself before Windows is asked instead.</summary>
+    private static readonly TimeSpan TaskGrace = TimeSpan.FromSeconds(10);
 
     private readonly string? _repo;
     private readonly DispatcherTimer _watch;
     private Process? _supervisor;
     private EventWaitHandle? _stop;
     private int _starts;
+    private string _stopName = "";
+    private DateTime? _viaTaskSince;
 
     public RadioControl(Dispatcher dispatcher, string? repo)
     {
@@ -46,21 +51,34 @@ public sealed class RadioControl : IRadio
 
     public void Start()
     {
-        if (_supervisor is not null) return;
+        if (_supervisor is not null || _viaTaskSince is not null) return;
         if (_repo is null || !File.Exists(RadioSupervisor.RadioProgram(_repo))
                           || !File.Exists(RadioSupervisor.AwdlProgram(_repo)))
         {
             Become(RadioPhase.NotBuilt);
             return;
         }
-        var stopName = $"winawdl-radio-stop-{Environment.ProcessId}-{++_starts}";
-        _stop = new EventWaitHandle(false, EventResetMode.ManualReset, @"Local\" + stopName);
+        _stopName = $"winawdl-radio-stop-{Environment.ProcessId}-{++_starts}";
+        _stop = new EventWaitHandle(false, EventResetMode.ManualReset, @"Local\" + _stopName);
+        if (RadioTask.Run(Environment.ProcessId, _stopName))
+        {
+            _viaTaskSince = DateTime.UtcNow;
+            Become(RadioPhase.Starting);
+            _watch.Start();
+            return;
+        }
+        Elevate();
+    }
+
+    /// <summary>Without the task, or when it did not start: Windows asks.</summary>
+    private void Elevate()
+    {
         try
         {
             _supervisor = Process.Start(new ProcessStartInfo(Environment.ProcessPath!)
             {
                 UseShellExecute = true, Verb = "runas",
-                Arguments = $"{RadioSupervisor.Flag} {Environment.ProcessId} {stopName}",
+                Arguments = $"{RadioSupervisor.Flag} {Environment.ProcessId} {_stopName}",
             });
         }
         catch (Win32Exception error) when (error.NativeErrorCode == CancelledByUser)
@@ -79,7 +97,7 @@ public sealed class RadioControl : IRadio
 
     public void Stop()
     {
-        if (_supervisor is null) return;
+        if (_supervisor is null && _viaTaskSince is null) return;
         _stop?.Set();
         Become(RadioPhase.Stopping);
     }
@@ -92,6 +110,23 @@ public sealed class RadioControl : IRadio
 
     private void Look()
     {
+        if (_supervisor is null && _viaTaskSince is { } since)
+        {
+            if (TaskCopy() is { } found)
+            {
+                _supervisor = found;
+                _viaTaskSince = null;
+            }
+            else if (DateTime.UtcNow - since > TaskGrace)
+            {
+                _viaTaskSince = null;
+                _watch.Stop();
+                if (Phase == RadioPhase.Stopping) Become(RadioPhase.Off);
+                else Elevate();
+                return;
+            }
+            else return;
+        }
         if (_supervisor is null) return;
         bool ended;
         try
@@ -117,6 +152,21 @@ public sealed class RadioControl : IRadio
             Become(RadioPhase.Off);
         else
             Become(RadioPhase.Failed, Tail(by == "awdld" ? "awdld.log" : "radio.log"));
+    }
+
+    /// <summary>The copy the task started, once it has said which process it is.</summary>
+    private Process? TaskCopy()
+    {
+        try
+        {
+            var pid = int.Parse(File.ReadAllText(RadioSupervisor.PidFile(LogFolder, _stopName)).Trim());
+            return Process.GetProcessById(pid);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or FormatException
+                                       or OverflowException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     private string EndedBy()

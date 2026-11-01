@@ -174,7 +174,8 @@ public sealed class IncomingModel : Observable
     public required string What { get; init; }
     public required string Detail { get; init; }
     public string Model { get; init; } = "";
-    public string Glyph => Words.Glyph(Words.KindOfDevice(Model.Length > 0 ? Model : null));
+    public DeviceKind Kind => Words.KindOfDevice(Model.Length > 0 ? Model : null);
+    public string Glyph => Words.Glyph(Kind);
     public long? Total { get; set; }
     public RateMeter Rate { get; } = new();
     public ICommand? Accept { get; init; }

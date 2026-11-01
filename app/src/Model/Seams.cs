@@ -108,6 +108,8 @@ public sealed class AppSettings
     public bool ShowRequests { get; set; } = true;
     public bool KeepInTray { get; set; } = true;
     public bool TrayNoticeShown { get; set; }
+    /// <summary>The radio was on when last left: it comes back on when the app starts.</summary>
+    public bool RadioWanted { get; set; }
     public double[]? Window { get; set; }
 
     /// <summary>Called after a change, to write it down.</summary>

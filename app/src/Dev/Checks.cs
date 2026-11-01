@@ -44,6 +44,12 @@ public static class Checks
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Program.Dress(app).Apply(Palette.Light(Rgb.Hex("#0078D4")));
             Motion.Reduced = true;
+            if (args.Skip(1).Contains("portraits"))
+            {
+                Portraits(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("accessibility"))
             {
                 Colors();
@@ -93,6 +99,12 @@ public static class Checks
                 log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
                 return _failed == 0 ? 0 : 1;
             }
+            if (args.Skip(1).Contains("sharing"))
+            {
+                Sharing(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("startup"))
             {
                 Startup(app);
@@ -105,14 +117,17 @@ public static class Checks
             States(app);
             Startup(app);
             Explorer(app, folder);
+            Sharing(app, folder);
             Selection(app, folder);
             SenderFolders(app, folder);
             History(app, folder);
             Notifications(app, folder);
             Setup(app, folder);
             Accessibility(app, folder);
+            Portraits(app, folder);
             Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
+            RadioStartup(app, Path.Combine(folder, "supervised"));
         }
         catch (Exception error)
         {
@@ -121,6 +136,40 @@ public static class Checks
         }
         log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static void Portraits(Application app, string folder)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        Stage.Scenes([]).First(scene => scene.Name == "device-portraits").Build(world);
+        var view = Show(world);
+        var portraits = Descendants(view).OfType<DevicePortrait>().ToList();
+        Expect(portraits.Select(portrait => portrait.Kind).Order().SequenceEqual(Enum.GetValues<DeviceKind>().Order()),
+            "each recognised device kind has its own portrait, including the unknown fallback");
+        Expect(portraits.All(portrait => !portrait.IsHitTestVisible && UIElementAutomationPeer.CreatePeerForElement(portrait) is null),
+            "device art is decorative; the named device button remains the accessible action");
+        var hashes = new List<string>();
+        foreach (var portrait in portraits)
+        {
+            var bitmap = Stage.Bitmap(portrait, 64, 64, 2);
+            var pixels = new byte[bitmap.PixelHeight * bitmap.PixelWidth * 4];
+            bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+            hashes.Add(Convert.ToHexString(SHA256.HashData(pixels)));
+        }
+        Expect(hashes.Distinct().Count() == 4, "phone, tablet, computer and unknown art are visually distinct");
+        var target = Stage.Controls(view).First(one => one.Control.DataContext is PeerModel).Control;
+        Expect(view.TargetPeer(target, true) && Plate.GetDropTarget(target), "a file drag identifies its specific device destination");
+        Expect(!view.TargetPeer(target, false) && !Plate.GetDropTarget(target), "non-file drags clear the destination ring");
+        ((PeerModel)target.DataContext).State = PeerState.Sending;
+        Expect(!view.TargetPeer(target, true) && !Plate.GetDropTarget(target), "a busy device refuses the drop highlight");
+        ((PeerModel)target.DataContext).State = PeerState.Idle;
+        world.Model.SettingsOpen = true;
+        Expect(!view.TargetPeer(target, true), "a sheet prevents a drop onto devices behind it");
+        world.Model.SettingsOpen = false;
+        world.Model.Hold([Stage.SampleFiles(Path.Combine(folder, "portrait-files"))[0]]);
+        Expect(KeyboardPress(view, ((PeerModel)target.DataContext).Name) && world.Engine.Told.Last().Contains("\"do\":\"send\""),
+            "the illustrated device still sends directly using the keyboard");
+        world.Model.Dispose();
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
@@ -589,6 +638,209 @@ public static class Checks
                == "\"C:\\Program Files\\winawdl\\winawdl.exe\" \"%1\""
                && WindowsExplorer.SelectionModel == "Document",
                "classic verbs quote one item per invocation; the pipe accumulates each selection");
+    }
+
+    /// <summary>Windows' Share sheet: what winawdl-share.exe makes of a share, the
+    /// pipe it hands it over by, and the package that puts AirDrop in the sheet.</summary>
+    private static void Sharing(Application app, string folder)
+    {
+        var kept = Path.Combine(folder, "shared photo.jpg");
+        File.WriteAllText(kept, "kept");
+        var lent = Path.Combine(Path.GetTempPath(), "winawdl-check-lent-" + Guid.NewGuid().ToString("N") + ".jpg");
+        File.WriteAllText(lent, "lent");
+        var stash = Path.Combine(folder, "stash-" + Guid.NewGuid().ToString("N"));
+        Task<string> Copy(string from, string into)
+        {
+            var copy = Path.Combine(into, Path.GetFileName(from));
+            File.Copy(from, copy);
+            return Task.FromResult(copy);
+        }
+        var shared = Share.Gather(new FakeShare([
+            new(kept, false, into => Copy(kept, into)),
+            new(lent, false, into => Copy(lent, into)),
+            new("", false, into => Copy(kept, into)),
+            new(folder, true, _ => throw new InvalidOperationException("a folder is never copied")),
+            new("", true, _ => throw new InvalidOperationException("a folder is never copied")),
+        ], "https://example.com/page"), stash).GetAwaiter().GetResult();
+        Expect(!Share.Temporary(kept) && shared.Paths.Length == 4 && shared.Paths[0] == kept && shared.Paths[3] == folder,
+               "shared files and folders that will last are sent from where they are");
+        Expect(shared.Paths[1] != lent && shared.Paths[1].StartsWith(stash) && File.ReadAllText(shared.Paths[1]) == "lent"
+               && shared.Paths[2].StartsWith(stash) && shared.Paths[1] != shared.Paths[2],
+               "a file lent from a temporary folder, or with no file of its own, is copied before the share ends");
+        Expect(shared.Link.Length == 0, "with files shared, a link shared with them is left out");
+        File.Delete(lent);
+        Expect(Share.Gather(new FakeShare([], "https://example.com/page"), stash).GetAwaiter().GetResult()
+                   is { Paths.Length: 0, Link: "https://example.com/page" }
+               && Share.Gather(new FakeShare([], "file:///C:/Windows/win.ini"), stash).GetAwaiter().GetResult().Link.Length == 0
+               && Share.Gather(new FakeShare([], "https://exa mple.com"), stash).GetAwaiter().GetResult().Link.Length == 0,
+               "a shared web link is taken alone, and only as HTTP or HTTPS");
+        Expect(Share.Temporary(Path.Combine(Path.GetTempPath(), "a.png"))
+               && Share.Temporary(@"C:\Users\someone\AppData\Local\Packages\Photos_8wekyb3d8bbwe\TempState\a.png")
+               && Share.Temporary(@"C:\Users\someone\AppData\Local\Microsoft\Windows\INetCache\IE\a.png")
+               && Share.Temporary("relative.png") && !Share.Temporary(@"D:\Pictures\a.png"),
+               "the folders apps lend shared files from are known as temporary");
+
+        var old = Directory.CreateDirectory(Path.Combine(stash, "old"));
+        var recent = Directory.CreateDirectory(Path.Combine(stash, "recent"));
+        old.LastWriteTimeUtc = DateTime.UtcNow.AddDays(-2);
+        Share.Sweep(DateTime.UtcNow.AddDays(-1), stash);
+        Expect(!old.Exists && Directory.Exists(recent.FullName), "copies from a share the app never took are swept after a day");
+
+        // Copies the app takes in are its to delete once nothing holds them.
+        var copyFolder = Path.Combine(Share.StashRoot, "check-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(copyFolder);
+        var copy = Path.Combine(copyFolder, "shared copy.png");
+        File.WriteAllText(copy, "copy");
+        var world = Stage.NewWorld(app.Dispatcher);
+        Program.Deliver(new LaunchRequest([copy, kept], true), world.Model, () => { });
+        Expect(world.Model.Held.Count == 2 && File.Exists(copy), "shared files reach the hand, copies included");
+        world.Model.ClearHeld.Execute(null);
+        Expect(!File.Exists(copy) && !Directory.Exists(copyFolder) && File.Exists(kept),
+               "a shared copy and its folder go once the hand lets go; the sharer's own file stays");
+        Program.Deliver(new LaunchRequest([], true, "", "https://example.com/page"), world.Model, () => { });
+        Expect(world.Model.LinkDraft == "https://example.com/page" && world.Model.HeldNotice.StartsWith("Link added"),
+               "a shared link becomes the link to send");
+        world.Model.Dispose();
+
+        var request = new LaunchRequest([], true, "", "https://example.com/page");
+        Expect(LaunchRequest.Decode(request.Encode()) is { Link: "https://example.com/page", Surface: true }
+               && LaunchRequest.Decode(new LaunchRequest([], true, "", "javascript:alert(1)").Encode()) == null,
+               "the pipe carries a link and refuses one that is not HTTP or HTTPS");
+        SharingPipe(kept).GetAwaiter().GetResult();
+        SharePackage();
+        ModernMenu();
+    }
+
+    /// <summary>Windows 11's own menu: the classic verbs hide for the packaged command,
+    /// which shows exactly while they do, so AirDrop is listed once.</summary>
+    private static void ModernMenu()
+    {
+        const string executable = @"C:\Program Files\winawdl\winawdl.exe";
+        var verb = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            [""] = "Send with AirDrop", ["Icon"] = $"\"{executable}\",0", ["MultiSelectModel"] = "Document",
+            ["winawdl-owner"] = "winawdl Explorer integration v1",
+        };
+        var command = new Dictionary<string, object?> { [""] = WindowsExplorer.CommandFor(executable) };
+        WindowsExplorer.VerbSnapshot Snapshot(Dictionary<string, object?> values) => new(values, command, ["command"], []);
+        var hidden = new Dictionary<string, object?>(verb, StringComparer.OrdinalIgnoreCase) { [WindowsExplorer.HiddenValue] = "" };
+        var altered = new Dictionary<string, object?>(verb, StringComparer.OrdinalIgnoreCase) { [WindowsExplorer.HiddenValue] = "1" };
+        Expect(WindowsExplorer.PristineVerb(Snapshot(verb), executable) && WindowsExplorer.PristineVerb(Snapshot(hidden), executable)
+               && !WindowsExplorer.PristineVerb(Snapshot(altered), executable),
+               "a verb hidden for Windows 11's menu is still winawdl's own; one changed by someone else is not");
+        Expect(WindowsExplorer.PlanVerbRemoval(Snapshot(hidden), executable)!.Values.Contains(WindowsExplorer.HiddenValue)
+               && !WindowsExplorer.PlanVerbRemoval(Snapshot(altered), executable)!.Values.Contains(WindowsExplorer.HiddenValue),
+               "turning the switch off takes the hiding away too, and leaves another program's value alone");
+
+        var repo = Repo.Find() ?? throw new InvalidOperationException("the repository was not found");
+        var package = System.Xml.Linq.XDocument.Load(Path.Combine(repo, "installer", "package", "AppxManifest.xml"));
+        var verbs = package.Descendants().Where(element => element.Name.LocalName == "Verb").ToList();
+        var server = package.Descendants().First(element => element.Name.LocalName == "Class");
+        var source = File.ReadAllText(Path.Combine(repo, "app", "menu", "menu.cpp"));
+        var clsid = new Guid((string)server.Attribute("Id")!);
+        Expect(verbs.Count == 2 && verbs.All(one => new Guid((string)one.Attribute("Clsid")!) == clsid)
+               && (string?)server.Attribute("Path") == "winawdl-menu.dll"
+               && source.Contains(clsid.ToString("D").ToUpperInvariant(), StringComparison.Ordinal)
+               && source.Contains($"L\"{WindowsExplorer.HiddenValue}\"", StringComparison.Ordinal),
+               "the package's menu entries, its COM class and winawdl-menu.dll name one command for files and folders");
+
+        // CI does not build the native DLL; a local build or an installed copy is checked.
+        var dll = new[] { Path.Combine(repo, "build", "menu", "winawdl-menu.dll"), Path.Combine(repo, "winawdl-menu.dll") }
+            .FirstOrDefault(File.Exists);
+        if (dll is null)
+        {
+            _log.WriteLine("SKIP  winawdl-menu.dll is not built here: app\\menu\\build.ps1 builds it");
+            return;
+        }
+        var library = System.Runtime.InteropServices.NativeLibrary.Load(dll);
+        var getClassObject = System.Runtime.InteropServices.Marshal.GetDelegateForFunctionPointer<GetClassObject>(
+            System.Runtime.InteropServices.NativeLibrary.GetExport(library, "DllGetClassObject"));
+        var factoryId = typeof(IClassFactory).GUID;
+        var commandId = typeof(IExplorerCommand).GUID;
+        Expect(getClassObject(ref clsid, ref factoryId, out var factory) == 0, "winawdl-menu.dll serves the package's class");
+        ((IClassFactory)factory).CreateInstance(IntPtr.Zero, ref commandId, out var made);
+        var menu = (IExplorerCommand)made;
+        menu.GetTitle(IntPtr.Zero, out var title);
+        menu.GetIcon(IntPtr.Zero, out var icon);
+        menu.GetCanonicalName(out var name);
+        Expect(title == "Send with AirDrop" && name == clsid
+               && icon.EndsWith(@"\winawdl.exe,0", StringComparison.OrdinalIgnoreCase),
+               "the command reads Send with AirDrop, with winawdl's icon beside it");
+    }
+
+    [System.Runtime.InteropServices.UnmanagedFunctionPointer(System.Runtime.InteropServices.CallingConvention.StdCall)]
+    private delegate int GetClassObject(ref Guid clsid, ref Guid iid,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Interface)] out object factory);
+
+    [System.Runtime.InteropServices.ComImport, System.Runtime.InteropServices.Guid("00000001-0000-0000-C000-000000000046"),
+     System.Runtime.InteropServices.InterfaceType(System.Runtime.InteropServices.ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IClassFactory
+    {
+        void CreateInstance(IntPtr outer, ref Guid iid,
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Interface)] out object made);
+        void LockServer(bool lockIt);
+    }
+
+    [System.Runtime.InteropServices.ComImport, System.Runtime.InteropServices.Guid("a08ce4d0-fa25-44ab-b57c-c7b1c323e0b9"),
+     System.Runtime.InteropServices.InterfaceType(System.Runtime.InteropServices.ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IExplorerCommand
+    {
+        void GetTitle(IntPtr items, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] out string title);
+        void GetIcon(IntPtr items, [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] out string icon);
+        void GetToolTip(IntPtr items, out IntPtr tip);
+        void GetCanonicalName(out Guid name);
+        void GetState(IntPtr items, int slowOk, out int state);
+        void Invoke(IntPtr items, IntPtr bind);
+        void GetFlags(out int flags);
+        void EnumSubCommands(out IntPtr commands);
+    }
+
+    private sealed class FakeShare(IReadOnlyList<Share.Item> items, string? link) : Share.ISource
+    {
+        public Task<IReadOnlyList<Share.Item>> Items() => Task.FromResult(items);
+        public Task<string?> Link() => Task.FromResult(link);
+    }
+
+    private static async Task SharingPipe(string file)
+    {
+        var name = "winawdl-check-share-" + Guid.NewGuid().ToString("N");
+        Expect(!await Share.Forward(new([file], ""), Share.PipeName(name), TimeSpan.FromMilliseconds(300)),
+               "the share helper learns when winawdl is not running");
+        using var owner = new SingleInstance(name);
+        var received = new TaskCompletionSource<LaunchRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+        owner.Listen(request => received.TrySetResult(request));
+        Expect(await Share.Forward(new([file], ""), owner.PipeName, TimeSpan.FromSeconds(5))
+               && (await received.Task.WaitAsync(TimeSpan.FromSeconds(10))) is { Surface: true } got
+               && got.Paths.SequenceEqual(new[] { file }),
+               "the share helper hands files over the app's own single-instance pipe");
+        Expect(!await Share.Forward(new([], "javascript:alert(1)"), owner.PipeName, TimeSpan.FromSeconds(5)),
+               "the app refuses a handed-over link that is not HTTP or HTTPS");
+    }
+
+    /// <summary>The package, the helper's manifest and the installer's certificate
+    /// must agree on one identity, or Windows will not tie them together.</summary>
+    private static void SharePackage()
+    {
+        var repo = Repo.Find() ?? throw new InvalidOperationException("the repository was not found");
+        var package = System.Xml.Linq.XDocument.Load(Path.Combine(repo, "installer", "package", "AppxManifest.xml"));
+        var helper = System.Xml.Linq.XDocument.Load(Path.Combine(repo, "app", "share", "share.manifest"));
+        var identity = package.Descendants().First(element => element.Name.LocalName == "Identity");
+        var application = package.Descendants().First(element => element.Name.LocalName == "Application");
+        var msix = helper.Descendants().First(element => element.Name.LocalName == "msix");
+        var install = File.ReadAllText(Path.Combine(repo, "installer", "install.ps1"));
+        Expect((string?)identity.Attribute("Name") == ShareRegistration.PackageName
+               && (string?)identity.Attribute("Publisher") == ShareRegistration.Publisher
+               && (string?)msix.Attribute("packageName") == ShareRegistration.PackageName
+               && (string?)msix.Attribute("publisher") == ShareRegistration.Publisher
+               && (string?)msix.Attribute("applicationId") == (string?)application.Attribute("Id")
+               && install.Contains($"$CertSubject   = '{ShareRegistration.Publisher}'", StringComparison.Ordinal),
+               "the package, winawdl-share.exe and install.ps1's certificate name one identity");
+        var target = package.Descendants().FirstOrDefault(element => element.Name.LocalName == "ShareTarget");
+        Expect((string?)application.Attribute("Executable") == "winawdl-share.exe" && target is not null
+               && target.Descendants().Any(element => element.Name.LocalName == "SupportsAnyFileType")
+               && target.Descendants().Where(element => element.Name.LocalName == "DataFormat")
+                   .Select(element => element.Value).Order().SequenceEqual(new[] { "StorageItems", "URI" }),
+               "the Share sheet offers AirDrop for any file and for web links");
     }
 
     private static async Task ExplorerPipe(string first, string second)
@@ -1203,7 +1455,7 @@ public static class Checks
 
     private static void Colors()
     {
-        double text = double.MaxValue, onFill = double.MaxValue, accentText = double.MaxValue,
+        double text = double.MaxValue, onFill = double.MaxValue, onButton = double.MaxValue, accentText = double.MaxValue,
                fill = double.MaxValue, tinted = double.MaxValue;
         foreach (var accent in Accents.Select(Rgb.Hex))
             foreach (var palette in (Palette[])[Palette.Light(accent), Palette.Night(accent)])
@@ -1216,12 +1468,14 @@ public static class Checks
                     fill = Math.Min(fill, Rgb.Contrast(palette.Accent, surface));
                 }
                 onFill = Math.Min(onFill, Rgb.Contrast(palette.OnAccent, palette.Accent));
+                onButton = Math.Min(onButton, palette.OnAccentFill == Rgb.White ? Rgb.Contrast(palette.OnAccentFill, palette.AccentFill) : 0);
                 tinted = Math.Min(tinted, Math.Min(Rgb.Contrast(palette.Ink, palette.AccentSoft),
                                                    Rgb.Contrast(palette.InkSoft, palette.AccentSoft)));
             }
         var cases = $"{Accents.Length} accents, light and dark";
         Expect(text >= Palette.TextContrast, $"ink, soft ink and ember on every surface: lowest {text:0.00} to 1");
         Expect(onFill >= Palette.TextContrast, $"text on an accent fill, {cases}: lowest {onFill:0.00} to 1");
+        Expect(onButton >= Palette.TextContrast, $"white label on a filled button, {cases}: lowest {onButton:0.00} to 1");
         Expect(accentText >= Palette.TextContrast, $"accent as text or focus ring on every surface, {cases}: lowest {accentText:0.00} to 1");
         Expect(fill >= Palette.ShapeContrast, $"accent as a fill against every surface, {cases}: lowest {fill:0.00} to 1");
         var boundary = Accents.Select(Rgb.Hex).SelectMany(accent => new[] { Palette.Light(accent), Palette.Night(accent) })
@@ -1649,6 +1903,82 @@ public static class Checks
         {
             return "";
         }
+    }
+
+    /// <summary>The radio comes back as it was left, and starts through install.ps1's
+    /// task with no prompt; that task takes nothing but the two values the app passes.</summary>
+    private static void RadioStartup(Application app, string logs)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        world.Model.StartRadioIfWanted();
+        Expect(world.Radio.Starts == 0, "a radio never turned on stays off when the app starts");
+        world.Model.RadioOn = true;
+        Expect(world.Settings.RadioWanted && world.Radio.Starts == 1, "turning the radio on is remembered");
+        world.Model.RadioOn = false;
+        Expect(!world.Settings.RadioWanted, "turning it off is remembered too");
+        world.Model.Dispose();
+
+        var again = Stage.NewWorld(app.Dispatcher);
+        again.Settings.RadioWanted = true;
+        again.Model.StartRadioIfWanted();
+        again.Model.StartRadioIfWanted();
+        Expect(again.Radio.Starts == 1 && again.Model.RadioOn, "a radio left on starts with the app, once");
+        again.Radio.Become(RadioPhase.Refused);
+        Expect(!again.Settings.RadioWanted, "a radio turned down at Windows' prompt is not asked for at every start");
+        again.Model.Dispose();
+
+        var setup = Stage.NewWorld(app.Dispatcher, setup: true);
+        setup.Settings.RadioWanted = true;
+        setup.Model.StartRadioIfWanted();
+        Expect(setup.Radio.Starts == 0, "while setup is open, the radio waits for it");
+        setup.Model.Dispose();
+
+        var name = $"winawdl-radio-stop-{Environment.ProcessId}-1";
+        Expect(RadioTask.StopName().IsMatch(name) && !RadioTask.StopName().IsMatch(name + " & calc")
+               && !RadioTask.StopName().IsMatch(@"..\other") && !RadioTask.Run(1, "not a stop event"),
+               "the task passes on only a stop event named as the app names it");
+        Expect(RadioSupervisor.Run(["1234", @"Global\anything"]) == 2 && RadioSupervisor.Run(["-1", name]) == 2
+               && RadioSupervisor.Run([name]) == 2,
+               "the elevated copy refuses any arguments but an owner and an app-made stop event");
+        using (var stop = new EventWaitHandle(false, EventResetMode.ManualReset, @"Local\" + name))
+        {
+            stop.Set();
+            var ping = Path.Combine(Environment.SystemDirectory, "ping.exe");
+            var code = RadioSupervisor.Supervise(Environment.ProcessId, name, new("radio", ping, ["-t", "127.0.0.1"]),
+                                                 new("awdld", ping, ["-t", "127.0.0.1"]), logs);
+            Expect(code == 0 && !File.Exists(RadioSupervisor.PidFile(logs, name)),
+                   "the supervisor's process file is gone once it has stopped");
+        }
+
+        Expect(RadioTask.Arguments(42, name) is [ "42", var passed ] && passed == name,
+               "the task is handed an array of strings, the only kind Task Scheduler takes");
+        // Where install.ps1 has registered the task, it is really run: with no stop event of
+        // that name, the copy it starts ends at once (2) and nothing else happens.
+        var registered = false;
+        try
+        {
+            using var tasks = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("schtasks.exe",
+                $"/query /tn \"{RadioTask.Name}\"") { UseShellExecute = false, CreateNoWindow = true,
+                    RedirectStandardOutput = true, RedirectStandardError = true })!;
+            tasks.WaitForExit(10_000);
+            registered = tasks.ExitCode == 0;
+        }
+        catch (System.ComponentModel.Win32Exception) { }
+        if (registered)
+            Expect(RadioTask.Run(Environment.ProcessId, $"winawdl-radio-stop-{Environment.ProcessId}-999999"),
+                   "the installed radio task starts with the app's arguments, with no prompt");
+        else
+            _log.WriteLine("SKIP  the radio task is not registered here: install.ps1 registers it");
+
+        var repo = Repo.Find() ?? throw new InvalidOperationException("the repository was not found");
+        var install = File.ReadAllText(Path.Combine(repo, "installer", "install.ps1"));
+        var uninstall = File.ReadAllText(Path.Combine(repo, "installer", "uninstall.ps1"));
+        Expect(install.Contains($"$RadioTask     = '{RadioTask.Name}'", StringComparison.Ordinal)
+               && install.Contains("--radio `$(Arg0) `$(Arg1)", StringComparison.Ordinal)
+               && install.Contains("<RunLevel>HighestAvailable</RunLevel>", StringComparison.Ordinal)
+               && install.Contains("(A;;GRGX;;;$sid)", StringComparison.Ordinal)
+               && uninstall.Contains($"Unregister-ScheduledTask -TaskName '{RadioTask.Name}'", StringComparison.Ordinal),
+               "install.ps1 registers the radio task for its own account only, and uninstall.ps1 removes it");
     }
 
     private static void Supervisor(string logs)

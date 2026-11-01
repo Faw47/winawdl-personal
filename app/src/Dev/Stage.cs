@@ -206,6 +206,13 @@ public static class Stage
             {
                 theme.Apply(palette);
                 var view = Build(build, app.Dispatcher, name.StartsWith("setup-"));
+                if (name == "device-drop-target")
+                {
+                    view.Measure(new Size(460, 688));
+                    view.Arrange(new Rect(0, 0, 460, 688));
+                    view.UpdateLayout();
+                    view.TargetPeer(Controls(view).First(one => one.Control.DataContext is PeerModel).Control, files: true);
+                }
                 if (name.StartsWith("settings-startup-") || name.StartsWith("settings-explorer-"))
                 {
                     view.Measure(new Size(460, 688));
@@ -458,10 +465,26 @@ public static class Stage
             world.Engine.Say(new { @event = "unwilling", count = 1 });
         });
         yield return ("idle", Devices);
+        yield return ("device-portraits", world =>
+        {
+            Devices(world);
+            world.Engine.Say(new { @event = "peer", id = "tablet", name = "Stand-in iPad", model = "iPad13,4" });
+            world.Engine.Say(new { @event = "peer", id = "other", name = "Nearby Device", model = "Unknown" });
+        });
+        yield return ("device-drop-target", world =>
+        {
+            Devices(world);
+            world.Model.Hold(files.Take(2));
+        });
         yield return ("holding", world =>
         {
             Devices(world);
             world.Model.Hold(files);
+        });
+        yield return ("shared-link", world =>
+        {
+            Devices(world);
+            Program.Deliver(new LaunchRequest([], true, "", "https://www.apple.com/airdrop/"), world.Model, () => { });
         });
         yield return ("folder-flat", world =>
         {

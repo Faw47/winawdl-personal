@@ -550,8 +550,6 @@ public static class Drive
             Shot("received");
             Press("stand-in-dune.png");
             Check(_desk.Opened.LastOrDefault() == "open " + Path.Combine(mine, "stand-in-dune.png"), "press a received file -> it is opened (recorded, not launched)");
-            Press("Show in Folder");
-            Check(_desk.Opened.LastOrDefault() == "open " + mine, "Show in Folder -> the folder is opened (recorded)");
             _model.Received[0].Reveal!.Execute(null);
             Check(_desk.Opened.Last().StartsWith("reveal "), "Show in folder: the menu item's command runs (the menu was not opened: that takes a right click)");
 

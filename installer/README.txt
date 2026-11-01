@@ -50,6 +50,15 @@ would be done and changes nothing.
 To send to an iPhone, iPad or Mac, or to receive from one, set its AirDrop to
 "Everyone for 10 Minutes".
 
+Once the radio is on, winawdl turns it back on each time it starts, without
+asking for administrator rights again for the account that installed it.
+
+Send with AirDrop is in Explorer's right-click menu; on Windows 11 it is in
+the menu itself, not under Show more options.
+
+AirDrop also appears in Windows' Share sheet, for each account that starts
+winawdl: share a file or a web link from any app and pick AirDrop.
+
 
 Uninstall
 ---------

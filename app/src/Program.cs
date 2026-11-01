@@ -29,6 +29,9 @@ public static class Program
         [ToastRegistration.InstallFlag] => ToastRegistration.Register(true),
         [ToastRegistration.RemoveFlag] => ToastRegistration.Register(false),
         [ToastRegistration.ShortcutFlag, var path] => ToastRegistration.Stamp(path),
+        [ShareRegistration.SignFlag, var package, var thumbprint] => ShareRegistration.Sign(package, thumbprint),
+        [ShareRegistration.InstallFlag] => ShareRegistration.Register(true),
+        [ShareRegistration.RemoveFlag] => ShareRegistration.Register(false),
         _ => RunApp(args),
     };
 
@@ -37,6 +40,8 @@ public static class Program
     {
         app.Resources.MergedDictionaries.Add((ResourceDictionary)Application.LoadComponent(
             new Uri("/winawdl;component/src/theme/controls.xaml", UriKind.Relative)));
+        app.Resources.MergedDictionaries.Add((ResourceDictionary)Application.LoadComponent(
+            new Uri("/winawdl;component/src/theme/devices.xaml", UriKind.Relative)));
         return new ThemeService(app.Resources, app.Dispatcher);
     }
 
@@ -95,8 +100,18 @@ public static class Program
             Deliver(next, model, window.Surface);
         }));
 
+        Share.Sweep(DateTime.UtcNow.AddDays(-1));
+        // Once it is, Windows 11's menu entry stands in for the classic verbs.
+        _ = ShareRegistration.Ensure(AppContext.BaseDirectory, () =>
+        {
+            var explorer = new WindowsExplorer(Environment.ProcessPath!);
+            try { if (explorer.Enabled) explorer.Enabled = true; }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException
+                                           or System.Runtime.InteropServices.COMException) { }
+        });
         Deliver(request, model, () => { });
         model.StartTheEngine();
+        model.StartRadioIfWanted();
         if (request.Surface || model.SetupOpen) window.Show();
         app.Run();
         engine.Stop();
@@ -110,7 +125,7 @@ public static class Program
 
     internal static void Deliver(LaunchRequest request, TableModel model, Action surface)
     {
-        if (request.Paths.Length > 0) model.Hold(request.Paths);
+        model.Receive(request.Paths, request.Link);
         if (request.Surface) surface();
     }
 

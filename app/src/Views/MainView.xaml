@@ -88,8 +88,12 @@
         </Grid.ColumnDefinitions>
         <StackPanel VerticalAlignment="Center">
           <TextBlock Style="{StaticResource LargeTitle}" Text="AirDrop" />
-          <TextBlock Style="{StaticResource Caption}" Text="{Binding Presence}" TextWrapping="NoWrap"
-                     TextTrimming="CharacterEllipsis" />
+          <DockPanel>
+            <Ellipse Width="7" Height="7" Margin="0,1,6,0" VerticalAlignment="Center" Fill="{DynamicResource Available}"
+                     Visibility="{Binding VisibleNow, Converter={StaticResource Shown}}" />
+            <TextBlock Style="{StaticResource Caption}" Text="{Binding Presence}" TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis" />
+          </DockPanel>
         </StackPanel>
         <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
           <Button x:Name="FindMe" Style="{StaticResource Pill}" Click="OnFindMe"
@@ -130,9 +134,9 @@
                         <ColumnDefinition Width="*" />
                       </Grid.ColumnDefinitions>
                       <Grid Width="48" Height="48" Margin="0,0,14,0" VerticalAlignment="Top">
-                        <Ellipse Margin="3" Fill="{DynamicResource Avatar}" />
-                        <t:GlyphText Style="{StaticResource Glyph}" FontSize="20" Foreground="{DynamicResource InkSoft}"
-                                   Text="{Binding Glyph}" />
+                        <t:Raised Margin="3" Radius="21" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
+                                  Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}" />
+                        <t:DevicePortrait Width="30" Height="30" GlyphSize="20" Kind="{Binding Kind}" />
                         <t:Ring AutomationProperties.Name="{Binding Sender}" AutomationProperties.HelpText="Receiving progress"
                                 Thickness="3" Stroke="{DynamicResource Accent}" Track="{DynamicResource Outline}"
                                 Progress="{Binding Progress}" />
@@ -181,7 +185,7 @@
                     Visibility="{Binding PanelHasAction, Converter={StaticResource Shown}}">
               <StackPanel Orientation="Horizontal">
                 <t:GlyphText Style="{StaticResource Glyph}" Text="&#xE83D;" Margin="0,1,8,0" FontSize="14"
-                           Foreground="{DynamicResource OnAccent}"
+                           Foreground="{DynamicResource OnAccentFill}"
                            Visibility="{Binding PanelAsksWindows, Converter={StaticResource Shown}}" />
                 <TextBlock Text="{Binding PanelActionLabel}" />
               </StackPanel>
@@ -201,11 +205,11 @@
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Button Style="{StaticResource DeviceTile}" Margin="6,0,6,18" Tag="arrive" Loaded="OnArrived"
-                          AllowDrop="True" Drop="OnDropOnPeer" DragOver="OnDragOverPeer"
+                  <Button Style="{StaticResource DeviceTile}" Margin="8,0,8,16" Tag="arrive" Loaded="OnArrived"
+                          AllowDrop="True" Drop="OnDropOnPeer" DragOver="OnDragOverPeer" DragLeave="OnDragLeavePeer"
                           Command="{Binding Press}" t:Plate.Progress="{Binding Progress}"
                           t:Plate.Glyph="{Binding Glyph}" AutomationProperties.Name="{Binding Name}">
-                    <StackPanel Width="104">
+                    <StackPanel Width="112">
                       <!-- Two lines each at most, as AirDrop allows a name; a line's
                            height is exactly the one given, or the second would not fit. -->
                       <TextBlock Style="{StaticResource Body}" FontSize="13" LineHeight="17" FontWeight="SemiBold"
@@ -245,15 +249,34 @@
             </ItemsControl>
             <StackPanel Margin="0,28,0,0" MaxWidth="320" HorizontalAlignment="Center"
                         Visibility="{Binding ShowsNobody, Converter={StaticResource Shown}}">
-              <!-- Looking, as AirDrop shows it: rings that leave the middle and fade. -->
-              <Grid Width="96" Height="96" HorizontalAlignment="Center" Loaded="OnRadarLoaded">
+              <!-- Looking, as AirDrop shows it: its mark on a plate, and rings that
+                   leave the middle and fade. The arcs are the owner's mockup's. -->
+              <Grid Width="120" Height="120" HorizontalAlignment="Center" Loaded="OnRadarLoaded">
                 <Ellipse Stroke="{DynamicResource Outline}" StrokeThickness="1" />
-                <Ellipse Margin="16" Stroke="{DynamicResource Outline}" StrokeThickness="1" />
+                <Ellipse Margin="20" Stroke="{DynamicResource Outline}" StrokeThickness="1" />
                 <Ellipse x:Name="PulseOne" Stroke="{DynamicResource Accent}" StrokeThickness="1.5" Opacity="0"
                          RenderTransformOrigin="0.5,0.5" />
                 <Ellipse x:Name="PulseTwo" Stroke="{DynamicResource Accent}" StrokeThickness="1.5" Opacity="0"
                          RenderTransformOrigin="0.5,0.5" />
-                <Ellipse Margin="32" Fill="{DynamicResource Accent}" />
+                <t:Raised Width="64" Height="64" Radius="32" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
+                          Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}">
+                  <Viewbox Width="34" Height="34" IsHitTestVisible="False">
+                    <Canvas Width="46" Height="46">
+                      <Canvas.Resources>
+                        <Style TargetType="Path">
+                          <Setter Property="Stroke" Value="{DynamicResource Accent}" />
+                          <Setter Property="StrokeThickness" Value="3.1" />
+                          <Setter Property="StrokeStartLineCap" Value="Round" />
+                          <Setter Property="StrokeEndLineCap" Value="Round" />
+                        </Style>
+                      </Canvas.Resources>
+                      <Path Data="M 11.82 38.98 A 19.5 19.5 0 1 1 34.18 38.98" />
+                      <Path Data="M 14.85 34.63 A 14.2 14.2 0 1 1 31.15 34.63" />
+                      <Path Data="M 17.89 30.29 A 8.9 8.9 0 1 1 28.11 30.29" />
+                      <Path Data="M 20.88 26.03 A 3.7 3.7 0 1 1 25.12 26.03" />
+                    </Canvas>
+                  </Viewbox>
+                </t:Raised>
               </Grid>
               <TextBlock Style="{StaticResource Name}" Margin="0,16,0,0" HorizontalAlignment="Center"
                          Text="{Binding NobodyTitle}" />
@@ -280,9 +303,6 @@
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
               <Button x:Name="HistoryButton" Style="{StaticResource TextButton}" Content="History"
                       Command="{Binding OpenHistory}" AutomationProperties.Name="History" />
-              <Button AutomationProperties.Name="Show in Folder" Style="{StaticResource TextButton}" Content="Show in Folder" Margin="8,0,0,0"
-                      Command="{Binding OpenFolder}"
-                      Visibility="{Binding HasReceived, Converter={StaticResource Shown}}" />
             </StackPanel>
             <TextBlock Style="{StaticResource Label}" Text="Recent" VerticalAlignment="Center" />
           </DockPanel>
@@ -340,8 +360,8 @@
                   <Style TargetType="Button" BasedOn="{StaticResource RaisedButton}">
                     <Style.Triggers>
                       <DataTrigger Binding="{Binding ChooseIsNext}" Value="True">
-                        <Setter Property="Background" Value="{DynamicResource Accent}" />
-                        <Setter Property="Foreground" Value="{DynamicResource OnAccent}" />
+                        <Setter Property="Background" Value="{DynamicResource AccentFill}" />
+                        <Setter Property="Foreground" Value="{DynamicResource OnAccentFill}" />
                       </DataTrigger>
                     </Style.Triggers>
                   </Style>
@@ -394,8 +414,6 @@
             </DockPanel>
           </StackPanel>
         </Grid>
-        <TextBlock Style="{StaticResource Caption}" Margin="4,8,4,0"
-                   Text="{x:Static m:TableModel.SelectionLimits}" />
         <t:LiveText AutomationProperties.LiveSetting="Assertive" x:Name="HeldNoticeText" Margin="4,8,4,0"
                    Text="{Binding HeldNotice}"
                    Visibility="{Binding HasHeldNotice, Converter={StaticResource Shown}}">

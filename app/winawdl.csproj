@@ -30,5 +30,7 @@
     <Using Remove="System.Drawing" />
     <Compile Include="src\**\*.cs" />
     <Page Include="src\**\*.xaml" />
+    <!-- Built beside winawdl.exe, never loaded by it: what the Share sheet starts. -->
+    <ProjectReference Include="share\winawdl-share.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
 </Project>

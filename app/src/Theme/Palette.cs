@@ -121,6 +121,10 @@ public sealed class Palette
     /// <summary>The accent as a fill: a button, a switch that is on, the bar of a transfer.</summary>
     public Rgb Accent { get; private init; }
     public Rgb OnAccent { get; private init; }
+    /// <summary>The accent behind a label: a filled button, a highlighted menu item.
+    /// Deep enough that the label is white, as Apple letters its accent buttons.</summary>
+    public Rgb AccentFill { get; private init; }
+    public Rgb OnAccentFill { get; private init; }
     /// <summary>The accent as text on any surface.</summary>
     public Rgb AccentText { get; private init; }
     /// <summary>The tint a raised surface takes where a transfer has filled it.</summary>
@@ -156,6 +160,7 @@ public sealed class Palette
         Dark = window.Luminance < 0.5, Plain = true,
         Table = window, Raised = window, Well = window, Ink = text, InkSoft = text, Line = text, ControlLine = text,
         Ember = text, Accent = highlight, OnAccent = highlightText, AccentText = hotTrack,
+        AccentFill = highlight, OnAccentFill = highlightText,
         AccentSoft = window, Shadow = 0, Edge = text, EdgeOpacity = 1, Shade = 0,
     };
 
@@ -167,6 +172,8 @@ public sealed class Palette
         var fill = Reaching(accent, surfaces, ShapeContrast, towardDark: !dark);
         // White where it is readable, as Windows itself letters its accent; black on the pale ones.
         var onFill = Rgb.Contrast(Rgb.White, fill) >= TextContrast ? Rgb.White : Rgb.Black;
+        var button = Rgb.Contrast(Rgb.White, fill) >= TextContrast
+            ? fill : Reaching(fill, [Rgb.White], TextContrast, towardDark: true);
         var text = Reaching(accent, surfaces, TextContrast, towardDark: !dark);
         Rgb[] inks = [Rgb.Hex(ink), Rgb.Hex(inkSoft)];
         var soft = Tint(Rgb.Hex(raised), fill, dark ? 0.30 : 0.20, inks);
@@ -176,6 +183,7 @@ public sealed class Palette
             Ink = inks[0], InkSoft = inks[1], Line = Rgb.Hex(line), Ember = Rgb.Hex(ember),
             ControlLine = Reaching(Rgb.Hex(line), surfaces, ShapeContrast, towardDark: !dark),
             Accent = fill, OnAccent = onFill, AccentText = text, AccentSoft = soft,
+            AccentFill = button, OnAccentFill = Rgb.White,
             Shadow = shadow, ShadowTone = Rgb.Hex(shadowTone), Edge = edge, EdgeOpacity = edgeOpacity,
             Shade = shade,
         };

@@ -19,6 +19,7 @@ if ($Build) {
   & "$PSScriptRoot\build-radio.ps1" -Targets winawdl_radio | Out-Null
   & "$PSScriptRoot\build-awdl.ps1" | Out-Null
   & "$PSScriptRoot\build-app.ps1" | Out-Null
+  & "$repo\app\menu\build.ps1" | Out-Null
 }
 
 $version = ([xml](Get-Content "$repo\app\winawdl.csproj")).Project.PropertyGroup.Version | Select-Object -First 1
@@ -29,6 +30,10 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 $files = @(
   @('build\app\winawdl\winawdl.exe', ''), @('build\app\winawdl\winawdl.dll', ''),
   @('build\app\winawdl\winawdl.deps.json', ''), @('build\app\winawdl\winawdl.runtimeconfig.json', ''),
+  @('build\app\winawdl\Microsoft.Windows.SDK.NET.dll', ''), @('build\app\winawdl\WinRT.Runtime.dll', ''),
+  @('build\app\winawdl\winawdl-share.exe', ''), @('build\app\winawdl\winawdl-share.dll', ''),
+  @('build\app\winawdl\winawdl-share.deps.json', ''), @('build\app\winawdl\winawdl-share.runtimeconfig.json', ''),
+  @('build\menu\winawdl-menu.dll', ''),
   @('installer\install.ps1', ''), @('installer\install.cmd', ''), @('installer\uninstall.ps1', ''),
   @('installer\uninstall.cmd', ''), @('installer\README.txt', ''),
   @('airdrop\*.py', 'airdrop'), @('airdrop\apple-ca\*.pem', 'airdrop\apple-ca'),
@@ -81,6 +86,52 @@ $driverVersion = "$major.$minor.$(($now - [datetime]'2026-01-01').Days).$($now.H
 if ($LASTEXITCODE -ne 0) { throw "stampinf failed ($LASTEXITCODE)" }
 & $tools.Inf2Cat "/driver:$stage\driver" /os:10_X64 /uselocaltime | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed ($LASTEXITCODE)" }
+
+# The package that puts AirDrop in the Share sheet, stamped the same way for the
+# same reason. Unsigned here: install.ps1 signs it on the PC.
+$layout = "$repo\build\installer\package"
+if (Test-Path $layout) { Remove-Item $layout -Recurse -Force }
+New-Item -ItemType Directory -Force "$layout\Assets" | Out-Null
+(Get-Content "$repo\installer\package\AppxManifest.xml" -Raw).Replace('Version="0.0.0.0"', "Version=`"$driverVersion`"") |
+  Set-Content "$layout\AppxManifest.xml" -Encoding UTF8 -NoNewline
+# Its pictures, from the app's icon. The Share sheet asks for the icon by size
+# through resources.pri, and shows nothing without it: each size the icon draws
+# exactly is used as it is, the rest are scaled from its largest drawing.
+Add-Type -AssemblyName System.Drawing
+function Save-Picture([int]$size, [string]$name) {
+  $exact = New-Object System.Drawing.Icon "$repo\app\winawdl.ico", $size, $size
+  $drawing = $exact.ToBitmap()
+  try {
+    if ($drawing.Width -eq $size) { $drawing.Save("$layout\Assets\$name", [System.Drawing.Imaging.ImageFormat]::Png); return }
+    $largest = New-Object System.Drawing.Icon "$repo\app\winawdl.ico", 256, 256
+    $source = $largest.ToBitmap()
+    $picture = New-Object System.Drawing.Bitmap $size, $size
+    $pen = [System.Drawing.Graphics]::FromImage($picture)
+    $pen.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $pen.DrawImage($source, 0, 0, $size, $size)
+    $pen.Dispose()
+    $picture.Save("$layout\Assets\$name", [System.Drawing.Imaging.ImageFormat]::Png)
+    $picture.Dispose(); $source.Dispose(); $largest.Dispose()
+  } finally { $drawing.Dispose(); $exact.Dispose() }
+}
+foreach ($size in 16, 24, 32, 48, 256) {
+  Save-Picture $size "Square44x44Logo.targetsize-$size.png"
+  Save-Picture $size "Square44x44Logo.targetsize-$($size)_altform-unplated.png"
+}
+foreach ($scale in 100, 200, 400) {
+  Save-Picture (44 * $scale / 100) "Square44x44Logo.scale-$scale.png"
+  Save-Picture (50 * $scale / 100) "StoreLogo.scale-$scale.png"
+}
+Save-Picture 150 'Square150x150Logo.scale-100.png'
+Save-Picture 300 'Square150x150Logo.scale-200.png'
+$priConfig = "$repo\build\installer\priconfig.xml"
+& $tools.MakePri createconfig /cf $priConfig /dq en-US /o | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "MakePri could not make its configuration ($LASTEXITCODE)" }
+& $tools.MakePri new /pr $layout /cf $priConfig /mn "$layout\AppxManifest.xml" /of "$layout\resources.pri" /o | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "MakePri could not index the package's pictures ($LASTEXITCODE)" }
+New-Item -ItemType Directory -Force "$stage\package" | Out-Null
+& $tools.MakeAppx pack /d $layout /p "$stage\package\winawdl.msix" /nv /o | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "MakeAppx could not pack the Share sheet package ($LASTEXITCODE)" }
 
 # What ships must not say who built it, or where.
 $account = $env:USERNAME

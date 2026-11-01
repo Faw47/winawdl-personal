@@ -26,6 +26,7 @@ $InfName       = 'winawdl_regproxy.inf'
 $CertSubject   = 'CN=winawdl driver (signed on this PC)'
 $TrustStores   = 'Root', 'TrustedPublisher'
 $FirewallGroup = 'winawdl AirDrop'
+$RadioTask     = 'winawdl radio'
 $ReceiverPort  = 8771
 $UninstallKey  = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\winawdl'
 $Shortcut      = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\winawdl.lnk'
@@ -165,6 +166,7 @@ if ((Test-Administrator) -and -not ((& $whoami /priv | Out-String) -match 'SeLoc
 '    PC''s trusted roots and trusted publishers, then delete its private key for good'
 '  give the Wi-Fi card to that driver: Wi-Fi is down from then until you uninstall'
 "  let AirDrop through Windows Firewall, from link-local addresses only (TCP $ReceiverPort, UDP 5353)"
+'  let this account start the radio from winawdl without a prompt each time'
 '  add winawdl to the Start Menu and to the list of installed apps'
 ''
 "The Wi-Fi card now: $(Get-CardDriver)"
@@ -192,7 +194,7 @@ Step 'forget the certificate of an earlier install' {
     Get-ChildItem "Cert:\LocalMachine\$store" | Where-Object { $_.Subject -eq $CertSubject } | Remove-Item
   }
 }
-Step 'make a certificate, trust it on this PC, and sign the driver with it' {
+Step 'make a certificate, trust it on this PC, and sign the driver and the Share sheet package with it' {
   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $CertSubject `
             -CertStoreLocation Cert:\CurrentUser\My -KeyExportPolicy NonExportable `
             -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(10)
@@ -206,6 +208,11 @@ Step 'make a certificate, trust it on this PC, and sign the driver with it' {
       $result = Set-AuthenticodeSignature -FilePath $file -Certificate $cert -HashAlgorithm SHA256
       if ($result.Status -ne 'Valid') { throw "$file could not be signed: $($result.StatusMessage)" }
     }
+    # PowerShell cannot sign a package; the app does, with Windows' own signer.
+    $package = Join-Path $Target 'package\winawdl.msix'
+    $result = Start-Process -FilePath (Join-Path $Target 'winawdl.exe') -Wait -PassThru -WindowStyle Hidden `
+                -ArgumentList '--share-sign', ('"' + $package + '"'), $cert.Thumbprint
+    if ($result.ExitCode -ne 0) { throw 'The Share sheet package could not be signed.' }
   } finally {
     # Nothing else is ever signed with it, so what this PC now trusts can sign nothing more.
     Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey
@@ -245,6 +252,54 @@ Step 'two inbound rules, for link-local addresses only' {
   }
   New-NetFirewallRule @common -DisplayName 'winawdl AirDrop receiver' -Protocol TCP -LocalPort $ReceiverPort | Out-Null
   New-NetFirewallRule @common -DisplayName 'winawdl AirDrop discovery' -Protocol UDP -LocalPort 5353 | Out-Null
+}
+
+'Radio'
+Step 'a task that starts the radio with this account''s full rights, when winawdl asks' {
+  # Agreed to once, here: winawdl then starts the radio with no prompt. Only this
+  # account may run it, and only as `--radio <pid> <stop event>`, which the app checks.
+  $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+  $app = [Security.SecurityElement]::Escape((Join-Path $Target 'winawdl.exe'))
+  $folder = [Security.SecurityElement]::Escape($Target)
+  $xml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.3" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Starts the winawdl radio when winawdl asks for it.</Description>
+    <SecurityDescriptor>D:(A;;FA;;;BA)(A;;FA;;;SY)(A;;GRGX;;;$sid)</SecurityDescriptor>
+  </RegistrationInfo>
+  <Principals>
+    <Principal id="Author">
+      <UserId>$sid</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>true</Hidden>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>4</Priority>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>"$app"</Command>
+      <Arguments>--radio `$(Arg0) `$(Arg1)</Arguments>
+      <WorkingDirectory>$folder</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
+"@
+  Register-ScheduledTask -TaskName $RadioTask -Xml $xml -Force | Out-Null
 }
 
 if ($Setup) {
@@ -291,6 +346,10 @@ if (-not $SkipExplorer) {
   'Explorer'
   Step 'add Send with AirDrop for this account' {
     $app = Join-Path $Target 'winawdl.exe'
+    # A convenience: without it, winawdl works as before, so it does not stop the install.
+    # It goes first: on Windows 11 its menu entry then stands in for the classic verbs.
+    $result = Start-Process -FilePath $app -ArgumentList '--share-install' -Wait -PassThru -WindowStyle Hidden
+    if ($result.ExitCode -ne 0) { '  AirDrop could not be added to the Share sheet for this account.' }
     $result = Start-Process -FilePath $app -ArgumentList '--explorer-install' -Wait -PassThru -WindowStyle Hidden
     if ($result.ExitCode -ne 0) { throw 'Send with AirDrop could not be added for this account.' }
     $result = Start-Process -FilePath $app -ArgumentList '--notifications-install' -Wait -PassThru -WindowStyle Hidden
