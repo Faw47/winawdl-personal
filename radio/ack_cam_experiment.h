@@ -4,6 +4,7 @@
 // From OpenIPC/devourer's KestrelAddrCam.h encoder and indirect SRAM write
 // sequence. Never used without --experimental-ack-cam63.
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace ack_cam_experiment {
