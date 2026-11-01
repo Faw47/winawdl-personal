@@ -60,6 +60,12 @@ public static class Checks
                 log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
                 return _failed == 0 ? 0 : 1;
             }
+            if (args.Skip(1).Contains("history"))
+            {
+                History(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("explorer"))
             {
                 Explorer(app, folder);
@@ -80,6 +86,7 @@ public static class Checks
             Explorer(app, folder);
             Selection(app, folder);
             SenderFolders(app, folder);
+            History(app, folder);
             Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
         }
@@ -409,7 +416,8 @@ public static class Checks
         var serialized = System.Text.Json.JsonSerializer.Serialize(world.Settings);
         var kept = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(serialized)!;
         var engine = new ScriptedEngine();
-        using var model = new TableModel(engine, world.Radio, world.Desk, kept, world.Startup, world.Explorer);
+        using var model = new TableModel(engine, world.Radio, world.Desk, kept, world.Startup, world.Explorer,
+                                         world.HistoryStore);
         model.StartTheEngine();
         Expect(engine.StartedSenderFolders && model.SenderFolders,
                "sender folder persistence reaches the startup engine seam before ready");
@@ -462,6 +470,166 @@ public static class Checks
         {
             native.Stop();
         }
+    }
+
+    private static void History(Application app, string folder)
+    {
+        var path = Path.Combine(folder, "history.json");
+        File.WriteAllText(path, "{broken");
+        var store = new HistoryStore(path);
+        Expect(store.Load().Count == 0, "an unreadable history file does not stop startup");
+        File.WriteAllText(path, "[{\"Direction\":\"Received\",\"Who\":null,\"Device\":null,"
+            + "\"When\":\"2025-01-02T03:04:05Z\",\"Files\":[{\"Name\":null,\"Path\":null,\"Size\":-3}],"
+            + "\"TotalSize\":-3,\"Result\":null}]");
+        Expect(store.Load().Count == 0, "malformed history records are ignored before they reach the view");
+        File.WriteAllText(path, "[{\"Direction\":\"Sent\",\"Who\":\"Phone\",\"Device\":\"iPhone\","
+            + "\"When\":\"2025-01-02T03:04:05Z\",\"Files\":[{\"Name\":\"note.txt\","
+            + "\"Path\":\"\\u0000\",\"Size\":3}],\"TotalSize\":3,\"Result\":\"Finished\"}]");
+        Expect(store.Load().Count == 0, "a malformed saved path is ignored before Show in Folder can use it");
+        var entries = Enumerable.Range(0, 502).Select(index => new TransferRecord
+        {
+            Direction = "Received", Who = $"Device {index}", Device = "iPhone",
+            When = new DateTimeOffset(2025, 1, 2, 3, 4, 5, TimeSpan.Zero),
+            Files = [new TransferFile { Name = "photo.jpg", Path = Path.Combine(folder, "photo.jpg"), Size = 7 }],
+            TotalSize = 7, Result = "Finished",
+        }).ToList();
+        store.Save(entries);
+        var kept = store.Load();
+        Expect(kept.Count == 500 && kept[0].Who == "Device 2" && kept[^1].Who == "Device 501",
+               "history atomically keeps the newest 500 entries in order");
+        Expect(!File.Exists(path + ".new") && File.Exists(path),
+               "history writes through the same temporary-file replacement as app.json");
+
+        var world = Stage.NewWorld(app.Dispatcher, folder);
+        var view = Show(world);
+        Expect(!world.Model.ShowRecent, "an empty install does not crowd the smallest window with Recent");
+        var file = Path.Combine(folder, "history-note.txt");
+        File.WriteAllText(file, "only the name and path belong in history");
+        world.Engine.Say(new { @event = "link", up = true });
+        world.Engine.Say(new { @event = "peer", id = "p1", name = "Sam's iPhone", model = "iPhone14,2" });
+        world.Model.Hold([file]);
+        world.Model.SendTo(world.Model.Peers[0]);
+        world.Engine.Say(new { @event = "send", id = "s1", state = "sent" });
+        Expect(world.HistoryStore.Saved.Count == 1
+               && world.HistoryStore.Saved[0] is { Direction: "Sent", Who: "Sam's iPhone",
+                    Device: "iPhone14,2", Result: "Finished" }
+               && world.HistoryStore.Saved[0].Files[0].Path == file,
+               "a finished send keeps its peer, device, file path and result");
+        Expect(world.Model.ShowRecent, "saved transfers expose History through the Recent header");
+        world.Engine.Say(new { @event = "asked", id = "r1", sender = "Pat's iPad", model = "iPad13,1",
+                               files = new[] { new { name = "note.txt", size = 12, type = "" } },
+                               links = 0, total = 12, waits = true });
+        world.Engine.Say(new { @event = "answered", id = "r1", how = "declined" });
+        Expect(world.HistoryStore.Saved.Count == 2
+               && world.HistoryStore.Saved[1] is { Direction: "Received", Result: "Declined", TotalSize: 12 }
+               && world.HistoryStore.Saved[1].Files[0] is { Name: "note.txt", Path: "" },
+               "a declined incoming request keeps announced names and size without inventing paths");
+        Expect(Press(view, "History") && world.Model.HistoryOpen && world.Model.HistoryRows.Count == 2,
+               "History opens from Recent and shows prior transfers");
+        var historyRow = world.Model.HistoryRows.First();
+        historyRow.Toggle.Execute(null);
+        Expect(historyRow.Expanded && historyRow.DetailsLabel == "Hide Files",
+               "a history row reveals its files and names the action");
+        world.Model.HistoryRows.Last().Reveal.Execute(null);
+        Expect(world.Desk.Opened.Last() == "reveal " + file,
+               "Show in Folder uses an existing file from a history entry");
+        world.Model.ClearHistory.Execute(null);
+        Expect(world.Model.HistoryRows.Count == 0 && world.HistoryStore.Saved.Count == 0
+               && world.Model.HistoryOpen && !world.Model.ShowRecent,
+               "Clear History writes an empty history and keeps its empty view open");
+        world.Model.Hold([file]);
+        world.Model.SendTo(world.Model.Peers[0]);
+        world.Engine.Say(new { @event = "send", id = "s2", state = "declined" });
+        world.Model.SendTo(world.Model.Peers[0]);
+        world.Engine.Say(new { @event = "send", id = "s3", state = "failed", reason = "unreachable" });
+        Expect(world.HistoryStore.Saved.Select(entry => entry.Result).SequenceEqual(["Declined", "Failed"])
+               && world.HistoryStore.Saved.All(entry => entry.Direction == "Sent" && entry.When == world.Desk.UtcNow),
+               "declined and failed sends are recorded once with a completion time");
+        world.Engine.Say(new { @event = "asked", id = "r2", sender = "Pat's iPad", model = "iPad13,1",
+                               files = new[] { new { name = "history-note.txt", size = 3, type = "" } },
+                               links = 0, total = 3, waits = true });
+        world.Engine.Say(new { @event = "answered", id = "r2", how = "accepted" });
+        world.Engine.Say(new { @event = "stored", id = "r2", folder, names = new[] { "history-note.txt" } });
+        var received = world.HistoryStore.Saved.Last();
+        Expect(received is { Direction: "Received", Result: "Finished", Who: "Pat's iPad",
+                             Device: "iPad13,1" }
+               && received.Files.Single().Path == file
+               && received.TotalSize == new FileInfo(file).Length,
+               "a finished receive records the actual path and file size");
+        world.Engine.Say(new { @event = "asked", id = "r3", sender = "../CON .txt", model = "iPhone",
+                               files = new[] { new { name = "../CON .txt", size = 5, type = "" } },
+                               links = 0, total = 5, waits = true });
+        world.Engine.Say(new { @event = "lost", id = "r3", reason = "nothing arrived" });
+        Expect(world.HistoryStore.Saved.Last() is { Direction: "Received", Result: "Failed" }
+               && world.HistoryStore.Saved.Last().Files[0] is { Name: "_CON .txt", Path: "" },
+               "a failed receive retains a safe name but no invented file path");
+        world.Engine.Say(new { @event = "asked", id = "r4", sender = "Phone", model = "iPhone",
+                               files = new[] { new { name = "safe.txt", size = 2, type = "" } },
+                               links = 0, total = 2, waits = false });
+        world.Engine.Say(new { @event = "stored", id = "r4", folder, names = new[] { "../outside.txt" } });
+        Expect(world.HistoryStore.Saved.Last().Files.Count == 0,
+               "a hostile stored path cannot escape the receive folder through history");
+        world.Engine.Say(new { @event = "asked", id = "r5", sender = "../CON\u202e", model = "iPhone\u200b",
+                               files = new[] { new { name = "safe.txt", size = 2, type = "" } },
+                               links = 0, total = 2, waits = true });
+        world.Engine.Say(new { @event = "answered", id = "r5", how = "declined" });
+        Expect(world.HistoryStore.Saved.Last() is { Who: "_CON", Device: "iPhone" },
+               "history cleans hostile sender and device labels before saving them");
+        using (var huge = System.Text.Json.JsonDocument.Parse(
+                   "{\"event\":\"asked\",\"id\":\"r6\",\"sender\":\"Phone\",\"model\":\"iPhone\","
+                   + "\"files\":[{\"name\":\"a.txt\",\"size\":9223372036854775807},"
+                   + "{\"name\":\"b.txt\",\"size\":9223372036854775807}],"
+                   + "\"total\":18446744073709551614,\"links\":0,\"waits\":true}"))
+            world.Engine.Say(huge.RootElement);
+        world.Engine.Say(new { @event = "answered", id = "r6", how = "declined" });
+        Expect(world.HistoryStore.Saved.Last().TotalSize == long.MaxValue,
+               "oversized announced sizes cannot crash history or overflow its total");
+        var count = world.HistoryStore.Saved.Count;
+        world.Engine.Say(new { @event = "stored", id = "r4", folder, names = new[] { "history-note.txt" } });
+        Expect(world.HistoryStore.Saved.Count == count, "a duplicate terminal event cannot duplicate history");
+        store.Save(world.HistoryStore.Saved);
+        Expect(!File.ReadAllText(path).Contains("only the name and path belong in history"),
+               "history saves names and paths, never file contents");
+        using (var reloaded = new TableModel(new ScriptedEngine(), new ScriptedRadio(),
+                                             new ScriptedDesk(app.Dispatcher), new AppSettings(),
+                                             new ScriptedStartup(), new ScriptedExplorer(), store))
+            Expect(reloaded.HistoryRows.Count == world.HistoryStore.Saved.Count
+                   && reloaded.HistoryRows[0].Record.Result == world.HistoryStore.Saved.Last().Result,
+                   "a new app model shows saved history with newest entries first");
+        var missing = new HistoryRow(new TransferRecord
+        {
+            Direction = "Sent", Who = "Phone", Device = "iPhone", Result = "Finished",
+            Files = [new TransferFile { Name = "gone.txt", Path = Path.Combine(folder, "gone.txt") }],
+        }, world.Desk);
+        var opened = world.Desk.Opened.Count;
+        missing.Reveal.Execute(null);
+        Expect(!missing.CanReveal && world.Desk.Opened.Count == opened,
+               "Show in Folder is unavailable after a history file is gone");
+        world.Model.Dispose();
+
+        var samples = Stage.SampleFiles(Path.Combine(folder, "history-stage-files"));
+        foreach (var (name, direction, result) in new[]
+                 {
+                     ("history-received", "Received", "Finished"),
+                     ("history-receive-failed", "Received", "Failed"),
+                     ("history-receive-declined", "Received", "Declined"),
+                     ("history-sent", "Sent", "Finished"),
+                     ("history-send-failed", "Sent", "Failed"),
+                     ("history-send-declined", "Sent", "Declined"),
+                 })
+        {
+            var staged = Stage.NewWorld(app.Dispatcher, folder);
+            Stage.Scenes(samples).First(scene => scene.Name == name).Build(staged);
+            Expect(staged.Model.HistoryOpen && staged.Model.HistoryRows.Single().Record is { } shown
+                   && shown.Direction == direction && shown.Result == result,
+                   $"{name} renders the {direction.ToLowerInvariant()} {result.ToLowerInvariant()} state");
+            staged.Model.Dispose();
+        }
+        var empty = Stage.NewWorld(app.Dispatcher, folder);
+        Stage.Scenes(samples).First(scene => scene.Name == "history-empty").Build(empty);
+        Expect(empty.Model.HistoryOpen && empty.Model.HistoryRows.Count == 0,
+               "the empty History view has its own render state");
+        empty.Model.Dispose();
     }
 
     private static void Startup(Application app)
@@ -940,7 +1108,8 @@ public static class Checks
         world.Engine.Say(new { @event = "answered", id = "r2", how = "declined" });
 
         var kept = new AppSettings { AlwaysAccept = [new KnownDevice { Name = "Stand-in iPad", Model = "iPad13,1" }] };
-        var again = new TableModel(world.Engine, world.Radio, world.Desk, kept, world.Startup, world.Explorer);
+        var again = new TableModel(world.Engine, world.Radio, world.Desk, kept, world.Startup, world.Explorer,
+                                   world.HistoryStore);
         Expect(again.Trusted is [{ Name: "Stand-in iPad" }],
                "previously saved name-only entries remain visible to remove");
         told = world.Engine.Told.Count;
@@ -1015,7 +1184,8 @@ public static class Checks
             Folder = Path.GetTempPath(), ContactsOnly = true, KnownSenders = ["friend@example.com"],
         };
         var engine = new ScriptedEngine();
-        var again = new TableModel(engine, world.Radio, world.Desk, kept, world.Startup, world.Explorer);
+        var again = new TableModel(engine, world.Radio, world.Desk, kept, world.Startup, world.Explorer,
+                                   world.HistoryStore);
         again.StartTheEngine();
         Expect(again.OnlyKnownSenders && again.KnownSenders is [{ Address: "friend@example.com" }],
                "the choice and the list come back with the app, as the engine started with them");

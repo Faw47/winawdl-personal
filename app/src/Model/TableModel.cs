@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 
@@ -32,12 +33,16 @@ public sealed class TableModel : Observable, IDisposable
     private readonly AppSettings _settings;
     private readonly IStartup _startup;
     private readonly IExplorerIntegration _explorer;
+    private readonly IHistoryStore _historyStore;
+    private readonly List<TransferRecord> _historyEntries = [];
+    private readonly Dictionary<string, TransferRecord> _sendHistory = new();
+    private readonly Dictionary<string, TransferRecord> _incomingHistory = new();
     private bool _startupEnabled, _startupAvailable;
     private string _startupError = "";
     private bool _explorerEnabled, _explorerAvailable;
     private string _explorerError = "";
     private int _sends;
-    private bool _engineUp, _wantsLook, _linkUp, _looking, _beaconOn = true, _receiving, _settingsOpen;
+    private bool _engineUp, _wantsLook, _linkUp, _looking, _beaconOn = true, _receiving, _settingsOpen, _historyOpen;
     private bool _radioHasRun;
     private string _beaconWhy = "", _receivingProblem = "", _heldNotice = "", _radioNotice = "";
     private bool _heldNoticeIsProblem;
@@ -52,7 +57,7 @@ public sealed class TableModel : Observable, IDisposable
     private int _unwilling;
 
     public TableModel(IEngine engine, IRadio radio, IDesk desk, AppSettings settings, IStartup startup,
-                      IExplorerIntegration explorer)
+                      IExplorerIntegration explorer, IHistoryStore historyStore)
     {
         _engine = engine;
         _radio = radio;
@@ -60,6 +65,9 @@ public sealed class TableModel : Observable, IDisposable
         _settings = settings;
         _startup = startup;
         _explorer = explorer;
+        _historyStore = historyStore;
+        _historyEntries.AddRange(_historyStore.Load().TakeLast(500));
+        RebuildHistoryRows();
         RefreshStartup();
         RefreshExplorer();
         _nameDraft = Name;
@@ -76,6 +84,15 @@ public sealed class TableModel : Observable, IDisposable
             HeldChanged("");
         });
         OpenSettings = new Command(() => SettingsOpen = true);
+        OpenHistory = new Command(() => HistoryOpen = true);
+        CloseHistory = new Command(() => HistoryOpen = false);
+        ClearHistory = new Command(() =>
+        {
+            _historyEntries.Clear();
+            HistoryRows.Clear();
+            _historyStore.Save(_historyEntries);
+            ChangedAll();
+        });
         CloseSettings = new Command(() =>
         {
             CommitName();
@@ -102,6 +119,7 @@ public sealed class TableModel : Observable, IDisposable
     public ObservableCollection<SenderModel> KnownSenders { get; } = [];
     public ObservableCollection<FileItem> Held { get; } = [];
     public ObservableCollection<FileItem> Received { get; } = [];
+    public ObservableCollection<HistoryRow> HistoryRows { get; } = [];
     public ObservableCollection<string> Notices { get; } = [];
 
     public ICommand TurnOnRadio { get; }
@@ -109,6 +127,9 @@ public sealed class TableModel : Observable, IDisposable
     public ICommand Paste { get; }
     public ICommand ClearHeld { get; }
     public ICommand OpenSettings { get; }
+    public ICommand OpenHistory { get; }
+    public ICommand CloseHistory { get; }
+    public ICommand ClearHistory { get; }
     public ICommand CloseSettings { get; }
     public ICommand ChangeFolder { get; }
     public ICommand OpenFolder { get; }
@@ -321,6 +342,7 @@ public sealed class TableModel : Observable, IDisposable
 
     private void OnEngineStopped(string why, string detail)
     {
+        FailPendingHistory();
         _engineUp = false;
         _linkUp = _looking = _receiving = false;
         Peers.Clear();
@@ -349,7 +371,8 @@ public sealed class TableModel : Observable, IDisposable
 
     private static long? Number(JsonElement said, string name) =>
         said.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number
-            ? value.GetInt64()
+            && value.TryGetInt64(out var number)
+            ? number
             : null;
 
     private static bool Flag(JsonElement said, string name) =>
@@ -370,6 +393,7 @@ public sealed class TableModel : Observable, IDisposable
                 _radio.Linked(_linkUp);
                 if (!_linkUp)
                 {
+                    FailPendingHistory();
                     Peers.Clear();
                     Incoming.Clear();
                     _looking = _receiving = false;
@@ -407,7 +431,10 @@ public sealed class TableModel : Observable, IDisposable
                 Stored(said);
                 break;
             case "lost":
-                if (Find(Text(said, "id")) is { } lost)
+                var lostId = Text(said, "id");
+                if (_incomingHistory.Remove(lostId, out var lostRecord))
+                    RecordHistory(lostRecord, "Failed");
+                if (Find(lostId) is { } lost)
                 {
                     lost.State = IncomingState.Lost;
                     lost.Progress = 0;
@@ -558,6 +585,64 @@ public sealed class TableModel : Observable, IDisposable
             && parsed.Host.Length > 0
             && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps);
 
+    private static string HistoryName(string raw, string fallback = "file")
+    {
+        var name = raw.Replace('\\', '/').Split('/').Last();
+        var clean = new StringBuilder();
+        foreach (var rune in name.EnumerateRunes())
+        {
+            if ("<>:\"|?*".Contains(rune.ToString(), StringComparison.Ordinal)
+                || Rune.GetUnicodeCategory(rune) is UnicodeCategory.Control or UnicodeCategory.Format
+                    or UnicodeCategory.Surrogate) continue;
+            if (clean.Length + rune.Utf16SequenceLength > 255) break;
+            clean.Append(rune);
+        }
+        name = Regex.Replace(clean.ToString(), @"\.{2,}", "").Trim().Trim('.', ' ');
+        var stem = name.Split('.', 2)[0].TrimEnd(' ');
+        if (Regex.IsMatch(stem, @"^(CON|PRN|AUX|NUL|COM[0-9¹²³]|LPT[0-9¹²³])$",
+                          RegexOptions.IgnoreCase))
+            name = "_" + (name.Length == 255 ? name[..254].TrimEnd('.', ' ') : name);
+        return name.Length > 0 ? name : fallback;
+    }
+
+    private static string? SafeStoredPath(string folder, string name)
+    {
+        if (name.Length is 0 or > 255 || name is "." or ".." || name != Path.GetFileName(name)
+            || name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+            || name.EnumerateRunes().Any(rune => Rune.GetUnicodeCategory(rune) is UnicodeCategory.Format
+                 or UnicodeCategory.Control or UnicodeCategory.Surrogate)) return null;
+        try
+        {
+            if (!Path.IsPathFullyQualified(folder)) return null;
+            var root = Path.GetFullPath(folder);
+            var path = Path.GetFullPath(Path.Combine(root, name));
+            return string.Equals(Path.GetDirectoryName(path), root, StringComparison.OrdinalIgnoreCase)
+                ? path : null;
+        }
+        catch (Exception error) when (error is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return null;
+        }
+    }
+
+    private static long ExistingSize(string path)
+    {
+        try { return new FileInfo(path).Length; }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { return 0; }
+    }
+
+    private static long SumSizes(IEnumerable<TransferFile> files)
+    {
+        long total = 0;
+        foreach (var file in files)
+        {
+            var size = Math.Max(0, file.Size);
+            if (size > long.MaxValue - total) return long.MaxValue;
+            total += size;
+        }
+        return total;
+    }
+
     public void SendTo(PeerModel peer, IEnumerable<string>? dropped = null)
     {
         if (peer.IsBusy) return;
@@ -574,6 +659,18 @@ public sealed class TableModel : Observable, IDisposable
         peer.Sending = link.Length > 0 ? [] : Held.Select(file => file.Path).ToList();
         peer.SendingLink = link;
         _activeSends[peer.SendId] = peer.Sending;
+        var sentFiles = link.Length > 0
+            ? new List<TransferFile> { new() { Name = "Web Link" } }
+            : Held.Select(file => new TransferFile
+              {
+                  Name = HistoryName(file.Name), Path = file.Path, Size = file.Bytes,
+              }).ToList();
+        _sendHistory[peer.SendId] = new TransferRecord
+        {
+            Direction = "Sent", Who = HistoryName(peer.Name, "A device nearby"),
+            Device = HistoryName(peer.Model, "Unknown device"),
+            Files = sentFiles, TotalSize = SumSizes(sentFiles),
+        };
         peer.Progress = 0;
         peer.State = PeerState.Asking;
         peer.Status = "Accept on the device to start";
@@ -589,8 +686,18 @@ public sealed class TableModel : Observable, IDisposable
     private void Sent(JsonElement said)
     {
         var id = Text(said, "id");
-        if (Text(said, "state") is "sent" or "declined" or "refused" or "cancelled" or "failed")
+        var state = Text(said, "state");
+        if (state is "sent" or "declined" or "refused" or "cancelled" or "failed")
+        {
             _activeSends.Remove(id);
+            if (_sendHistory.Remove(id, out var record) && state != "cancelled")
+                RecordHistory(record, state switch
+                {
+                    "sent" => "Finished",
+                    "declined" => "Declined",
+                    _ => "Failed",
+                });
+        }
         if (Peers.FirstOrDefault(known => known.SendId == id) is not { } peer)
         {
             CollectImages();
@@ -598,7 +705,7 @@ public sealed class TableModel : Observable, IDisposable
         }
         var total = Number(said, "total") ?? 0;
         var done = Number(said, "done") ?? 0;
-        switch (Text(said, "state"))
+        switch (state)
         {
             case "asking":
                 break;
@@ -683,12 +790,29 @@ public sealed class TableModel : Observable, IDisposable
     {
         var id = Text(said, "id");
         var names = new List<string>();
+        var announced = new List<TransferFile>();
         if (said.TryGetProperty("files", out var files) && files.ValueKind == JsonValueKind.Array)
-            names.AddRange(files.EnumerateArray().Select(file => Text(file, "name")));
-        var links = (int)(Number(said, "links") ?? 0);
+            foreach (var file in files.EnumerateArray())
+            {
+                var name = Text(file, "name");
+                names.Add(name);
+                announced.Add(new TransferFile
+                {
+                    Name = HistoryName(name), Size = Math.Max(0, Number(file, "size") ?? 0),
+                });
+            }
+        var links = (int)Math.Clamp(Number(said, "links") ?? 0, 0, 500);
         var total = Number(said, "total");
         var sender = Text(said, "sender");
         var model = Text(said, "model");
+        if (announced.Count == 0 && links > 0)
+            announced.Add(new TransferFile { Name = links == 1 ? "Web Link" : $"{links} Web Links" });
+        _incomingHistory[id] = new TransferRecord
+        {
+            Direction = "Received", Who = HistoryName(sender, "A device nearby"),
+            Device = HistoryName(model, "Unknown device"), Files = announced,
+            TotalSize = Math.Max(0, total ?? SumSizes(announced)),
+        };
         // The sender controls these strings; they cannot authenticate a device.
         // Until there is cryptographic pairing, every Ask needs its own consent.
         var known = false;
@@ -765,12 +889,14 @@ public sealed class TableModel : Observable, IDisposable
 
     private void Answered(string id, string how)
     {
-        if (Find(id) is not { } item) return;
         if (how != "accepted")
         {
-            Incoming.Remove(item);
+            if (_incomingHistory.Remove(id, out var record))
+                RecordHistory(record, how == "declined" ? "Declined" : "Failed");
+            if (Find(id) is { } declined) Incoming.Remove(declined);
             return;
         }
+        if (Find(id) is not { } item) return;
         item.State = IncomingState.Receiving;
         item.Status = "Waiting for the files";
     }
@@ -794,10 +920,21 @@ public sealed class TableModel : Observable, IDisposable
 
     private void Stored(JsonElement said)
     {
-        var item = Find(Text(said, "id"));
+        var id = Text(said, "id");
+        var item = Find(id);
         if (item is not null) Incoming.Remove(item);
         var folder = Text(said, "folder");
         if (!said.TryGetProperty("names", out var names) || names.ValueKind != JsonValueKind.Array) return;
+        var allNames = names.EnumerateArray().Where(name => name.ValueKind == JsonValueKind.String)
+            .Select(name => name.GetString() ?? "").ToArray();
+        var saved = allNames.Select(name => (Name: name, Path: SafeStoredPath(folder, name)))
+            .Where(file => file.Path is not null)
+            .Select(file => new TransferFile
+            {
+                Name = HistoryName(file.Name), Path = file.Path!, Size = ExistingSize(file.Path!),
+            }).ToList();
+        if (_incomingHistory.Remove(id, out var record))
+            RecordHistory(record, "Finished", saved, SumSizes(saved));
         // A Live Photo is stored as a still and a video, and is one thing here: its still.
         var videos = new Dictionary<string, string>();
         if (said.TryGetProperty("live", out var live) && live.ValueKind == JsonValueKind.Array)
@@ -805,11 +942,11 @@ public sealed class TableModel : Observable, IDisposable
                 if (pair.ValueKind == JsonValueKind.Array && pair.GetArrayLength() == 2)
                     videos[pair[0].GetString() ?? ""] = pair[1].GetString() ?? "";
         var landed = new List<FileItem>();
-        foreach (var name in names.EnumerateArray().Select(name => name.GetString() ?? "").Reverse())
+        foreach (var name in allNames.Reverse())
         {
             if (videos.ContainsValue(name)) continue;
-            var path = Path.Combine(folder, name);
-            var video = videos.TryGetValue(name, out var beside) ? Path.Combine(folder, beside) : null;
+            if (SafeStoredPath(folder, name) is not { } path) continue;
+            var video = videos.TryGetValue(name, out var beside) ? SafeStoredPath(folder, beside) : null;
             landed.Insert(0, new FileItem(path, _desk)
             {
                 Turn = Turns[Received.Count % Turns.Length],
@@ -881,7 +1018,38 @@ public sealed class TableModel : Observable, IDisposable
     /// <summary>Choosing files is the next thing to do: devices can be seen and
     /// nothing else is waiting for an answer.</summary>
     public bool ChooseIsNext => Across == Across.Nearby && !Incoming.Any(item => item.IsAsking);
-    public bool TableInReach => !SettingsOpen;
+    public bool TableInReach => !SettingsOpen && !HistoryOpen;
+
+    private void RebuildHistoryRows()
+    {
+        HistoryRows.Clear();
+        foreach (var entry in _historyEntries.AsEnumerable().Reverse())
+            HistoryRows.Add(new HistoryRow(entry, _desk));
+    }
+
+    private void RecordHistory(TransferRecord entry, string result,
+                               List<TransferFile>? files = null, long? totalSize = null)
+    {
+        entry.When = _desk.UtcNow;
+        entry.Result = result;
+        if (files is not null) entry.Files = files;
+        if (totalSize is not null) entry.TotalSize = totalSize.Value;
+        _historyEntries.Add(entry);
+        if (_historyEntries.Count > 500) _historyEntries.RemoveAt(0);
+        HistoryRows.Insert(0, new HistoryRow(entry, _desk));
+        if (HistoryRows.Count > 500) HistoryRows.RemoveAt(HistoryRows.Count - 1);
+        _historyStore.Save(_historyEntries);
+        Changed(nameof(HasHistory));
+        Changed(nameof(ShowRecent));
+    }
+
+    private void FailPendingHistory()
+    {
+        foreach (var entry in _sendHistory.Values) RecordHistory(entry, "Failed");
+        _sendHistory.Clear();
+        foreach (var entry in _incomingHistory.Values) RecordHistory(entry, "Failed");
+        _incomingHistory.Clear();
+    }
 
     public string LinkDraft
     {
@@ -892,6 +1060,8 @@ public sealed class TableModel : Observable, IDisposable
     public bool HasHeld => Held.Count > 0;
     public bool HoldsNothing => Held.Count == 0;
     public bool HasReceived => Received.Count > 0;
+    public bool HasHistory => _historyEntries.Count > 0;
+    public bool ShowRecent => HasReceived || HasHistory;
     public string HeldNotice => _heldNotice;
     public bool HeldNoticeIsProblem => _heldNoticeIsProblem;
     public bool HasHeldNotice => _heldNotice.Length > 0;
@@ -1067,10 +1237,26 @@ public sealed class TableModel : Observable, IDisposable
             if (!Set(ref _settingsOpen, value)) return;
             if (value)
             {
+                HistoryOpen = false;
                 _nameDraft = Name;
                 _nameError = _folderError = "";
                 RefreshStartup();
                 RefreshExplorer();
+            }
+            ChangedAll();
+        }
+    }
+
+    public bool HistoryOpen
+    {
+        get => _historyOpen;
+        set
+        {
+            if (!Set(ref _historyOpen, value)) return;
+            if (value)
+            {
+                SettingsOpen = false;
+                RebuildHistoryRows();
             }
             ChangedAll();
         }

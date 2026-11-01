@@ -54,6 +54,8 @@ public interface IDesk
     void Later(TimeSpan delay, Action action);
     /// <summary>Seconds on a clock that only goes forward.</summary>
     double Now { get; }
+    /// <summary>Wall-clock time for a finished transfer.</summary>
+    DateTimeOffset UtcNow { get; }
 }
 
 /// <summary>A clipboard snapshot; checks provide this without touching Windows' clipboard.</summary>
@@ -70,6 +72,13 @@ public interface IStartup
 public interface IExplorerIntegration
 {
     bool Enabled { get; set; }
+}
+
+/// <summary>Transfer history persistence. Checks and renders use a stand-in.</summary>
+public interface IHistoryStore
+{
+    IReadOnlyList<TransferRecord> Load();
+    void Save(IReadOnlyList<TransferRecord> entries);
 }
 
 /// <summary>A device whose requests are accepted without asking. The name and

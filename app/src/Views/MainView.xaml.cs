@@ -12,7 +12,7 @@ namespace Winawdl.Views;
 
 public partial class MainView : UserControl
 {
-    private bool _sheetShown;
+    private bool _sheetShown, _historyShown;
 
     public MainView()
     {
@@ -42,7 +42,7 @@ public partial class MainView : UserControl
     private void OnPasteKey(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.V || Keyboard.Modifiers != ModifierKeys.Control
-            || Model is not { SettingsOpen: false } model
+            || Model is not { TableInReach: true } model
             || !ShouldPasteToTable(Keyboard.FocusedElement as DependencyObject)) return;
         model.Paste.Execute(null);
         e.Handled = true;
@@ -144,6 +144,8 @@ public partial class MainView : UserControl
 
     private void OnVeilPressed(object sender, MouseButtonEventArgs e) => Model?.CloseSettings.Execute(null);
 
+    private void OnHistoryVeilPressed(object sender, MouseButtonEventArgs e) => Model?.CloseHistory.Execute(null);
+
     private void OnNameLeft(object sender, KeyboardFocusChangedEventArgs e) => Model?.CommitName();
 
     private void OnNameKey(object sender, KeyEventArgs e)
@@ -158,19 +160,36 @@ public partial class MainView : UserControl
 
     private void OnModelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (Model is not { } model || model.SettingsOpen == _sheetShown) return;
-        _sheetShown = model.SettingsOpen;
-        if (_sheetShown)
+        if (Model is not { } model) return;
+        if (model.SettingsOpen != _sheetShown)
         {
-            var slide = new TranslateTransform();
-            SheetPanel.RenderTransform = slide;
-            Motion.From(slide, TranslateTransform.XProperty, 28, Motion.Move);
-            Motion.From(Sheet, OpacityProperty, 0, Motion.Quick);
-            Dispatcher.BeginInvoke(() => CloseSheet.Focus());
+            _sheetShown = model.SettingsOpen;
+            if (_sheetShown)
+            {
+                var slide = new TranslateTransform();
+                SheetPanel.RenderTransform = slide;
+                Motion.From(slide, TranslateTransform.XProperty, 28, Motion.Move);
+                Motion.From(Sheet, OpacityProperty, 0, Motion.Quick);
+                Dispatcher.BeginInvoke(() => CloseSheet.Focus());
+            }
+            else Dispatcher.BeginInvoke(() => SettingsButton.Focus());
         }
-        else
+        if (model.HistoryOpen != _historyShown)
         {
-            Dispatcher.BeginInvoke(() => SettingsButton.Focus());
+            _historyShown = model.HistoryOpen;
+            if (_historyShown)
+            {
+                var slide = new TranslateTransform();
+                HistoryPanel.RenderTransform = slide;
+                Motion.From(slide, TranslateTransform.XProperty, 28, Motion.Move);
+                Motion.From(HistorySheet, OpacityProperty, 0, Motion.Quick);
+                Dispatcher.BeginInvoke(() => CloseHistoryButton.Focus());
+            }
+            else Dispatcher.BeginInvoke(() =>
+            {
+                if (model.ShowRecent) HistoryButton.Focus();
+                else SettingsButton.Focus();
+            });
         }
     }
 }

@@ -77,6 +77,7 @@ public sealed class PeerModel(string id, string name, string? model) : Observabl
 
     public string Id { get; } = id;
     public string Name { get; } = name;
+    public string Model { get; } = model ?? "";
     public DeviceKind Kind { get; } = Words.KindOfDevice(model);
     public string Glyph => Words.Glyph(Kind);
     public RateMeter Rate { get; private set; } = new();

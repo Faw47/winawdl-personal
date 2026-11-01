@@ -5,6 +5,10 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Transfer history.** History shows finished, failed and declined sends and
+  receives with their device, time, file names and paths, size and result. It
+  keeps the newest 500 transfers, stores no file contents, and can be cleared.
+
 - **A folder for each sender.** An optional switch saves received files and
   links in a subfolder named after the device. Unsafe device names are
   cleaned, and links or junctions cannot redirect a sender's folder.

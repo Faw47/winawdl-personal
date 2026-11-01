@@ -60,7 +60,8 @@ public static class Program
         var radio = new RadioControl(app.Dispatcher, repo);
         var model = new TableModel(engine, radio, new Desk(app.Dispatcher), settings,
                                    new WindowsStartup(Environment.ProcessPath!),
-                                   new WindowsExplorer(Environment.ProcessPath!));
+                                   new WindowsExplorer(Environment.ProcessPath!),
+                                   new HistoryStore(Path.Combine(Repo.DataFolder, "history.json")));
         var window = new MainWindow(model, theme, settings);
         using var tray = new Tray(window, () =>
         {

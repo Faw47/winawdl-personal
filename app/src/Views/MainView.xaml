@@ -254,13 +254,19 @@
 
       <!-- This side: what has arrived, and what is in hand to send. -->
       <StackPanel Grid.Row="2" Margin="24,0,24,24" MaxWidth="600">
-        <StackPanel Margin="0,0,0,16" Visibility="{Binding HasReceived, Converter={StaticResource Shown}}">
+        <StackPanel Margin="0,0,0,16" Visibility="{Binding ShowRecent, Converter={StaticResource Shown}}">
           <DockPanel Margin="0,0,-8,4">
-            <Button DockPanel.Dock="Right" Style="{StaticResource TextButton}" Content="Show in Folder"
-                    Command="{Binding OpenFolder}" />
+            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+              <Button x:Name="HistoryButton" Style="{StaticResource TextButton}" Content="History"
+                      Command="{Binding OpenHistory}" AutomationProperties.Name="History" />
+              <Button Style="{StaticResource TextButton}" Content="Show in Folder" Margin="8,0,0,0"
+                      Command="{Binding OpenFolder}"
+                      Visibility="{Binding HasReceived, Converter={StaticResource Shown}}" />
+            </StackPanel>
             <TextBlock Style="{StaticResource Label}" Text="Recent" VerticalAlignment="Center" />
           </DockPanel>
-          <ContentControl Style="{StaticResource Card}" Padding="4">
+          <ContentControl Style="{StaticResource Card}" Padding="4"
+                          Visibility="{Binding HasReceived, Converter={StaticResource Shown}}">
             <!-- Three rows exactly: a fourth half shown reads as a mistake. -->
             <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="144" Focusable="False">
               <ItemsControl ItemsSource="{Binding Received}" Focusable="False">
@@ -635,6 +641,88 @@
                     Margin="0,0,-8,0" Command="{Binding OpenProject}" />
             <TextBlock Style="{StaticResource Caption}" Text="{Binding Version}" VerticalAlignment="Center" />
           </DockPanel>
+        </Grid>
+      </Border>
+    </Grid>
+
+    <Grid x:Name="HistorySheet" Visibility="{Binding HistoryOpen, Converter={StaticResource Shown}}">
+      <Rectangle Fill="{DynamicResource Veil}" MouseLeftButtonDown="OnHistoryVeilPressed" />
+      <Border x:Name="HistoryPanel" HorizontalAlignment="Right" Width="380"
+              Background="{DynamicResource Table}" BorderBrush="{DynamicResource Line}"
+              BorderThickness="1,0,0,0" KeyboardNavigation.TabNavigation="Cycle"
+              KeyboardNavigation.ControlTabNavigation="Cycle">
+        <Border.InputBindings>
+          <KeyBinding Key="Escape" Command="{Binding CloseHistory}" />
+        </Border.InputBindings>
+        <Grid Margin="20,12,12,20">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <DockPanel Margin="4,0,0,0">
+            <Button x:Name="CloseHistoryButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}"
+                    t:Plate.Glyph="&#xE711;" Command="{Binding CloseHistory}" ToolTip="Close (Esc)"
+                    AutomationProperties.Name="Close history" />
+            <TextBlock Style="{StaticResource Title}" Text="History" VerticalAlignment="Center" />
+          </DockPanel>
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,16,0,12">
+            <StackPanel Margin="0,0,8,0">
+              <TextBlock Text="No transfers yet." Margin="4,8,0,0">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock" BasedOn="{StaticResource Soft}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding HasHistory}" Value="False">
+                        <Setter Property="Visibility" Value="Visible" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+              <ItemsControl ItemsSource="{Binding HistoryRows}" Focusable="False">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <ContentControl Style="{StaticResource Card}" Padding="0" Margin="0,0,0,8">
+                      <StackPanel>
+                        <Button Style="{StaticResource Row}" Command="{Binding Toggle}"
+                                AutomationProperties.Name="{Binding ToggleName}">
+                          <StackPanel>
+                            <TextBlock Style="{StaticResource Body}" FontWeight="SemiBold"
+                                       Text="{Binding Title}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource Caption}" Text="{Binding Detail}" TextWrapping="Wrap" />
+                            <TextBlock Style="{StaticResource Caption}" Text="{Binding Device}" />
+                            <TextBlock Style="{StaticResource Caption}" Foreground="{DynamicResource Accent}"
+                                       Margin="0,4,0,0" Text="{Binding DetailsLabel}" />
+                          </StackPanel>
+                        </Button>
+                        <StackPanel Margin="14,0,14,14" Visibility="{Binding Expanded, Converter={StaticResource Shown}}">
+                          <ItemsControl ItemsSource="{Binding Files}" Focusable="False">
+                            <ItemsControl.ItemTemplate>
+                              <DataTemplate>
+                                <StackPanel Margin="0,8,0,0">
+                                  <TextBlock Style="{StaticResource Body}" Text="{Binding Name}" TextWrapping="Wrap" />
+                                  <TextBlock Style="{StaticResource Caption}" Text="{Binding Path}" TextWrapping="Wrap"
+                                             Visibility="{Binding HasPath, Converter={StaticResource Shown}}" />
+                                  <TextBlock Style="{StaticResource Caption}" Text="{Binding SizeLabel}" />
+                                </StackPanel>
+                              </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                          </ItemsControl>
+                          <Button Style="{StaticResource TextButton}" Content="Show in Folder" Margin="0,8,0,0"
+                                  HorizontalAlignment="Left" Command="{Binding Reveal}"
+                                  Visibility="{Binding CanReveal, Converter={StaticResource Shown}}" />
+                        </StackPanel>
+                      </StackPanel>
+                    </ContentControl>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </StackPanel>
+          </ScrollViewer>
+          <Button Grid.Row="2" Style="{StaticResource TextButton}" Content="Clear History"
+                  HorizontalAlignment="Right" Command="{Binding ClearHistory}"
+                  Visibility="{Binding HasHistory, Converter={StaticResource Shown}}" />
         </Grid>
       </Border>
     </Grid>

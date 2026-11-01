@@ -121,6 +121,7 @@ public sealed class ScriptedDesk(Dispatcher dispatcher) : IDesk
     public ClipboardContent? Clipboard { get; set; }
     public List<string> Opened { get; } = [];
     public double Now { get; set; }
+    public DateTimeOffset UtcNow { get; set; } = new(2025, 1, 2, 3, 4, 5, TimeSpan.Zero);
 
     public IReadOnlyList<string> PickFiles() => Picked;
     public string? PickFolder(string from) => PickedFolder;
@@ -142,6 +143,13 @@ public sealed class ScriptedDesk(Dispatcher dispatcher) : IDesk
             action();
         }, dispatcher);
     }
+}
+
+public sealed class ScriptedHistoryStore : IHistoryStore
+{
+    public List<TransferRecord> Saved { get; private set; } = [];
+    public IReadOnlyList<TransferRecord> Load() => [.. Saved];
+    public void Save(IReadOnlyList<TransferRecord> entries) => Saved = [.. entries];
 }
 
 /// <summary>Draws the app's screens to image files without opening a window, one
@@ -260,7 +268,8 @@ public static class Stage
     }
 
     public sealed record World(ScriptedEngine Engine, ScriptedRadio Radio, ScriptedDesk Desk, TableModel Model,
-                               AppSettings Settings, ScriptedStartup Startup, ScriptedExplorer Explorer);
+                               AppSettings Settings, ScriptedStartup Startup, ScriptedExplorer Explorer,
+                               ScriptedHistoryStore HistoryStore);
 
     public static World NewWorld(Dispatcher dispatcher, string? folder = null)
     {
@@ -270,10 +279,11 @@ public static class Stage
         var settings = new AppSettings { Name = "STUDY-PC", Folder = folder ?? Path.GetTempPath() };
         var startup = new ScriptedStartup();
         var explorer = new ScriptedExplorer();
-        var model = new TableModel(engine, radio, desk, settings, startup, explorer);
+        var history = new ScriptedHistoryStore();
+        var model = new TableModel(engine, radio, desk, settings, startup, explorer, history);
         model.StartTheEngine();
         model.SetVisible(true);
-        return new World(engine, radio, desk, model, settings, startup, explorer);
+        return new World(engine, radio, desk, model, settings, startup, explorer, history);
     }
 
     private static MainView Build(Action<World> scene, Dispatcher dispatcher)
@@ -303,6 +313,12 @@ public static class Stage
         world.Model.Hold(files[..3]);
         world.Model.SendTo(world.Model.Peers[0]);
         world.Engine.Say(said);
+    }
+
+    private static void ShowHistory(World world)
+    {
+        world.Model.HistoryOpen = true;
+        if (world.Model.HistoryRows.Count > 0) world.Model.HistoryRows[0].Expanded = true;
     }
 
     private static void Asked(World world, bool waits) => world.Engine.Say(new
@@ -429,6 +445,46 @@ public static class Stage
                 @event = "stored", id = "r1", folder = Path.GetDirectoryName(files[0]),
                 names = files.Select(Path.GetFileName).ToArray(),
             });
+        });
+        yield return ("history-empty", ShowHistory);
+        yield return ("history-received", world =>
+        {
+            Asked(world, waits: true);
+            world.Engine.Say(new { @event = "answered", id = "r1", how = "accepted" });
+            world.Engine.Say(new
+            {
+                @event = "stored", id = "r1", folder = Path.GetDirectoryName(files[0]),
+                names = files[..2].Select(Path.GetFileName).ToArray(),
+            });
+            ShowHistory(world);
+        });
+        yield return ("history-receive-failed", world =>
+        {
+            Asked(world, waits: true);
+            world.Engine.Say(new { @event = "answered", id = "r1", how = "accepted" });
+            world.Engine.Say(new { @event = "lost", id = "r1", reason = "nothing arrived" });
+            ShowHistory(world);
+        });
+        yield return ("history-receive-declined", world =>
+        {
+            Asked(world, waits: true);
+            world.Engine.Say(new { @event = "answered", id = "r1", how = "declined" });
+            ShowHistory(world);
+        });
+        yield return ("history-sent", world =>
+        {
+            Sending(world, files, new { @event = "send", id = "s1", state = "sent" });
+            ShowHistory(world);
+        });
+        yield return ("history-send-failed", world =>
+        {
+            Sending(world, files, new { @event = "send", id = "s1", state = "failed", reason = "unreachable" });
+            ShowHistory(world);
+        });
+        yield return ("history-send-declined", world =>
+        {
+            Sending(world, files, new { @event = "send", id = "s1", state = "declined" });
+            ShowHistory(world);
         });
         yield return ("settings", world =>
         {
