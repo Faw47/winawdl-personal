@@ -5,6 +5,11 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Upstream discovery hardening:** cap and age out mDNS instance, service and IPv6 address records, and strip hostile control/format characters from discovered device names without stripping Arabic text.
+- **AWDL protocol:** advertise HT Capabilities TLV 7 in PSF as well as MIF; retain a unicast frame for at most 20 half-millisecond retries only when a transport explicitly reports EAGAIN/ENOBUFS. The present Windows named-pipe transport blocks on writes, so this retry fallback is normally inactive.
+- **RTL8852CE experiment:** add `--experimental-ack-cam63` (disabled by default) to host-write a dedicated station CAM entry, verify it, and clear it on shutdown. Hardware behavior remains unvalidated.
+- **80 MHz subcarrier handling:** verified the Windows fork already sets the MAC TX subcarrier through `set_channel_mac`. No redundant port; existing channel-width regression is run by CI, alongside a new CAM encoder/rollback test.
+
 - **Photo arrival previews:** finished photo notifications can show a bounded local JPEG thumbnail, including HEIC where Windows has a decoder, with a timeout and text-only fallback. Temporary previews are pruned to ten files.
 - **Copy received content:** Recent files and successfully received History items have an explicit Copy to Clipboard action. Images copy as bitmaps when decodable, safe web shortcuts as URLs, and other or unsupported files as File Explorer-compatible file drops. No automatic clipboard replacement.
 

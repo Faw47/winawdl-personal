@@ -4,6 +4,7 @@ records OpenDrop and omdrop publish for AirDrop, and looks for the instances
 others announce."""
 import ipaddress
 import logging
+from collections import OrderedDict
 import socket
 import struct
 import threading
@@ -12,6 +13,11 @@ import time
 GROUP = 'ff02::fb'
 PORT = 5353
 MAX_PACKET = 9000
+# An untrusted radio peer must not be able to retain unlimited DNS-SD state.
+MAX_INSTANCES = 256
+MAX_ADDRESSES = 1024
+# AirDrop discovery is short-lived; stale records must not persist forever.
+MAX_CACHE_AGE_S = 120
 
 TYPE_PTR, TYPE_TXT, TYPE_AAAA, TYPE_SRV, TYPE_NSEC = 12, 16, 28, 33, 47
 CLASS_IN = 1
@@ -138,25 +144,57 @@ class Instances:
     def __init__(self, service_type):
         self.type_name = service_type.lower()
         self._names = set()
-        self._services = {}
-        self._addresses = {}
+        self._services = OrderedDict()
+        self._addresses = OrderedDict()
+        self._address_heard = {}
         self._heard = {}  # instance name: when it was last announced
+
+    def _prune(self, now):
+        """Expire stale entries and evict oldest ones under an explicit cap."""
+        expired = [name for name, heard in self._heard.items()
+                   if now - heard > MAX_CACHE_AGE_S]
+        for name in expired:
+            self._names.discard(name)
+            self._heard.pop(name, None)
+            self._services.pop(name, None)
+        while len(self._heard) > MAX_INSTANCES:
+            oldest = min(self._heard, key=self._heard.get)
+            self._names.discard(oldest)
+            self._heard.pop(oldest, None)
+            self._services.pop(oldest, None)
+        while len(self._services) > MAX_INSTANCES:
+            self._services.popitem(last=False)
+        for host in [host for host, heard in self._address_heard.items()
+                     if now - heard > MAX_CACHE_AGE_S]:
+            self._addresses.pop(host, None)
+            self._address_heard.pop(host, None)
+        while len(self._addresses) > MAX_ADDRESSES:
+            host, _ = self._addresses.popitem(last=False)
+            self._address_heard.pop(host, None)
 
     def feed(self, packet, source):
         """Take in one packet from `source`, the address it came from."""
+        now = time.monotonic()
+        self._prune(now)
         for name, rtype, ttl, value in response_records(packet):
             if rtype == TYPE_PTR and name == self.type_name:
                 if ttl:
                     self._names.add(value)
-                    self._heard[value] = time.monotonic()
+                    self._heard[value] = now
                 else:
                     self._names.discard(value)
+                    self._heard.pop(value, None)
+                    self._services.pop(value, None)
             elif rtype == TYPE_SRV and name.endswith('.' + self.type_name):
                 # A responder that leaves its address out is still at the
                 # address its answer came from.
                 self._services[name] = (*value, source)
+                self._services.move_to_end(name)
             elif rtype == TYPE_AAAA and value.startswith('fe80:'):
                 self._addresses[name] = value
+                self._addresses.move_to_end(name)
+                self._address_heard[name] = now
+        self._prune(now)
 
     def questions(self):
         """What is still worth asking: the type, and each instance that has

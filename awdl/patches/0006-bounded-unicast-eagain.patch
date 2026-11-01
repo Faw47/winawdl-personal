@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Bounded EAGAIN unicast retry using Owly timing
+
+---
+diff --git a/daemon/core.c b/daemon/core.c
+--- a/daemon/core.c
++++ b/daemon/core.c
+@@ -27,6 +27,7 @@
+ #include "schedule.h"
+ 
+ #include <signal.h>
++#include <errno.h>
+ 
+ #ifdef __APPLE__
+ # define SIGSTATS SIGINFO
+@@ -143,9 +144,11 @@
+ 	READ_ETHER_ADDR(buf, ETHER_DST_OFFSET, &dst);
+ 	READ_ETHER_ADDR(buf, ETHER_SRC_OFFSET, &src);
+ 
++	/* Retry with the original Ethernet frame unchanged. */
++	if (buf_len(buf) < ETHER_LENGTH) goto wire_error;
+-	buf_strip(buf, ETHER_LENGTH);
+ 	awdl_data_len = awdl_init_full_data_frame(awdl_data, &src, &dst,
++	                                          buf_data(buf) + ETHER_LENGTH,
++	                                          buf_len(buf) - ETHER_LENGTH,
+-	                                          buf_data(buf), buf_len(buf),
+ 	                                          awdl_state, ieee80211_state);
+ 	now = clock_time_us();
+ 	period = awdl_sync_current_eaw(now, &awdl_state->sync) / AWDL_CHANSEQ_LENGTH;
+@@ -153,10 +156,10 @@
+ 	tu = awdl_sync_next_aw_tu(now, &awdl_state->sync);
+ 	log_trace("Send data (len %d) to %s (%u.%u.%u)", awdl_data_len,
+ 	          ether_ntoa(&dst), period, slot, tu);
++	int err = wlan_send(io_state, awdl_data, awdl_data_len);
++	if (err == -EAGAIN || err == -ENOBUFS) return TX_AGAIN;
+ 	awdl_state->stats.tx_data++;
++	return err < 0 ? TX_FAIL : TX_OK;
+-	if (wlan_send(io_state, awdl_data, awdl_data_len) < 0)
+-		return TX_FAIL;
+-	return TX_OK;
+ 
+ wire_error:
+ 	return TX_FAIL;
+@@ -222,10 +225,18 @@
+ 		} else {
+ 			in = awdl_can_send_unicast_in(awdl_state, peer, now, AWDL_UNICAST_GUARD_TU);
+ 			if (in == 0) { /* send now */
++				int sent = awdl_send_data(state->next, &state->io,
++				                          &state->awdl_state, &state->ieee80211_state);
++				if (sent == TX_AGAIN && state->unicast_busy_retries < 20) {
++					state->unicast_busy_retries++;
++					in = 0.0005; /* Recheck the slot before every retry. */
++				} else {
++					if (sent == TX_AGAIN) log_warn("Unicast busy for 20 attempts, dropping");
++					buf_free(state->next);
++					state->next = NULL;
++					state->unicast_busy_retries = 0;
++					state->awdl_state.stats.tx_data_unicast++;
++				}
+-				awdl_send_data(state->next, &state->io, &state->awdl_state, &state->ieee80211_state);
+-				buf_free(state->next);
+-				state->next = NULL;
+-				state->awdl_state.stats.tx_data_unicast++;
+ 			} else { /* try later */
+ 				if (in < 0) /* we are at the end of slot but within guard */
+ 					in = -in + usec_to_sec(ieee80211_tu_to_usec(AWDL_UNICAST_GUARD_TU));
+@@ -371,6 +382,7 @@
+ 	ieee80211_init_state(&state->ieee80211_state);
+ 
+ 	state->next = NULL;
++	state->unicast_busy_retries = 0;
+ 	state->tx_queue_multicast = circular_buf_init(16);
+ 	state->dump = dump;
+ 
+diff --git a/daemon/core.h b/daemon/core.h
+--- a/daemon/core.h
++++ b/daemon/core.h
+@@ -40,6 +40,7 @@
+ 	struct ieee80211_state ieee80211_state;
+ 	struct ev_state ev_state;
+ 	struct buf *next;
++	unsigned unicast_busy_retries;
+ 	cbuf_handle_t tx_queue_multicast;
+ 	const char *dump;
+ };
+diff --git a/src/tx.h b/src/tx.h
+--- a/src/tx.h
++++ b/src/tx.h
+@@ -27,6 +27,7 @@
+ enum TX_RESULT {
+ 	TX_OK = 0,
+ 	TX_FAIL = -1,
++	TX_AGAIN = -2, /* queue full, not sent */
+ };
+ 
+ int awdl_init_action(uint8_t *buf, enum awdl_action_type);

@@ -1138,6 +1138,10 @@ public static class Checks
         historyRow.Toggle.Execute(null);
         Expect(historyRow.Expanded && historyRow.DetailsLabel == "Hide Files",
                "a history row reveals its files and names the action");
+        Expect(TableModel.SafePeerLabel("جود جهاز\u202e\u200b") == "جود جهاز"
+               && TableModel.SafePeerLabel("café 👋") == "café 👋"
+               && TableModel.SafePeerLabel(new string('x', 400)).Length == 255,
+               "peer labels remove bidi controls without stripping legitimate Unicode");
         Expect(Words.FriendlyDeviceModel("iPhone14,2") == "iPhone 13 Pro"
                && Words.FriendlyDeviceModel("iPad13,1") == "iPad"
                && Words.FriendlyDeviceModel("iPhone99,42") == "iPhone"

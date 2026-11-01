@@ -32,6 +32,41 @@ jobs:
       - name: Tests, over loopback
         run: python -m unittest discover -s airdrop\tests
 
+  radio:
+    name: Windows RTL8852CE radio build (no hardware)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Windows PCIe devourer sources
+        shell: pwsh
+        run: git submodule update --init upstream/devourer
+      - name: Locate vcpkg
+        shell: pwsh
+        run: |
+          $roots = @($env:VCPKG_INSTALLATION_ROOT, 'C:\vcpkg', 'C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\vcpkg', 'C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\vcpkg')
+          $root = $roots | Where-Object { $_ -and (Test-Path (Join-Path $_ 'vcpkg.exe')) } | Select-Object -First 1
+          if (-not $root) { throw 'vcpkg.exe unavailable on this runner' }
+          "VCPKG_ROOT=$root" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+      - name: Load installed MSVC compiler
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+      - name: Build Windows radio and its hardware-free tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          cmake -S radio -B build/radio -G Ninja -DCMAKE_BUILD_TYPE=Release "-DVCPKG_MANIFEST_DIR=$PWD/deps"
+          if ($LASTEXITCODE -ne 0) { throw 'radio configure failed' }
+          cmake --build build/radio --target winawdl_radio channel_width_test ack_cam_experiment_test
+          if ($LASTEXITCODE -ne 0) { throw 'radio build failed' }
+      - name: Headless RTL8852CE radio tests
+        shell: pwsh
+        run: |
+          & build/radio/ack_cam_experiment_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'CAM selftest failed' }
+          & build/radio/channel_width_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'subcarrier test failed' }
+
   awdl:
     name: AWDL daemon, with OWL patched
     runs-on: windows-latest
@@ -45,6 +80,7 @@ jobs:
         run: |
           git submodule update --init upstream/owl
           git -C upstream/owl submodule update --init radiotap
+          git submodule update --init upstream/devourer
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -59,10 +95,17 @@ jobs:
         run: |
           set -e
           for test in rx_amsdu_bounds_test election_order_test peer_heard_test host_frame_test \
-                      tcp_merge_test frame_fixup_test service_bridge_test redact_test; do
+                      tcp_merge_test frame_fixup_test service_bridge_test redact_test psf_ht_test; do
             echo "== $test"
             ./build/awdl/$test.exe
           done
+      - name: Portable RTL8852C CAM63 and TX subcarrier tests
+        run: |
+          set -e
+          g++ -std=c++20 -Wall -Wextra -Werror radio/tests/ack_cam_experiment_test.cpp -o build/awdl/ack_cam_experiment_test.exe
+          ./build/awdl/ack_cam_experiment_test.exe
+          g++ -std=c++20 -Wall -Wextra -Werror -Iupstream/devourer/src radio/tests/channel_width_test.cpp -o build/awdl/channel_width_test.exe
+          ./build/awdl/channel_width_test.exe
 
   fuzz:
     name: Fuzzing what a stranger sends, a minute a target

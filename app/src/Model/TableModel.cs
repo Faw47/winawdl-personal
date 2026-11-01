@@ -582,6 +582,22 @@ public sealed class TableModel : Observable, IDisposable
         ChangedAll();
     }
 
+    /// <summary>Names come from nearby untrusted devices. Keep Arabic and other
+    /// readable Unicode, but never render control or direction-override runes.</summary>
+    internal static string SafePeerLabel(string value)
+    {
+        var clean = new StringBuilder();
+        foreach (var rune in value.EnumerateRunes())
+        {
+            if (Rune.GetUnicodeCategory(rune) is System.Globalization.UnicodeCategory.Control
+                or System.Globalization.UnicodeCategory.Format
+                or System.Globalization.UnicodeCategory.Surrogate) continue;
+            if (clean.Length + rune.Utf16SequenceLength > 255) break;
+            clean.Append(rune);
+        }
+        return clean.ToString().Trim();
+    }
+
     private void AddPeer(string id, string name, string model)
     {
         if (Peers.FirstOrDefault(known => known.Id == id) is { } known)
@@ -595,6 +611,9 @@ public sealed class TableModel : Observable, IDisposable
             Peers.Remove(known);
         }
         PeerModel? peer = null;
+        name = SafePeerLabel(name);
+        model = SafePeerLabel(model);
+        if (name.Length == 0) return;
         peer = new PeerModel(id, name, model.Length > 0 ? model : null)
         {
             Press = new Command(() => SendTo(peer!)),

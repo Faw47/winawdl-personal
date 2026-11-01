@@ -81,5 +81,48 @@ class QueryTest(unittest.TestCase):
         self.assertEqual(mdns.question_names(looping), set())
 
 
+class CacheLimitsTest(unittest.TestCase):
+    def test_instance_and_address_floods_have_strict_bounds(self):
+        instances = mdns.Instances('_airdrop._tcp.local')
+        # Feed a sequence of valid packets, as a peer can over the radio.
+        for index in range(mdns.MAX_INSTANCES + 32):
+            name = f'phone{index}._airdrop._tcp.local'
+            response = (struct.pack('!HHHHHH', 0, mdns.RESPONSE_FLAGS, 0, 1, 0, 0)
+                        + mdns._record(instances.type_name, mdns.TYPE_PTR,
+                                       mdns.CLASS_IN, 60, mdns.encode_name(name)))
+            instances.feed(response, 'fe80::1')
+        self.assertEqual(len(instances._heard), mdns.MAX_INSTANCES)
+        self.assertNotIn('phone0._airdrop._tcp.local', instances._names)
+        self.assertIn(f'phone{mdns.MAX_INSTANCES + 31}._airdrop._tcp.local',
+                      instances._names)
+        for index in range(mdns.MAX_ADDRESSES + 8):
+            host = f'host{index}.local'
+            response = (struct.pack('!HHHHHH', 0, mdns.RESPONSE_FLAGS, 0, 1, 0, 0)
+                        + mdns._record(host, mdns.TYPE_AAAA, mdns.CLASS_IN, 120,
+                                       mdns.ipaddress.IPv6Address(f'fe80::{index+1:x}').packed))
+            instances.feed(response, 'fe80::1')
+        self.assertEqual(len(instances._addresses), mdns.MAX_ADDRESSES)
+        self.assertEqual(len(instances._address_heard), mdns.MAX_ADDRESSES)
+
+    def test_goodbye_and_stale_records_expire(self):
+        from unittest import mock
+        instances = mdns.Instances('_airdrop._tcp.local')
+        name = 'phone._airdrop._tcp.local'
+        def announcement(ttl):
+            return (struct.pack('!HHHHHH', 0, mdns.RESPONSE_FLAGS, 0, 1, 0, 0)
+                    + mdns._record(instances.type_name, mdns.TYPE_PTR,
+                                   mdns.CLASS_IN, ttl, mdns.encode_name(name)))
+        with mock.patch.object(mdns.time, 'monotonic', return_value=100):
+            instances.feed(announcement(60), 'fe80::1')
+        with mock.patch.object(mdns.time, 'monotonic', return_value=101):
+            instances.feed(announcement(0), 'fe80::1')
+        self.assertNotIn(name, instances._names)
+        with mock.patch.object(mdns.time, 'monotonic', return_value=200):
+            instances.feed(announcement(60), 'fe80::1')
+        with mock.patch.object(mdns.time, 'monotonic', return_value=321):
+            instances.feed(b'', 'fe80::1')
+        self.assertNotIn(name, instances._names)
+
+
 if __name__ == '__main__':
     unittest.main()

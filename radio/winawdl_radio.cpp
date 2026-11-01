@@ -29,6 +29,7 @@
 #include "SignalStop.h"
 #include "WiFiDriver.h"
 #include "block_ack.h"
+#include "ack_cam_experiment.h"
 #include "frame_capture.h"
 #include "logger.h"
 #include "outgoing_session.h"
@@ -502,14 +503,68 @@ private:
   uint64_t _reported = 0, _given_up = 0;
 };
 
+/* Optional host-written ADDR_CAM experiment, isolated in station slot 63.
+ * Keep the older macid-0 path untouched. This is hardware-register work:
+ * unit tests verify the encoding, but only a live card can validate ACKs. */
+class ExperimentalAck {
+public:
+  ExperimentalAck(devourer::PcieTransport &bus, Logger_t logger)
+      : _bus(bus), _logger(logger), _response_saved(bus.read32(0xCC04)) {}
+  ~ExperimentalAck() { stop(); }
+
+  void arm(const Mac &own, const Mac &bssid) {
+    const auto write = [&](uint32_t address, uint32_t value) {
+      return _bus.write32(ack_cam_experiment::Selector, address) &&
+             _bus.write32_wide(ack_cam_experiment::Window, value);
+    };
+    const auto read = [&](uint32_t address) {
+      if (!_bus.write32(ack_cam_experiment::Selector, address)) return UINT32_MAX;
+      return _bus.read32_wide(ack_cam_experiment::Window);
+    };
+    const bool ok = ack_cam_experiment::arm(write, read, own, bssid);
+    if (!ok) {
+      _logger->warn("radio: experimental CAM63 did not read back; disabled");
+      return;
+    }
+    _active = true;
+    // Upstream #489: response checks can prevent an ACK even with a valid
+    // address entry. Preserve the original register for disarm.
+    constexpr uint32_t response_checks = (1u << 23) | (1u << 24) |
+        (1u << 25) | (1u << 26) | (1u << 27) | (1u << 28);
+    _bus.write32(0xCC04, _response_saved & ~response_checks);
+    _logger->warn("radio: experimental CAM63 station entry verified");
+  }
+
+  void stop() {
+    if (!_active) return;
+    const auto clear = [&](uint32_t address, uint32_t value) {
+      return _bus.write32(ack_cam_experiment::Selector, address) &&
+             _bus.write32_wide(ack_cam_experiment::Window, value);
+    };
+    if (!ack_cam_experiment::clear(clear))
+      _logger->warn("radio: experimental CAM63 clear could not be confirmed");
+    _bus.write32(0xCC04, _response_saved);
+    _active = false;
+  }
+
+private:
+  devourer::PcieTransport &_bus;
+  Logger_t _logger;
+  uint32_t _response_saved;
+  bool _active = false;
+};
+
 /* Makes the card acknowledge frames sent to the client, once both of the
  * addresses that takes are known. */
-void adopt_identity(IRadio &radio, const Session &session, Logger_t logger) {
+void adopt_identity(IRadio &radio, const Session &session, Logger_t logger,
+                    ExperimentalAck *experimental = nullptr) {
   if (!session.own.is_set() || !session.bssid_filter.is_set()) return;
   if (!radio.SetStationIdentity({session.own.get()},
                                 {session.bssid_filter.get()}))
     logger->warn("radio: the card will not acknowledge frames for the client; "
                  "peers will repeat everything they send it");
+  if (experimental)
+    experimental->arm(session.own.get(), session.bssid_filter.get());
 }
 
 /* The block-ack session the card is set up for, and when it was opened. */
@@ -642,7 +697,7 @@ void ask_for_aggregates(IRadio &radio, FrameCapture *capture,
  * false for a client that sent nothing, such as a probe for the pipe. */
 bool serve_client(PipeServer &pipe, IRadio &radio, devourer::PcieTransport &bus,
                   Session &session, FrameCapture *capture, uint8_t channel,
-                  Logger_t logger) {
+                  Logger_t logger, bool experimental_ack_cam63) {
   radio_link_hello hello{RADIO_LINK_VERSION, channel, session.width_mhz, {}};
   pipe.send(RADIO_LINK_HELLO,
             {reinterpret_cast<const uint8_t *>(&hello), sizeof(hello)});
@@ -653,6 +708,9 @@ bool serve_client(PipeServer &pipe, IRadio &radio, devourer::PcieTransport &bus,
   WindowNotice notice;
   uint64_t messages = 0, sent = 0, failed = 0, to_one = 0, agreements = 0;
   std::optional<OpenBlockAck> open_block_ack;
+  std::unique_ptr<ExperimentalAck> experimental;
+  if (experimental_ack_cam63)
+    experimental = std::make_unique<ExperimentalAck>(bus, logger);
   radio_link_header header{};
   uint64_t tellings = 0;
   unsigned untold = 0;
@@ -686,12 +744,12 @@ bool serve_client(PipeServer &pipe, IRadio &radio, devourer::PcieTransport &bus,
       Mac bssid;
       std::copy(payload.begin(), payload.end(), bssid.begin());
       session.bssid_filter.set(bssid);
-      adopt_identity(radio, session, logger);
+      adopt_identity(radio, session, logger, experimental.get());
     } else if (header.type == RADIO_LINK_SET_ADDRESS && is_address) {
       Mac own;
       std::copy(payload.begin(), payload.end(), own.begin());
       session.own.set(own);
-      adopt_identity(radio, session, logger);
+      adopt_identity(radio, session, logger, experimental.get());
     } else if (header.type == RADIO_LINK_SET_CHANNEL && payload.size() == 1 &&
                payload[0] != channel) {
       /* Retuning under a running receive loop is untested on this chip. */
@@ -708,6 +766,7 @@ bool serve_client(PipeServer &pipe, IRadio &radio, devourer::PcieTransport &bus,
   tell_card();
   radio.ClearAmpduMode();
   radio.EndBlockAck();
+  if (experimental) experimental->stop();
   session.reorder.stop(pipe);
   if (messages) {
     const uint64_t for_us = session.for_us, retried = session.for_us_retried;
@@ -760,6 +819,7 @@ struct Options {
   /* Take the TX antenna path selection from the baseband's own registers
    * (radio/patches/0003). Off unless asked: see DESIGN-NOTES. */
   bool tx_path_pmac = false;
+  bool experimental_ack_cam63 = false;
 };
 
 /* The rate `spec` names, or nothing if it names none or asks for a wider
@@ -806,6 +866,8 @@ std::optional<Options> parse_options(int argc, char **argv) {
       options.quick_submit = false;
     else if (argument == "--tx-path-pmac")
       options.tx_path_pmac = true;
+    else if (argument == "--experimental-ack-cam63")
+      options.experimental_ack_cam63 = true;
     else if (argument == "--capture" && i + 1 < argc)
       options.capture_path = argv[++i];
     else if (argument == "--width" && i + 1 < argc)
@@ -838,7 +900,8 @@ int main(int argc, char **argv) {
                  "usage: %s <channel> [--width 20|40|80] [--capture file.pcap] "
                  "[--no-block-ack] [--retries 0..62] "
                  "[--data-rate auto|client|MCS7/20] [--no-aggregate] "
-                 "[--no-quick-submit] [--tx-path-pmac]\n",
+                 "[--no-quick-submit] [--tx-path-pmac] "
+                 "[--experimental-ack-cam63]\n",
                  argv[0]);
     return 2;
   }
@@ -907,7 +970,7 @@ int main(int argc, char **argv) {
   while (!stopping() && !served && pipe.wait_for_client()) {
     card->set_tx_kick_deferred(options->quick_submit);
     served = serve_client(pipe, *radio, *card, session, capture.get(), channel,
-                          logger);
+                          logger, options->experimental_ack_cam63);
     card->set_tx_kick_deferred(false);
     pipe.drop_client();
   }
