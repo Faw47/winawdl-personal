@@ -60,11 +60,12 @@ Source: "{#Stage}\install.ps1"; Flags: dontcopy
 Name: "{commonappdata}\winawdl\logs"; Flags: uninsneveruninstall
 
 [Icons]
-Name: "{autoprograms}\winawdl"; Filename: "{app}\winawdl.exe"; WorkingDir: "{app}"; Comment: "AirDrop on Windows"
+Name: "{autoprograms}\winawdl"; Filename: "{app}\winawdl.exe"; WorkingDir: "{app}"; Comment: "AirDrop on Windows"; AppUserModelID: "winawdl.AirDrop"
 
 [Run]
 ; Registration must run as the person who launched setup, not the elevated helper.
 Filename: "{app}\winawdl.exe"; Parameters: "--explorer-install"; Flags: runhidden waituntilterminated runasoriginaluser; Check: SetUpWell
+Filename: "{app}\winawdl.exe"; Parameters: "--notifications-install"; Flags: runhidden waituntilterminated runasoriginaluser; Check: SetUpWell
 ; As the person who started setup, not as administrator: Explorer cannot drop files on a window that is.
 Filename: "{app}\winawdl.exe"; Description: "Start winawdl"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: SetUpWell
 
