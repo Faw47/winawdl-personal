@@ -34,6 +34,8 @@ public sealed class TableModel : Observable, IDisposable
     private readonly IStartup _startup;
     private readonly IExplorerIntegration _explorer;
     private readonly IHistoryStore _historyStore;
+    private bool _setupOpen;
+    private int _setupStep;
     private readonly List<TransferRecord> _historyEntries = [];
     private readonly Dictionary<string, TransferRecord> _sendHistory = new();
     private readonly Dictionary<string, TransferRecord> _incomingHistory = new();
@@ -63,6 +65,7 @@ public sealed class TableModel : Observable, IDisposable
         _radio = radio;
         _desk = desk;
         _settings = settings;
+        _setupOpen = settings.SetupPending;
         _startup = startup;
         _explorer = explorer;
         _historyStore = historyStore;
@@ -84,6 +87,18 @@ public sealed class TableModel : Observable, IDisposable
             HeldChanged("");
         });
         OpenSettings = new Command(() => SettingsOpen = true);
+        NextSetup = new Command(() =>
+        {
+            if (_setupStep == 0 && NameDraft.Trim() != Name)
+            {
+                _setupNameWaiting = true;
+                CommitName();
+                return;
+            }
+            AdvanceSetup();
+        });
+        SkipSetupStep = new Command(AdvanceSetup);
+        SkipSetup = new Command(FinishSetup);
         OpenHistory = new Command(() => HistoryOpen = true);
         CloseHistory = new Command(() => HistoryOpen = false);
         ClearHistory = new Command(() =>
@@ -127,6 +142,9 @@ public sealed class TableModel : Observable, IDisposable
     public ICommand Paste { get; }
     public ICommand ClearHeld { get; }
     public ICommand OpenSettings { get; }
+    public ICommand NextSetup { get; }
+    public ICommand SkipSetupStep { get; }
+    public ICommand SkipSetup { get; }
     public ICommand OpenHistory { get; }
     public ICommand CloseHistory { get; }
     public ICommand ClearHistory { get; }
@@ -1018,7 +1036,32 @@ public sealed class TableModel : Observable, IDisposable
     /// <summary>Choosing files is the next thing to do: devices can be seen and
     /// nothing else is waiting for an answer.</summary>
     public bool ChooseIsNext => Across == Across.Nearby && !Incoming.Any(item => item.IsAsking);
-    public bool TableInReach => !SettingsOpen && !HistoryOpen;
+    public bool TableInReach => !SettingsOpen && !HistoryOpen && !SetupOpen;
+    public bool SetupOpen => _setupOpen;
+    private bool _setupNameWaiting;
+    public bool SetupName => _setupStep == 0;
+    public bool SetupVisibility => _setupStep == 1;
+    public bool SetupFolder => _setupStep == 2;
+    public bool SetupStartup => _setupStep == 3;
+    public bool SetupExplorer => _setupStep == 4;
+    public string SetupProgress => $"{_setupStep + 1} of 5";
+    public string SetupNextLabel => _setupStep == 4 ? "Done" : "Continue";
+    public string SetupHeading => new[] { "This PC", "Who Can Find This PC", "Save Received Files To",
+        "Start with Windows", "Send with AirDrop in Explorer" }[_setupStep];
+
+    private void AdvanceSetup()
+    {
+        if (_setupStep < 4) { _setupStep++; ChangedAll(); }
+        else FinishSetup();
+    }
+
+    private void FinishSetup()
+    {
+        _setupOpen = false;
+        _settings.SetupPending = false;
+        _settings.Save();
+        ChangedAll();
+    }
 
     private void RebuildHistoryRows()
     {
@@ -1507,5 +1550,10 @@ public sealed class TableModel : Observable, IDisposable
         AdoptSenders(said);
         _settings.Save();
         if (!Refused("name")) _nameDraft = Name;
+        if (_setupNameWaiting)
+        {
+            _setupNameWaiting = false;
+            if (!Refused("name") && SetupOpen && SetupName) AdvanceSetup();
+        }
     }
 }

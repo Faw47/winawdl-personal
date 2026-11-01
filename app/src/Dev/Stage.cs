@@ -205,7 +205,7 @@ public static class Stage
             foreach (var (themeName, palette) in themes)
             {
                 theme.Apply(palette);
-                var view = Build(build, app.Dispatcher);
+                var view = Build(build, app.Dispatcher, name.StartsWith("setup-"));
                 if (name.StartsWith("settings-startup-") || name.StartsWith("settings-explorer-"))
                 {
                     view.Measure(new Size(460, 688));
@@ -280,12 +280,12 @@ public static class Stage
                                AppSettings Settings, ScriptedStartup Startup, ScriptedExplorer Explorer,
                                ScriptedHistoryStore HistoryStore);
 
-    public static World NewWorld(Dispatcher dispatcher, string? folder = null)
+    public static World NewWorld(Dispatcher dispatcher, string? folder = null, bool setup = false)
     {
         var engine = new ScriptedEngine();
         var radio = new ScriptedRadio();
         var desk = new ScriptedDesk(dispatcher);
-        var settings = new AppSettings { Name = "STUDY-PC", Folder = folder ?? Path.GetTempPath() };
+        var settings = new AppSettings { Name = "STUDY-PC", Folder = folder ?? Path.GetTempPath(), SetupPending = setup };
         var startup = new ScriptedStartup();
         var explorer = new ScriptedExplorer();
         var history = new ScriptedHistoryStore();
@@ -295,9 +295,9 @@ public static class Stage
         return new World(engine, radio, desk, model, settings, startup, explorer, history);
     }
 
-    private static MainView Build(Action<World> scene, Dispatcher dispatcher)
+    private static MainView Build(Action<World> scene, Dispatcher dispatcher, bool setup = false)
     {
-        var world = NewWorld(dispatcher);
+        var world = NewWorld(dispatcher, setup: setup);
         scene(world);
         return new MainView { DataContext = world.Model };
     }
@@ -344,6 +344,59 @@ public static class Stage
 
     public static IEnumerable<(string Name, Action<World> Build)> Scenes(string[] files)
     {
+        for (var step = 0; step < 5; step++)
+        {
+            var current = step;
+            yield return ($"setup-{step + 1}", world =>
+            {
+                for (var index = 0; index < current; index++) world.Model.SkipSetupStep.Execute(null);
+            });
+        }
+        yield return ("setup-name-error", world =>
+        {
+            world.Model.NameDraft = "bad/name";
+            world.Model.NextSetup.Execute(null);
+            world.Engine.Say(new { @event = "settings", name = "STUDY-PC", folder = world.Model.Folder,
+                ask = true, refused = new { name = "invalid" } });
+        });
+        yield return ("setup-contacts", world =>
+        {
+            world.Model.SkipSetupStep.Execute(null);
+            world.Model.OnlyKnownSenders = true;
+        });
+        yield return ("setup-ten-minutes", world =>
+        {
+            world.Model.SkipSetupStep.Execute(null);
+            world.Model.EveryoneForAWhile = true;
+        });
+        yield return ("setup-startup-error", world =>
+        {
+            for (var index = 0; index < 3; index++) world.Model.SkipSetupStep.Execute(null);
+            world.Startup.RefuseWrite = true;
+            world.Model.StartWithWindows = true;
+        });
+        yield return ("setup-startup-on", world =>
+        {
+            for (var index = 0; index < 3; index++) world.Model.SkipSetupStep.Execute(null);
+            world.Model.StartWithWindows = true;
+        });
+        yield return ("setup-explorer-on", world =>
+        {
+            for (var index = 0; index < 4; index++) world.Model.SkipSetupStep.Execute(null);
+            world.Model.ExplorerEnabled = true;
+        });
+        yield return ("setup-folder-error", world =>
+        {
+            for (var index = 0; index < 2; index++) world.Model.SkipSetupStep.Execute(null);
+            world.Engine.Say(new { @event = "settings", name = world.Model.Name, folder = world.Model.Folder,
+                ask = true, refused = new { folder = "invalid" } });
+        });
+        yield return ("setup-explorer-error", world =>
+        {
+            for (var index = 0; index < 4; index++) world.Model.SkipSetupStep.Execute(null);
+            world.Explorer.RefuseWrite = true;
+            world.Model.ExplorerEnabled = true;
+        });
         yield return ("radio-off", _ => { });
         yield return ("radio-starting", world =>
         {

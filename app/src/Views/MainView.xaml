@@ -50,6 +50,20 @@
         </DataTrigger>
       </Style.Triggers>
     </Style>
+          <Style x:Key="Group" TargetType="TextBlock" BasedOn="{StaticResource Label}">
+            <Setter Property="Margin" Value="4,24,0,8" />
+          </Style>
+          <Style x:Key="Hairline" TargetType="Border">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="14,0,0,0" />
+            <Setter Property="Background" Value="{DynamicResource Outline}" />
+          </Style>
+          <Style x:Key="RowChoice" TargetType="RadioButton" BasedOn="{StaticResource Choice}">
+            <Setter Property="Padding" Value="14,11" />
+          </Style>
+          <Style x:Key="RowSwitch" TargetType="t:Switch" BasedOn="{StaticResource {x:Type t:Switch}}">
+            <Setter Property="Padding" Value="14,11" />
+          </Style>
   </UserControl.Resources>
 
   <UserControl.InputBindings>
@@ -403,22 +417,7 @@
         <Border.InputBindings>
           <KeyBinding Key="Escape" Command="{Binding CloseSettings}" />
         </Border.InputBindings>
-        <Border.Resources>
-          <Style x:Key="Group" TargetType="TextBlock" BasedOn="{StaticResource Label}">
-            <Setter Property="Margin" Value="4,24,0,8" />
-          </Style>
-          <Style x:Key="Hairline" TargetType="Border">
-            <Setter Property="Height" Value="1" />
-            <Setter Property="Margin" Value="14,0,0,0" />
-            <Setter Property="Background" Value="{DynamicResource Outline}" />
-          </Style>
-          <Style x:Key="RowChoice" TargetType="RadioButton" BasedOn="{StaticResource Choice}">
-            <Setter Property="Padding" Value="14,11" />
-          </Style>
-          <Style x:Key="RowSwitch" TargetType="t:Switch" BasedOn="{StaticResource {x:Type t:Switch}}">
-            <Setter Property="Padding" Value="14,11" />
-          </Style>
-        </Border.Resources>
+
         <!-- Rows, so that Tab meets things in the order they are read. -->
         <Grid Margin="20,12,12,20">
           <Grid.RowDefinitions>
@@ -723,6 +722,102 @@
           <Button Grid.Row="2" Style="{StaticResource TextButton}" Content="Clear History"
                   HorizontalAlignment="Right" Command="{Binding ClearHistory}"
                   Visibility="{Binding HasHistory, Converter={StaticResource Shown}}" />
+        </Grid>
+      </Border>
+    </Grid>
+    <Grid x:Name="SetupSheet" Visibility="{Binding SetupOpen, Converter={StaticResource Shown}}">
+      <Rectangle Fill="{DynamicResource Veil}" />
+      <Border HorizontalAlignment="Right" Width="380" Background="{DynamicResource Table}"
+              BorderBrush="{DynamicResource Line}" BorderThickness="1,0,0,0"
+              KeyboardNavigation.TabNavigation="Cycle" KeyboardNavigation.ControlTabNavigation="Cycle">
+        <Border.InputBindings>
+          <KeyBinding Key="Escape" Command="{Binding SkipSetup}" />
+        </Border.InputBindings>
+        <Grid Margin="24,24,24,24">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+          </Grid.RowDefinitions>
+          <StackPanel>
+            <TextBlock Style="{StaticResource Caption}" Text="Welcome to winawdl" />
+            <TextBlock Style="{StaticResource Title}" Text="{Binding SetupHeading}" Margin="0,8,0,8" TextWrapping="Wrap" />
+            <TextBlock Style="{StaticResource Caption}" Text="{Binding SetupProgress}" />
+          </StackPanel>
+          <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Focusable="False" Margin="0,24,0,24">
+            <StackPanel>
+              <ContentControl Style="{StaticResource Card}" Visibility="{Binding SetupName, Converter={StaticResource Shown}}">
+                <StackPanel>
+                  <TextBox Style="{StaticResource Field}" MaxLength="63" AutomationProperties.Name="Name other devices see"
+                           Text="{Binding NameDraft, UpdateSourceTrigger=PropertyChanged}" />
+                  <TextBlock Style="{StaticResource Caption}" Text="What nearby devices see this PC called." Margin="0,8,0,0" />
+                  <TextBlock Style="{StaticResource Caption}" Foreground="{DynamicResource Ember}" Text="{Binding NameError}"
+                             Margin="0,8,0,0" Visibility="{Binding HasNameError, Converter={StaticResource Shown}}" />
+                </StackPanel>
+              </ContentControl>
+              <ContentControl Style="{StaticResource Card}" Padding="0" Visibility="{Binding SetupVisibility, Converter={StaticResource Shown}}">
+                <StackPanel>
+                  <RadioButton Style="{StaticResource RowChoice}" IsChecked="{Binding OnlyKnownSenders}" AutomationProperties.Name="Contacts Only">
+                    <StackPanel>
+                      <TextBlock Text="Contacts Only" />
+                      <TextBlock Style="{StaticResource Caption}" Text="Only the people added in Settings, as Apple confirms who each is." />
+                    </StackPanel>
+                  </RadioButton>
+                  <Border Style="{StaticResource Hairline}" />
+                  <RadioButton Style="{StaticResource RowChoice}" Content="Everyone for 10 Minutes"
+                               IsChecked="{Binding EveryoneForAWhile}" AutomationProperties.Name="Everyone for 10 Minutes" />
+                  <Border Style="{StaticResource Hairline}" />
+                  <RadioButton Style="{StaticResource RowChoice}" Content="Everyone" IsChecked="{Binding AnyoneCanSend}"
+                               AutomationProperties.Name="Everyone" />
+                </StackPanel>
+              </ContentControl>
+              <ContentControl Style="{StaticResource Card}" Visibility="{Binding SetupFolder, Converter={StaticResource Shown}}">
+                <StackPanel>
+                  <TextBlock Style="{StaticResource Body}" Text="{Binding Folder}" TextWrapping="Wrap" />
+                  <Button Style="{StaticResource TextButton}" Content="Change…" HorizontalAlignment="Left"
+                          Command="{Binding ChangeFolder}" AutomationProperties.Name="Change folder" Margin="0,8,0,0" />
+                  <TextBlock Style="{StaticResource Caption}" Text="{Binding FolderError}" Foreground="{DynamicResource Ember}"
+                             Visibility="{Binding HasFolderError, Converter={StaticResource Shown}}" />
+                </StackPanel>
+              </ContentControl>
+              <ContentControl Style="{StaticResource Card}" Padding="0" Visibility="{Binding SetupStartup, Converter={StaticResource Shown}}">
+                <StackPanel>
+                  <t:Switch Style="{StaticResource RowSwitch}" IsChecked="{Binding StartWithWindows}" IsEnabled="{Binding StartupAvailable}"
+                            AutomationProperties.Name="Start with Windows">
+                    <StackPanel>
+                      <TextBlock Text="Start with Windows" />
+                      <TextBlock Style="{StaticResource Caption}" Text="Open in the notification area when you sign in." />
+                    </StackPanel>
+                  </t:Switch>
+                  <TextBlock Style="{StaticResource Caption}" Foreground="{DynamicResource Ember}" Text="{Binding StartupProblem}"
+                             Margin="16,0,16,16" Visibility="{Binding HasStartupProblem, Converter={StaticResource Shown}}" />
+                </StackPanel>
+              </ContentControl>
+              <ContentControl Style="{StaticResource Card}" Padding="0" Visibility="{Binding SetupExplorer, Converter={StaticResource Shown}}">
+                <StackPanel>
+                  <t:Switch Style="{StaticResource RowSwitch}" IsChecked="{Binding ExplorerEnabled}" IsEnabled="{Binding ExplorerAvailable}"
+                            AutomationProperties.Name="Send with AirDrop in Explorer">
+                    <StackPanel>
+                      <TextBlock Text="Send with AirDrop in Explorer" />
+                      <TextBlock Style="{StaticResource Caption}" Text="Add to Send to and the classic right-click menu." />
+                    </StackPanel>
+                  </t:Switch>
+                  <TextBlock Style="{StaticResource Caption}" Foreground="{DynamicResource Ember}" Text="{Binding ExplorerProblem}"
+                             Margin="16,0,16,16" Visibility="{Binding HasExplorerProblem, Converter={StaticResource Shown}}" />
+                </StackPanel>
+              </ContentControl>
+              <TextBlock Style="{StaticResource Caption}" Text="You can change these choices in Settings." Margin="0,16,0,0" />
+            </StackPanel>
+          </ScrollViewer>
+          <StackPanel Grid.Row="2">
+            <DockPanel LastChildFill="False">
+              <Button x:Name="SetupNext" DockPanel.Dock="Right" Style="{StaticResource RaisedButton}" Content="{Binding SetupNextLabel}"
+                      AutomationProperties.Name="{Binding SetupNextLabel}" Command="{Binding NextSetup}" MinWidth="96" />
+              <Button Style="{StaticResource TextButton}" Content="Skip" Command="{Binding SkipSetupStep}" AutomationProperties.Name="Skip this step" />
+            </DockPanel>
+            <Button Style="{StaticResource TextButton}" Content="Skip Setup" Command="{Binding SkipSetup}"
+                    AutomationProperties.Name="Skip Setup" HorizontalAlignment="Left" Margin="0,16,0,0" />
+          </StackPanel>
         </Grid>
       </Border>
     </Grid>

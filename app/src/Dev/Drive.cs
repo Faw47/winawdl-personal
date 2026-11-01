@@ -172,6 +172,7 @@ public static class Drive
         using var log = new StreamWriter(Path.Combine(folder, "drive.log")) { AutoFlush = true };
         try
         {
+            if (args.Skip(1).Contains("setup")) return Setup(folder, log);
             return new Session(folder, log).Go();
         }
         catch (Exception error)
@@ -179,6 +180,56 @@ public static class Drive
             log.WriteLine($"STOPPED {error}");
             return 1;
         }
+    }
+
+    private static int Setup(string folder, StreamWriter log)
+    {
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var theme = Program.Dress(app);
+        Motion.Reduced = true;
+        var world = Stage.NewWorld(app.Dispatcher, setup: true);
+        var window = new MainWindow(world.Model, theme, world.Settings)
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual, Left = -30000, Top = -30000,
+            ShowActivated = false, ShowInTaskbar = false,
+        };
+        window.Show();
+        var view = (MainView)window.Content;
+        var failed = false;
+        bool Press(string name)
+        {
+            view.UpdateLayout();
+            var control = Stage.Controls(view).FirstOrDefault(one => one.Line.Contains($"\"{name}\"")).Control;
+            var peer = control is null ? null : UIElementAutomationPeer.CreatePeerForElement(control);
+            if (peer?.GetPattern(PatternInterface.Invoke) is IInvokeProvider invoke) invoke.Invoke();
+            else if (peer?.GetPattern(PatternInterface.Toggle) is IToggleProvider toggle) toggle.Toggle();
+            else if (peer?.GetPattern(PatternInterface.SelectionItem) is ISelectionItemProvider select) select.Select();
+            else return false;
+            Stage.Pump(app.Dispatcher, 100);
+            return true;
+        }
+        try
+        {
+            for (var step = 1; step <= 5; step++)
+            {
+                Stage.Pump(app.Dispatcher, 100);
+                var bitmap = new RenderTargetBitmap((int)(view.ActualWidth * 2), (int)(view.ActualHeight * 2),
+                    192, 192, PixelFormats.Pbgra32);
+                bitmap.Render(view);
+                Stage.WritePng(bitmap, Path.Combine(folder, $"setup-{step}.png"));
+                var choice = step switch { 2 => "Contacts Only", 3 => "Change folder", 4 => "Start with Windows",
+                    5 => "Send with AirDrop in Explorer", _ => "" };
+                if (step == 3) world.Desk.PickedFolder = folder;
+                var acted = choice.Length == 0 || Press(choice);
+                var advanced = Press(step == 5 ? "Done" : "Continue");
+                failed |= !acted || !advanced;
+                log.WriteLine($"{(acted && advanced ? "PASS" : "FAIL")} setup step {step}: {choice}");
+            }
+            failed |= world.Model.SetupOpen || world.Settings.SetupPending;
+            log.WriteLine(failed ? "FAILED" : "ALL PASSED");
+            return failed ? 1 : 0;
+        }
+        finally { window.Quitting = true; window.Close(); world.Model.Dispose(); }
     }
 
     private sealed class Session(string folder, StreamWriter log)

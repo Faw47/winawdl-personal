@@ -5,6 +5,11 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **First-run setup.** A short, skippable sheet sets this PC's name, who can
+  find it, the receive folder, start at sign-in and Explorer integration.
+  Finished or skipped setup does not appear again. Existing installs keep
+  their settings without showing setup.
+
 - **Windows notifications.** Incoming requests offer Accept and Decline when
   the window is in the background. Received files also get a notification.
   Cards remain available when Windows notifications cannot be shown.
