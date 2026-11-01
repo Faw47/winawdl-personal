@@ -97,6 +97,26 @@ public static class Words
         _ => "",
     };
 
+    /// <summary>History presents friendly device models while preserving raw IDs on disk.
+    /// Unrecognised hardware codes are shown as a family, not a guessed specific model.</summary>
+    public static string FriendlyDeviceModel(string? model)
+    {
+        if (string.IsNullOrWhiteSpace(model) || model == "Unknown device") return "Unknown device";
+        return model switch
+        {
+            "iPhone14,2" => "iPhone 13 Pro",
+            _ when Regex.IsMatch(model, @"^iPhone[0-9]+,[0-9]+$") => "iPhone",
+            _ when Regex.IsMatch(model, @"^iPad[0-9]+,[0-9]+$") => "iPad",
+            _ when Regex.IsMatch(model, @"^iPod[0-9]+,[0-9]+$") => "iPod",
+            _ when Regex.IsMatch(model, @"^MacBookPro[0-9]+,[0-9]+$") => "MacBook Pro",
+            _ when Regex.IsMatch(model, @"^MacBookAir[0-9]+,[0-9]+$") => "MacBook Air",
+            _ when Regex.IsMatch(model, @"^Macmini[0-9]+,[0-9]+$") => "Mac mini",
+            _ when Regex.IsMatch(model, @"^MacPro[0-9]+,[0-9]+$") => "Mac Pro",
+            _ when Regex.IsMatch(model, @"^iMac[0-9]+,[0-9]+$") => "iMac",
+            _ => model,
+        };
+    }
+
     /// <summary>Segoe Fluent Icons: a phone, a tablet, a laptop, and "devices" for the rest.</summary>
     public static string Glyph(DeviceKind kind) => kind switch
     {
