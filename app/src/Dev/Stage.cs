@@ -126,6 +126,15 @@ public sealed class ScriptedDesk(Dispatcher dispatcher) : IDesk
     public IReadOnlyList<string> PickFiles() => Picked;
     public string? PickFolder(string from) => PickedFolder;
     public ClipboardContent ReadClipboard() => Clipboard ?? new(Picked);
+    public List<string> Copied { get; } = [];
+    public string CopyProblem { get; set; } = "";
+    public string CopyReceived(string path)
+    {
+        if (!File.Exists(path)) return "File is no longer available.";
+        if (CopyProblem.Length > 0) return CopyProblem;
+        Copied.Add(path);
+        return "";
+    }
     public void Open(string path) => Opened.Add("open " + path);
     public void Reveal(string path) => Opened.Add("reveal " + path);
     public Task<ImageSource?> Thumbnail(string path) => Thumbnails.Load(path);
