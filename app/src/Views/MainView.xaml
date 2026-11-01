@@ -728,8 +728,6 @@
                               <DataTemplate>
                                 <StackPanel Margin="0,8,0,0">
                                   <TextBlock Style="{StaticResource Body}" Text="{Binding Name}" TextWrapping="Wrap" />
-                                  <TextBlock Style="{StaticResource Caption}" Text="{Binding Path}" TextWrapping="Wrap"
-                                             Visibility="{Binding HasPath, Converter={StaticResource Shown}}" />
                                   <TextBlock Style="{StaticResource Caption}" Text="{Binding SizeLabel}" />
                                 </StackPanel>
                               </DataTemplate>
@@ -836,16 +834,13 @@
               <TextBlock Style="{StaticResource Caption}" Text="You can change these choices in Settings." Margin="0,16,0,0" />
             </StackPanel>
           </ScrollViewer>
-          <StackPanel Grid.Row="2">
-            <Grid>
-              <Button Style="{StaticResource TextButton}" Content="Skip" Command="{Binding SkipSetupStep}"
-                      HorizontalAlignment="Left" AutomationProperties.Name="Skip this step" />
-              <Button x:Name="SetupNext" HorizontalAlignment="Right" Style="{StaticResource RaisedButton}" Content="{Binding SetupNextLabel}"
-                      AutomationProperties.Name="{Binding SetupNextLabel}" Command="{Binding NextSetup}" MinWidth="96" />
-            </Grid>
+
+          <Grid Grid.Row="2">
             <Button Style="{StaticResource TextButton}" Content="Skip Setup" Command="{Binding SkipSetup}"
-                    AutomationProperties.Name="Skip Setup" HorizontalAlignment="Left" Margin="0,16,0,0" />
-          </StackPanel>
+                    AutomationProperties.Name="Skip Setup" HorizontalAlignment="Left" />
+            <Button x:Name="SetupNext" HorizontalAlignment="Right" Style="{StaticResource RaisedButton}" Content="{Binding SetupNextLabel}"
+                    AutomationProperties.Name="{Binding SetupNextLabel}" Command="{Binding NextSetup}" MinWidth="96" />
+          </Grid>
         </Grid>
       </Border>
     </Grid>
