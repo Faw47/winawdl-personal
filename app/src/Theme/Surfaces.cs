@@ -252,6 +252,11 @@ public sealed class RoundClip : Decorator
 /// <summary>What a button's template needs to know that a button does not carry.</summary>
 public static class Plate
 {
+    public static readonly DependencyProperty DropTargetProperty = DependencyProperty.RegisterAttached(
+        "DropTarget", typeof(bool), typeof(Plate), new PropertyMetadata(false));
+    public static bool GetDropTarget(DependencyObject target) => (bool)target.GetValue(DropTargetProperty);
+    public static void SetDropTarget(DependencyObject target, bool value) => target.SetValue(DropTargetProperty, value);
+
     public static readonly DependencyProperty ProgressProperty = DependencyProperty.RegisterAttached(
         "Progress", typeof(double), typeof(Plate), new PropertyMetadata(0.0));
 

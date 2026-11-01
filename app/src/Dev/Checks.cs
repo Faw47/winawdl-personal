@@ -44,6 +44,12 @@ public static class Checks
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Program.Dress(app).Apply(Palette.Light(Rgb.Hex("#0078D4")));
             Motion.Reduced = true;
+            if (args.Skip(1).Contains("portraits"))
+            {
+                Portraits(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("accessibility"))
             {
                 Colors();
@@ -111,6 +117,7 @@ public static class Checks
             Notifications(app, folder);
             Setup(app, folder);
             Accessibility(app, folder);
+            Portraits(app, folder);
             Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
         }
@@ -121,6 +128,40 @@ public static class Checks
         }
         log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static void Portraits(Application app, string folder)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        Stage.Scenes([]).First(scene => scene.Name == "device-portraits").Build(world);
+        var view = Show(world);
+        var portraits = Descendants(view).OfType<DevicePortrait>().ToList();
+        Expect(portraits.Select(portrait => portrait.Kind).Order().SequenceEqual(Enum.GetValues<DeviceKind>().Order()),
+            "each recognised device kind has its own portrait, including the unknown fallback");
+        Expect(portraits.All(portrait => !portrait.IsHitTestVisible && UIElementAutomationPeer.CreatePeerForElement(portrait) is null),
+            "device art is decorative; the named device button remains the accessible action");
+        var hashes = new List<string>();
+        foreach (var portrait in portraits)
+        {
+            var bitmap = Stage.Bitmap(portrait, 64, 64, 2);
+            var pixels = new byte[bitmap.PixelHeight * bitmap.PixelWidth * 4];
+            bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
+            hashes.Add(Convert.ToHexString(SHA256.HashData(pixels)));
+        }
+        Expect(hashes.Distinct().Count() == 4, "phone, tablet, computer and unknown art are visually distinct");
+        var target = Stage.Controls(view).First(one => one.Control.DataContext is PeerModel).Control;
+        Expect(view.TargetPeer(target, true) && Plate.GetDropTarget(target), "a file drag identifies its specific device destination");
+        Expect(!view.TargetPeer(target, false) && !Plate.GetDropTarget(target), "non-file drags clear the destination ring");
+        ((PeerModel)target.DataContext).State = PeerState.Sending;
+        Expect(!view.TargetPeer(target, true) && !Plate.GetDropTarget(target), "a busy device refuses the drop highlight");
+        ((PeerModel)target.DataContext).State = PeerState.Idle;
+        world.Model.SettingsOpen = true;
+        Expect(!view.TargetPeer(target, true), "a sheet prevents a drop onto devices behind it");
+        world.Model.SettingsOpen = false;
+        world.Model.Hold([Stage.SampleFiles(Path.Combine(folder, "portrait-files"))[0]]);
+        Expect(KeyboardPress(view, ((PeerModel)target.DataContext).Name) && world.Engine.Told.Last().Contains("\"do\":\"send\""),
+            "the illustrated device still sends directly using the keyboard");
+        world.Model.Dispose();
     }
 
     private static IEnumerable<DependencyObject> Descendants(DependencyObject root)

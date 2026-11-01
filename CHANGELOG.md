@@ -5,6 +5,11 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Clearer nearby devices.** Small device illustrations distinguish phones,
+  tablets and Macs. Names have more room, and a ring marks the device that
+  will receive dropped files. The installer also includes the runtime files
+  used by Windows notifications.
+
 - **Keyboard and screen reader access.** Controls and menus have names and
   visible focus rings. Requests, transfer status and errors announce changes,
   and transfer rings expose their percentage. Fields, buttons and scroll bars

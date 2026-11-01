@@ -29,6 +29,7 @@ if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 $files = @(
   @('build\app\winawdl\winawdl.exe', ''), @('build\app\winawdl\winawdl.dll', ''),
   @('build\app\winawdl\winawdl.deps.json', ''), @('build\app\winawdl\winawdl.runtimeconfig.json', ''),
+  @('build\app\winawdl\Microsoft.Windows.SDK.NET.dll', ''), @('build\app\winawdl\WinRT.Runtime.dll', ''),
   @('installer\install.ps1', ''), @('installer\install.cmd', ''), @('installer\uninstall.ps1', ''),
   @('installer\uninstall.cmd', ''), @('installer\README.txt', ''),
   @('airdrop\*.py', 'airdrop'), @('airdrop\apple-ca\*.pem', 'airdrop\apple-ca'),

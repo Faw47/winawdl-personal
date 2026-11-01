@@ -131,8 +131,7 @@
                       </Grid.ColumnDefinitions>
                       <Grid Width="48" Height="48" Margin="0,0,14,0" VerticalAlignment="Top">
                         <Ellipse Margin="3" Fill="{DynamicResource Avatar}" />
-                        <t:GlyphText Style="{StaticResource Glyph}" FontSize="20" Foreground="{DynamicResource InkSoft}"
-                                   Text="{Binding Glyph}" />
+                        <t:DevicePortrait Width="36" Height="36" Kind="{Binding Kind}" />
                         <t:Ring AutomationProperties.Name="{Binding Sender}" AutomationProperties.HelpText="Receiving progress"
                                 Thickness="3" Stroke="{DynamicResource Accent}" Track="{DynamicResource Outline}"
                                 Progress="{Binding Progress}" />
@@ -201,11 +200,11 @@
               </ItemsControl.ItemsPanel>
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Button Style="{StaticResource DeviceTile}" Margin="6,0,6,18" Tag="arrive" Loaded="OnArrived"
-                          AllowDrop="True" Drop="OnDropOnPeer" DragOver="OnDragOverPeer"
+                  <Button Style="{StaticResource DeviceTile}" Margin="8,0,8,16" Tag="arrive" Loaded="OnArrived"
+                          AllowDrop="True" Drop="OnDropOnPeer" DragOver="OnDragOverPeer" DragLeave="OnDragLeavePeer"
                           Command="{Binding Press}" t:Plate.Progress="{Binding Progress}"
                           t:Plate.Glyph="{Binding Glyph}" AutomationProperties.Name="{Binding Name}">
-                    <StackPanel Width="104">
+                    <StackPanel Width="112">
                       <!-- Two lines each at most, as AirDrop allows a name; a line's
                            height is exactly the one given, or the second would not fit. -->
                       <TextBlock Style="{StaticResource Body}" FontSize="13" LineHeight="17" FontWeight="SemiBold"

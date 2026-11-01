@@ -537,16 +537,18 @@
        how far a transfer has got. -->
   <Style x:Key="DeviceTile" TargetType="ButtonBase">
     <Setter Property="FocusVisualStyle" Value="{StaticResource FocusDevice}" />
-    <Setter Property="Width" Value="104" />
+    <Setter Property="Width" Value="112" />
     <Setter Property="Cursor" Value="Hand" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="ButtonBase">
           <StackPanel Background="Transparent">
             <Grid Width="76" Height="76" HorizontalAlignment="Center">
-              <Ellipse x:Name="Face" Margin="6" Fill="{DynamicResource Avatar}" RenderTransformOrigin="0.5,0.5" />
-              <t:GlyphText Style="{StaticResource Glyph}" FontSize="28" Foreground="{DynamicResource InkSoft}"
-                         Text="{Binding (t:Plate.Glyph), RelativeSource={RelativeSource TemplatedParent}}" />
+              <Grid x:Name="Face" Margin="6" RenderTransformOrigin="0.5,0.5">
+                <Ellipse x:Name="Ground" Fill="{DynamicResource Avatar}" />
+                <t:DevicePortrait Width="56" Height="56" Kind="{Binding Kind}" />
+              </Grid>
+              <Ellipse x:Name="DropMark" Margin="2" Stroke="{DynamicResource AccentText}" StrokeThickness="2" Visibility="Collapsed" />
               <t:Ring AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="Sending progress"
                       Thickness="3" Stroke="{DynamicResource Accent}" Track="{DynamicResource Outline}"
                       Progress="{Binding (t:Plate.Progress), RelativeSource={RelativeSource TemplatedParent}}" />
@@ -554,6 +556,10 @@
             <ContentPresenter Margin="0,8,0,0" HorizontalAlignment="Center" />
           </StackPanel>
           <ControlTemplate.Triggers>
+            <Trigger Property="t:Plate.DropTarget" Value="True">
+              <Setter TargetName="DropMark" Property="Visibility" Value="Visible" />
+              <Setter TargetName="Ground" Property="Fill" Value="{DynamicResource AccentSoft}" />
+            </Trigger>
             <Trigger Property="IsMouseOver" Value="True">
               <Setter TargetName="Face" Property="RenderTransform">
                 <Setter.Value>

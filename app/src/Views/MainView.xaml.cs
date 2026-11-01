@@ -114,7 +114,7 @@ public partial class MainView : UserControl
 
     private void OnDragOverTable(object sender, DragEventArgs e)
     {
-        var files = FilesIn(e) is not null;
+        var files = Model is { TableInReach: true } && FilesIn(e) is not null;
         e.Effects = files ? DragDropEffects.Copy : DragDropEffects.None;
         HandIsTarget(files);
         e.Handled = true;
@@ -123,22 +123,40 @@ public partial class MainView : UserControl
     private void OnDropOnTable(object sender, DragEventArgs e)
     {
         HandIsTarget(false);
-        if (FilesIn(e) is { } files) Model?.Hold(files);
+        if (Model is { TableInReach: true } model && FilesIn(e) is { } files) model.Hold(files);
         e.Handled = true;
     }
 
     private void OnDragOverPeer(object sender, DragEventArgs e)
     {
         // Over a device the files go to it, not into the hand.
-        e.Effects = FilesIn(e) is not null ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Effects = sender is FrameworkElement target && TargetPeer(target, FilesIn(e) is not null)
+            ? DragDropEffects.Copy : DragDropEffects.None;
         HandIsTarget(false);
         e.Handled = true;
     }
 
+    /// <summary>Rings the device a file drag would land on, if it can take it now.</summary>
+    internal bool TargetPeer(FrameworkElement target, bool files)
+    {
+        var accepts = files && Model is { TableInReach: true } && target.DataContext is PeerModel { IsBusy: false };
+        Plate.SetDropTarget(target, accepts);
+        return accepts;
+    }
+
+    private void OnDragLeavePeer(object sender, DragEventArgs e)
+    {
+        if (sender is DependencyObject target) Plate.SetDropTarget(target, false);
+    }
+
     private void OnDropOnPeer(object sender, DragEventArgs e)
     {
-        if (FilesIn(e) is { } files && (sender as FrameworkElement)?.DataContext is PeerModel peer)
-            Model?.SendTo(peer, files);
+        if (sender is FrameworkElement target)
+        {
+            Plate.SetDropTarget(target, false);
+            if (Model is { TableInReach: true } model && FilesIn(e) is { } files && target.DataContext is PeerModel peer)
+                model.SendTo(peer, files);
+        }
         e.Handled = true;
     }
 
