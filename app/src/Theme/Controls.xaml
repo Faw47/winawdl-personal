@@ -207,8 +207,8 @@
 
   <!-- The one press on a screen that moves a file. -->
   <Style x:Key="AccentButton" TargetType="Button" BasedOn="{StaticResource RaisedButton}">
-    <Setter Property="Foreground" Value="{DynamicResource OnAccent}" />
-    <Setter Property="Background" Value="{DynamicResource Accent}" />
+    <Setter Property="Foreground" Value="{DynamicResource OnAccentFill}" />
+    <Setter Property="Background" Value="{DynamicResource AccentFill}" />
   </Style>
 
   <Style x:Key="TextButton" TargetType="Button">
@@ -650,8 +650,8 @@
               <Setter TargetName="Check" Property="Visibility" Value="Visible" />
             </Trigger>
             <Trigger Property="IsHighlighted" Value="True">
-              <Setter TargetName="Back" Property="Background" Value="{DynamicResource Accent}" />
-              <Setter Property="Foreground" Value="{DynamicResource OnAccent}" />
+              <Setter TargetName="Back" Property="Background" Value="{DynamicResource AccentFill}" />
+              <Setter Property="Foreground" Value="{DynamicResource OnAccentFill}" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>

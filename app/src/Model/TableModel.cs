@@ -23,7 +23,6 @@ public sealed class TableModel : Observable, IDisposable
     // Keep these in step with airdrop/sender.py. The archive also has one root member.
     public const int MaxSendFiles = 500;
     public const long MaxSendBytes = 2L * 1024 * 1024 * 1024;
-    public const string SelectionLimits = "Up to 500 files · 2 GiB total. Folder contents are sent flat.";
     private static readonly TimeSpan SentShownFor = TimeSpan.FromSeconds(4);
     private static readonly double[] Turns = [-2.5, 1.5, -1, 2, -1.5];
 
@@ -114,7 +113,6 @@ public sealed class TableModel : Observable, IDisposable
             SettingsOpen = false;
         });
         ChangeFolder = new Command(PickFolder);
-        OpenFolder = new Command(() => _desk.Open(Folder));
         OpenLog = new Command(() => _desk.Open(_radio.LogFolder));
         OpenProject = new Command(() => _desk.Open(Project));
         StartEngine = new Command(StartTheEngine);
@@ -150,7 +148,6 @@ public sealed class TableModel : Observable, IDisposable
     public ICommand ClearHistory { get; }
     public ICommand CloseSettings { get; }
     public ICommand ChangeFolder { get; }
-    public ICommand OpenFolder { get; }
     public ICommand OpenLog { get; }
     public ICommand OpenProject { get; }
     public ICommand StartEngine { get; }

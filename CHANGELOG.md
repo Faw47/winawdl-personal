@@ -11,6 +11,13 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
   device that will receive the files you are dragging. The installer also
   includes the runtime files used by Windows notifications.
 
+- **Calmer main window.** While it looks for devices, the window shows the
+  AirDrop mark instead of a plain dot. Recent keeps only History in its header,
+  since each file's menu already has Show in Folder. The file limits appear
+  only when a selection goes over them. Filled buttons and highlighted menu
+  items always have white labels; a pale Windows accent is deepened until the
+  label is readable.
+
 - **Keyboard and screen reader access.** Controls and menus have names and
   visible focus rings. Requests, transfer status and errors announce changes,
   and transfer rings expose their percentage. Fields, buttons and scroll bars

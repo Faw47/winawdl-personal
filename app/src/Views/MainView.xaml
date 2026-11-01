@@ -185,7 +185,7 @@
                     Visibility="{Binding PanelHasAction, Converter={StaticResource Shown}}">
               <StackPanel Orientation="Horizontal">
                 <t:GlyphText Style="{StaticResource Glyph}" Text="&#xE83D;" Margin="0,1,8,0" FontSize="14"
-                           Foreground="{DynamicResource OnAccent}"
+                           Foreground="{DynamicResource OnAccentFill}"
                            Visibility="{Binding PanelAsksWindows, Converter={StaticResource Shown}}" />
                 <TextBlock Text="{Binding PanelActionLabel}" />
               </StackPanel>
@@ -249,15 +249,34 @@
             </ItemsControl>
             <StackPanel Margin="0,28,0,0" MaxWidth="320" HorizontalAlignment="Center"
                         Visibility="{Binding ShowsNobody, Converter={StaticResource Shown}}">
-              <!-- Looking, as AirDrop shows it: rings that leave the middle and fade. -->
-              <Grid Width="96" Height="96" HorizontalAlignment="Center" Loaded="OnRadarLoaded">
+              <!-- Looking, as AirDrop shows it: its mark on a plate, and rings that
+                   leave the middle and fade. The arcs are the owner's mockup's. -->
+              <Grid Width="120" Height="120" HorizontalAlignment="Center" Loaded="OnRadarLoaded">
                 <Ellipse Stroke="{DynamicResource Outline}" StrokeThickness="1" />
-                <Ellipse Margin="16" Stroke="{DynamicResource Outline}" StrokeThickness="1" />
+                <Ellipse Margin="20" Stroke="{DynamicResource Outline}" StrokeThickness="1" />
                 <Ellipse x:Name="PulseOne" Stroke="{DynamicResource Accent}" StrokeThickness="1.5" Opacity="0"
                          RenderTransformOrigin="0.5,0.5" />
                 <Ellipse x:Name="PulseTwo" Stroke="{DynamicResource Accent}" StrokeThickness="1.5" Opacity="0"
                          RenderTransformOrigin="0.5,0.5" />
-                <Ellipse Margin="32" Fill="{DynamicResource Accent}" />
+                <t:Raised Width="64" Height="64" Radius="32" Fill="{DynamicResource Raised}" Edge="{DynamicResource Edge}"
+                          Outline="{DynamicResource Outline}" ShadowStrength="{DynamicResource ShadowStrength}">
+                  <Viewbox Width="34" Height="34" IsHitTestVisible="False">
+                    <Canvas Width="46" Height="46">
+                      <Canvas.Resources>
+                        <Style TargetType="Path">
+                          <Setter Property="Stroke" Value="{DynamicResource Accent}" />
+                          <Setter Property="StrokeThickness" Value="3.1" />
+                          <Setter Property="StrokeStartLineCap" Value="Round" />
+                          <Setter Property="StrokeEndLineCap" Value="Round" />
+                        </Style>
+                      </Canvas.Resources>
+                      <Path Data="M 11.82 38.98 A 19.5 19.5 0 1 1 34.18 38.98" />
+                      <Path Data="M 14.85 34.63 A 14.2 14.2 0 1 1 31.15 34.63" />
+                      <Path Data="M 17.89 30.29 A 8.9 8.9 0 1 1 28.11 30.29" />
+                      <Path Data="M 20.88 26.03 A 3.7 3.7 0 1 1 25.12 26.03" />
+                    </Canvas>
+                  </Viewbox>
+                </t:Raised>
               </Grid>
               <TextBlock Style="{StaticResource Name}" Margin="0,16,0,0" HorizontalAlignment="Center"
                          Text="{Binding NobodyTitle}" />
@@ -284,9 +303,6 @@
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
               <Button x:Name="HistoryButton" Style="{StaticResource TextButton}" Content="History"
                       Command="{Binding OpenHistory}" AutomationProperties.Name="History" />
-              <Button AutomationProperties.Name="Show in Folder" Style="{StaticResource TextButton}" Content="Show in Folder" Margin="8,0,0,0"
-                      Command="{Binding OpenFolder}"
-                      Visibility="{Binding HasReceived, Converter={StaticResource Shown}}" />
             </StackPanel>
             <TextBlock Style="{StaticResource Label}" Text="Recent" VerticalAlignment="Center" />
           </DockPanel>
@@ -344,8 +360,8 @@
                   <Style TargetType="Button" BasedOn="{StaticResource RaisedButton}">
                     <Style.Triggers>
                       <DataTrigger Binding="{Binding ChooseIsNext}" Value="True">
-                        <Setter Property="Background" Value="{DynamicResource Accent}" />
-                        <Setter Property="Foreground" Value="{DynamicResource OnAccent}" />
+                        <Setter Property="Background" Value="{DynamicResource AccentFill}" />
+                        <Setter Property="Foreground" Value="{DynamicResource OnAccentFill}" />
                       </DataTrigger>
                     </Style.Triggers>
                   </Style>
@@ -398,8 +414,6 @@
             </DockPanel>
           </StackPanel>
         </Grid>
-        <TextBlock Style="{StaticResource Caption}" Margin="4,8,4,0"
-                   Text="{x:Static m:TableModel.SelectionLimits}" />
         <t:LiveText AutomationProperties.LiveSetting="Assertive" x:Name="HeldNoticeText" Margin="4,8,4,0"
                    Text="{Binding HeldNotice}"
                    Visibility="{Binding HasHeldNotice, Converter={StaticResource Shown}}">

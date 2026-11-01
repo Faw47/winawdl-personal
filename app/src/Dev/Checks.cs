@@ -1244,7 +1244,7 @@ public static class Checks
 
     private static void Colors()
     {
-        double text = double.MaxValue, onFill = double.MaxValue, accentText = double.MaxValue,
+        double text = double.MaxValue, onFill = double.MaxValue, onButton = double.MaxValue, accentText = double.MaxValue,
                fill = double.MaxValue, tinted = double.MaxValue;
         foreach (var accent in Accents.Select(Rgb.Hex))
             foreach (var palette in (Palette[])[Palette.Light(accent), Palette.Night(accent)])
@@ -1257,12 +1257,14 @@ public static class Checks
                     fill = Math.Min(fill, Rgb.Contrast(palette.Accent, surface));
                 }
                 onFill = Math.Min(onFill, Rgb.Contrast(palette.OnAccent, palette.Accent));
+                onButton = Math.Min(onButton, palette.OnAccentFill == Rgb.White ? Rgb.Contrast(palette.OnAccentFill, palette.AccentFill) : 0);
                 tinted = Math.Min(tinted, Math.Min(Rgb.Contrast(palette.Ink, palette.AccentSoft),
                                                    Rgb.Contrast(palette.InkSoft, palette.AccentSoft)));
             }
         var cases = $"{Accents.Length} accents, light and dark";
         Expect(text >= Palette.TextContrast, $"ink, soft ink and ember on every surface: lowest {text:0.00} to 1");
         Expect(onFill >= Palette.TextContrast, $"text on an accent fill, {cases}: lowest {onFill:0.00} to 1");
+        Expect(onButton >= Palette.TextContrast, $"white label on a filled button, {cases}: lowest {onButton:0.00} to 1");
         Expect(accentText >= Palette.TextContrast, $"accent as text or focus ring on every surface, {cases}: lowest {accentText:0.00} to 1");
         Expect(fill >= Palette.ShapeContrast, $"accent as a fill against every surface, {cases}: lowest {fill:0.00} to 1");
         var boundary = Accents.Select(Rgb.Hex).SelectMany(accent => new[] { Palette.Light(accent), Palette.Night(accent) })

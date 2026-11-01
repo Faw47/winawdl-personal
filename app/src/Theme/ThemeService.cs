@@ -82,6 +82,8 @@ public sealed class ThemeService
         Set("Available", palette.Plain ? palette.Ink : Rgb.Hex(palette.Dark ? "#30D158" : "#248A3D"));
         Set("Accent", palette.Accent);
         Set("OnAccent", palette.OnAccent);
+        Set("AccentFill", palette.AccentFill);
+        Set("OnAccentFill", palette.OnAccentFill);
         Set("AccentText", palette.AccentText);
         Set("AccentSoft", palette.AccentSoft);
         Set("Edge", palette.Edge, palette.EdgeOpacity);
