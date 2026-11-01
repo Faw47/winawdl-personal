@@ -192,7 +192,7 @@ Step 'forget the certificate of an earlier install' {
     Get-ChildItem "Cert:\LocalMachine\$store" | Where-Object { $_.Subject -eq $CertSubject } | Remove-Item
   }
 }
-Step 'make a certificate, trust it on this PC, and sign the driver with it' {
+Step 'make a certificate, trust it on this PC, and sign the driver and the Share sheet package with it' {
   $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $CertSubject `
             -CertStoreLocation Cert:\CurrentUser\My -KeyExportPolicy NonExportable `
             -HashAlgorithm SHA256 -NotAfter (Get-Date).AddYears(10)
@@ -206,6 +206,11 @@ Step 'make a certificate, trust it on this PC, and sign the driver with it' {
       $result = Set-AuthenticodeSignature -FilePath $file -Certificate $cert -HashAlgorithm SHA256
       if ($result.Status -ne 'Valid') { throw "$file could not be signed: $($result.StatusMessage)" }
     }
+    # PowerShell cannot sign a package; the app does, with Windows' own signer.
+    $package = Join-Path $Target 'package\winawdl.msix'
+    $result = Start-Process -FilePath (Join-Path $Target 'winawdl.exe') -Wait -PassThru -WindowStyle Hidden `
+                -ArgumentList '--share-sign', ('"' + $package + '"'), $cert.Thumbprint
+    if ($result.ExitCode -ne 0) { throw 'The Share sheet package could not be signed.' }
   } finally {
     # Nothing else is ever signed with it, so what this PC now trusts can sign nothing more.
     Remove-Item "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey
@@ -295,6 +300,9 @@ if (-not $SkipExplorer) {
     if ($result.ExitCode -ne 0) { throw 'Send with AirDrop could not be added for this account.' }
     $result = Start-Process -FilePath $app -ArgumentList '--notifications-install' -Wait -PassThru -WindowStyle Hidden
     if ($result.ExitCode -ne 0) { throw 'Notifications could not be registered for this account.' }
+    # A convenience: without it, winawdl works as before, so it does not stop the install.
+    $result = Start-Process -FilePath $app -ArgumentList '--share-install' -Wait -PassThru -WindowStyle Hidden
+    if ($result.ExitCode -ne 0) { '  AirDrop could not be added to the Share sheet for this account.' }
   }
 }
 

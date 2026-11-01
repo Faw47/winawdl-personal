@@ -99,6 +99,12 @@ public static class Checks
                 log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
                 return _failed == 0 ? 0 : 1;
             }
+            if (args.Skip(1).Contains("sharing"))
+            {
+                Sharing(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("startup"))
             {
                 Startup(app);
@@ -111,6 +117,7 @@ public static class Checks
             States(app);
             Startup(app);
             Explorer(app, folder);
+            Sharing(app, folder);
             Selection(app, folder);
             SenderFolders(app, folder);
             History(app, folder);
@@ -630,6 +637,124 @@ public static class Checks
                == "\"C:\\Program Files\\winawdl\\winawdl.exe\" \"%1\""
                && WindowsExplorer.SelectionModel == "Document",
                "classic verbs quote one item per invocation; the pipe accumulates each selection");
+    }
+
+    /// <summary>Windows' Share sheet: what winawdl-share.exe makes of a share, the
+    /// pipe it hands it over by, and the package that puts AirDrop in the sheet.</summary>
+    private static void Sharing(Application app, string folder)
+    {
+        var kept = Path.Combine(folder, "shared photo.jpg");
+        File.WriteAllText(kept, "kept");
+        var lent = Path.Combine(Path.GetTempPath(), "winawdl-check-lent-" + Guid.NewGuid().ToString("N") + ".jpg");
+        File.WriteAllText(lent, "lent");
+        var stash = Path.Combine(folder, "stash-" + Guid.NewGuid().ToString("N"));
+        Task<string> Copy(string from, string into)
+        {
+            var copy = Path.Combine(into, Path.GetFileName(from));
+            File.Copy(from, copy);
+            return Task.FromResult(copy);
+        }
+        var shared = Share.Gather(new FakeShare([
+            new(kept, false, into => Copy(kept, into)),
+            new(lent, false, into => Copy(lent, into)),
+            new("", false, into => Copy(kept, into)),
+            new(folder, true, _ => throw new InvalidOperationException("a folder is never copied")),
+            new("", true, _ => throw new InvalidOperationException("a folder is never copied")),
+        ], "https://example.com/page"), stash).GetAwaiter().GetResult();
+        Expect(!Share.Temporary(kept) && shared.Paths.Length == 4 && shared.Paths[0] == kept && shared.Paths[3] == folder,
+               "shared files and folders that will last are sent from where they are");
+        Expect(shared.Paths[1] != lent && shared.Paths[1].StartsWith(stash) && File.ReadAllText(shared.Paths[1]) == "lent"
+               && shared.Paths[2].StartsWith(stash) && shared.Paths[1] != shared.Paths[2],
+               "a file lent from a temporary folder, or with no file of its own, is copied before the share ends");
+        Expect(shared.Link.Length == 0, "with files shared, a link shared with them is left out");
+        File.Delete(lent);
+        Expect(Share.Gather(new FakeShare([], "https://example.com/page"), stash).GetAwaiter().GetResult()
+                   is { Paths.Length: 0, Link: "https://example.com/page" }
+               && Share.Gather(new FakeShare([], "file:///C:/Windows/win.ini"), stash).GetAwaiter().GetResult().Link.Length == 0
+               && Share.Gather(new FakeShare([], "https://exa mple.com"), stash).GetAwaiter().GetResult().Link.Length == 0,
+               "a shared web link is taken alone, and only as HTTP or HTTPS");
+        Expect(Share.Temporary(Path.Combine(Path.GetTempPath(), "a.png"))
+               && Share.Temporary(@"C:\Users\someone\AppData\Local\Packages\Photos_8wekyb3d8bbwe\TempState\a.png")
+               && Share.Temporary(@"C:\Users\someone\AppData\Local\Microsoft\Windows\INetCache\IE\a.png")
+               && Share.Temporary("relative.png") && !Share.Temporary(@"D:\Pictures\a.png"),
+               "the folders apps lend shared files from are known as temporary");
+
+        var old = Directory.CreateDirectory(Path.Combine(stash, "old"));
+        var recent = Directory.CreateDirectory(Path.Combine(stash, "recent"));
+        old.LastWriteTimeUtc = DateTime.UtcNow.AddDays(-2);
+        Share.Sweep(DateTime.UtcNow.AddDays(-1), stash);
+        Expect(!old.Exists && Directory.Exists(recent.FullName), "copies from a share the app never took are swept after a day");
+
+        // Copies the app takes in are its to delete once nothing holds them.
+        var copyFolder = Path.Combine(Share.StashRoot, "check-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(copyFolder);
+        var copy = Path.Combine(copyFolder, "shared copy.png");
+        File.WriteAllText(copy, "copy");
+        var world = Stage.NewWorld(app.Dispatcher);
+        Program.Deliver(new LaunchRequest([copy, kept], true), world.Model, () => { });
+        Expect(world.Model.Held.Count == 2 && File.Exists(copy), "shared files reach the hand, copies included");
+        world.Model.ClearHeld.Execute(null);
+        Expect(!File.Exists(copy) && !Directory.Exists(copyFolder) && File.Exists(kept),
+               "a shared copy and its folder go once the hand lets go; the sharer's own file stays");
+        Program.Deliver(new LaunchRequest([], true, "", "https://example.com/page"), world.Model, () => { });
+        Expect(world.Model.LinkDraft == "https://example.com/page" && world.Model.HeldNotice.StartsWith("Link added"),
+               "a shared link becomes the link to send");
+        world.Model.Dispose();
+
+        var request = new LaunchRequest([], true, "", "https://example.com/page");
+        Expect(LaunchRequest.Decode(request.Encode()) is { Link: "https://example.com/page", Surface: true }
+               && LaunchRequest.Decode(new LaunchRequest([], true, "", "javascript:alert(1)").Encode()) == null,
+               "the pipe carries a link and refuses one that is not HTTP or HTTPS");
+        SharingPipe(kept).GetAwaiter().GetResult();
+        SharePackage();
+    }
+
+    private sealed class FakeShare(IReadOnlyList<Share.Item> items, string? link) : Share.ISource
+    {
+        public Task<IReadOnlyList<Share.Item>> Items() => Task.FromResult(items);
+        public Task<string?> Link() => Task.FromResult(link);
+    }
+
+    private static async Task SharingPipe(string file)
+    {
+        var name = "winawdl-check-share-" + Guid.NewGuid().ToString("N");
+        Expect(!await Share.Forward(new([file], ""), Share.PipeName(name), TimeSpan.FromMilliseconds(300)),
+               "the share helper learns when winawdl is not running");
+        using var owner = new SingleInstance(name);
+        var received = new TaskCompletionSource<LaunchRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
+        owner.Listen(request => received.TrySetResult(request));
+        Expect(await Share.Forward(new([file], ""), owner.PipeName, TimeSpan.FromSeconds(5))
+               && (await received.Task.WaitAsync(TimeSpan.FromSeconds(10))) is { Surface: true } got
+               && got.Paths.SequenceEqual(new[] { file }),
+               "the share helper hands files over the app's own single-instance pipe");
+        Expect(!await Share.Forward(new([], "javascript:alert(1)"), owner.PipeName, TimeSpan.FromSeconds(5)),
+               "the app refuses a handed-over link that is not HTTP or HTTPS");
+    }
+
+    /// <summary>The package, the helper's manifest and the installer's certificate
+    /// must agree on one identity, or Windows will not tie them together.</summary>
+    private static void SharePackage()
+    {
+        var repo = Repo.Find() ?? throw new InvalidOperationException("the repository was not found");
+        var package = System.Xml.Linq.XDocument.Load(Path.Combine(repo, "installer", "package", "AppxManifest.xml"));
+        var helper = System.Xml.Linq.XDocument.Load(Path.Combine(repo, "app", "share", "share.manifest"));
+        var identity = package.Descendants().First(element => element.Name.LocalName == "Identity");
+        var application = package.Descendants().First(element => element.Name.LocalName == "Application");
+        var msix = helper.Descendants().First(element => element.Name.LocalName == "msix");
+        var install = File.ReadAllText(Path.Combine(repo, "installer", "install.ps1"));
+        Expect((string?)identity.Attribute("Name") == ShareRegistration.PackageName
+               && (string?)identity.Attribute("Publisher") == ShareRegistration.Publisher
+               && (string?)msix.Attribute("packageName") == ShareRegistration.PackageName
+               && (string?)msix.Attribute("publisher") == ShareRegistration.Publisher
+               && (string?)msix.Attribute("applicationId") == (string?)application.Attribute("Id")
+               && install.Contains($"$CertSubject   = '{ShareRegistration.Publisher}'", StringComparison.Ordinal),
+               "the package, winawdl-share.exe and install.ps1's certificate name one identity");
+        var target = package.Descendants().FirstOrDefault(element => element.Name.LocalName == "ShareTarget");
+        Expect((string?)application.Attribute("Executable") == "winawdl-share.exe" && target is not null
+               && target.Descendants().Any(element => element.Name.LocalName == "SupportsAnyFileType")
+               && target.Descendants().Where(element => element.Name.LocalName == "DataFormat")
+                   .Select(element => element.Value).Order().SequenceEqual(new[] { "StorageItems", "URI" }),
+               "the Share sheet offers AirDrop for any file and for web links");
     }
 
     private static async Task ExplorerPipe(string first, string second)

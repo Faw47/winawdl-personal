@@ -481,6 +481,11 @@ public static class Stage
             Devices(world);
             world.Model.Hold(files);
         });
+        yield return ("shared-link", world =>
+        {
+            Devices(world);
+            Program.Deliver(new LaunchRequest([], true, "", "https://www.apple.com/airdrop/"), world.Model, () => { });
+        });
         yield return ("folder-flat", world =>
         {
             Devices(world);

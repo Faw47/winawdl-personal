@@ -1,11 +1,11 @@
 using System.IO;
 using System.IO.Pipes;
-using System.Security.Principal;
 using System.Text.Json;
 
 namespace Winawdl.Shell;
 
-public sealed record LaunchRequest(string[] Paths, bool Surface, string Notice = "")
+/// <param name="Link">A web link to send, from the Share sheet (Share.cs).</param>
+public sealed record LaunchRequest(string[] Paths, bool Surface, string Notice = "", string Link = "")
 {
     public const int MaxBytes = 256 * 1024;
     public const int MaxPaths = 1024;
@@ -56,8 +56,9 @@ public sealed record LaunchRequest(string[] Paths, bool Surface, string Notice =
             var request = JsonSerializer.Deserialize<LaunchRequest>(bytes);
             if (request?.Paths == null || request.Paths.Length > MaxPaths) return null;
             if (request.Notice is null || request.Notice.Length > 0 && !NoticeActivation.Valid(request.Notice)) return null;
+            if (request.Link is null || request.Link.Length > 0 && !Share.ValidLink(request.Link)) return null;
             var paths = Sanitize(request.Paths);
-            return new(paths, request.Surface || paths.Length > 0, request.Notice);
+            return new(paths, request.Surface || paths.Length > 0 || request.Link.Length > 0, request.Notice, request.Link);
         }
         catch (Exception error) when (error is JsonException or ArgumentException) { return null; }
     }
@@ -76,9 +77,8 @@ public sealed class SingleInstance : IDisposable
 
     public SingleInstance(string name = "winawdl-app")
     {
-        var user = WindowsIdentity.GetCurrent().User!.Value;
-        PipeName = name + "-" + user;
-        MutexName = name + "-" + user;
+        PipeName = Share.PipeName(name);
+        MutexName = PipeName;
         _mutex = new Mutex(false, MutexName,
             new NamedWaitHandleOptions { CurrentUserOnly = true, CurrentSessionOnly = false }, out var first);
         IsFirst = first;

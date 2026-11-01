@@ -14,6 +14,8 @@ function Remove-UserRegistration([string]$app) {
     if ($result.ExitCode -ne 0) { throw 'Send with AirDrop could not be removed for this account.' }
     $result = Start-Process -FilePath $app -ArgumentList '--notifications-remove' -Wait -PassThru -WindowStyle Hidden
     if ($result.ExitCode -ne 0) { throw 'Notifications could not be removed for this account.' }
+    $result = Start-Process -FilePath $app -ArgumentList '--share-remove' -Wait -PassThru -WindowStyle Hidden
+    if ($result.ExitCode -ne 0) { '  AirDrop could not be taken out of the Share sheet for this account.' }
   }
   $user = [Microsoft.Win32.RegistryKey]::OpenBaseKey(
     [Microsoft.Win32.RegistryHive]::CurrentUser, [Microsoft.Win32.RegistryView]::Registry64)

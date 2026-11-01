@@ -5,6 +5,13 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **AirDrop in the Windows Share sheet.** Share a file, photo or web link from
+  any app, pick AirDrop, and it lands in winawdl ready to send; winawdl opens
+  if it is not running. A small helper, winawdl-share.exe, takes the share, so
+  winawdl itself runs as before. Files an app only lends for the share are
+  copied first and deleted once sent. It is added for the account that
+  installs winawdl, and removed on uninstall.
+
 - **Nearby devices look like themselves.** iPhones, iPads and Macs are drawn
   as pictures of the device, on a white plate that sits slightly above the
   window. A green dot shows when this PC can be found, and a ring marks the

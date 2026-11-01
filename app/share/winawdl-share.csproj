@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- What Windows' Share sheet starts. It alone carries the package identity
+       (share.manifest), so winawdl.exe itself runs exactly as unpackaged. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>winawdl-share</AssemblyName>
+    <RootNamespace>Winawdl.ShareHelper</RootNamespace>
+    <Version>0.3.0</Version>
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)\..\..'))=.</PathMap>
+    <Product>winawdl</Product>
+    <Description>Hands what the Share sheet gives to winawdl</Description>
+    <Copyright>Copyright (c) 2026 Raphaël Richaud. MIT License.</Copyright>
+    <ApplicationManifest>share.manifest</ApplicationManifest>
+    <ApplicationIcon>..\winawdl.ico</ApplicationIcon>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- Beside winawdl.exe: the package's external location is that folder. -->
+    <OutputPath>$(MSBuildThisFileDirectory)..\..\build\app\winawdl\</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="..\src\Shell\Share.cs" Link="Share.cs" />
+  </ItemGroup>
+</Project>

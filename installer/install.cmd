@@ -7,4 +7,8 @@ if errorlevel 1 exit /b %errorlevel%
 "%ProgramW6432%\winawdl\winawdl.exe" --explorer-install
 if errorlevel 1 exit /b %errorlevel%
 "%ProgramW6432%\winawdl\winawdl.exe" --notifications-install
-exit /b %errorlevel%
+if errorlevel 1 exit /b %errorlevel%
+rem AirDrop in the Share sheet is a convenience: without it, winawdl works as before.
+"%ProgramW6432%\winawdl\winawdl.exe" --share-install
+if errorlevel 1 echo AirDrop could not be added to the Share sheet for this account.
+exit /b 0

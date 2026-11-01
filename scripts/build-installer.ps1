@@ -30,6 +30,8 @@ $files = @(
   @('build\app\winawdl\winawdl.exe', ''), @('build\app\winawdl\winawdl.dll', ''),
   @('build\app\winawdl\winawdl.deps.json', ''), @('build\app\winawdl\winawdl.runtimeconfig.json', ''),
   @('build\app\winawdl\Microsoft.Windows.SDK.NET.dll', ''), @('build\app\winawdl\WinRT.Runtime.dll', ''),
+  @('build\app\winawdl\winawdl-share.exe', ''), @('build\app\winawdl\winawdl-share.dll', ''),
+  @('build\app\winawdl\winawdl-share.deps.json', ''), @('build\app\winawdl\winawdl-share.runtimeconfig.json', ''),
   @('installer\install.ps1', ''), @('installer\install.cmd', ''), @('installer\uninstall.ps1', ''),
   @('installer\uninstall.cmd', ''), @('installer\README.txt', ''),
   @('airdrop\*.py', 'airdrop'), @('airdrop\apple-ca\*.pem', 'airdrop\apple-ca'),
@@ -82,6 +84,32 @@ $driverVersion = "$major.$minor.$(($now - [datetime]'2026-01-01').Days).$($now.H
 if ($LASTEXITCODE -ne 0) { throw "stampinf failed ($LASTEXITCODE)" }
 & $tools.Inf2Cat "/driver:$stage\driver" /os:10_X64 /uselocaltime | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Inf2Cat failed ($LASTEXITCODE)" }
+
+# The package that puts AirDrop in the Share sheet, stamped the same way for the
+# same reason. Unsigned here: install.ps1 signs it on the PC.
+$layout = "$repo\build\installer\package"
+if (Test-Path $layout) { Remove-Item $layout -Recurse -Force }
+New-Item -ItemType Directory -Force "$layout\Assets" | Out-Null
+(Get-Content "$repo\installer\package\AppxManifest.xml" -Raw).Replace('Version="0.0.0.0"', "Version=`"$driverVersion`"") |
+  Set-Content "$layout\AppxManifest.xml" -Encoding UTF8 -NoNewline
+# Its pictures, from the largest drawing in the app's icon; Windows scales them down.
+Add-Type -AssemblyName System.Drawing
+$icon = New-Object System.Drawing.Icon "$repo\app\winawdl.ico", 256, 256
+$drawing = $icon.ToBitmap()
+try {
+  foreach ($asset in @(@('Square44x44Logo.png', 176), @('Square150x150Logo.png', 256), @('StoreLogo.png', 200))) {
+    $picture = New-Object System.Drawing.Bitmap $asset[1], $asset[1]
+    $pen = [System.Drawing.Graphics]::FromImage($picture)
+    $pen.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $pen.DrawImage($drawing, 0, 0, $asset[1], $asset[1])
+    $pen.Dispose()
+    $picture.Save("$layout\Assets\$($asset[0])", [System.Drawing.Imaging.ImageFormat]::Png)
+    $picture.Dispose()
+  }
+} finally { $drawing.Dispose(); $icon.Dispose() }
+New-Item -ItemType Directory -Force "$stage\package" | Out-Null
+& $tools.MakeAppx pack /d $layout /p "$stage\package\winawdl.msix" /nv /o | Out-Null
+if ($LASTEXITCODE -ne 0) { throw "MakeAppx could not pack the Share sheet package ($LASTEXITCODE)" }
 
 # What ships must not say who built it, or where.
 $account = $env:USERNAME

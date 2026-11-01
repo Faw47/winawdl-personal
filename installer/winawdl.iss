@@ -66,6 +66,7 @@ Name: "{autoprograms}\winawdl"; Filename: "{app}\winawdl.exe"; WorkingDir: "{app
 ; Registration must run as the person who launched setup, not the elevated helper.
 Filename: "{app}\winawdl.exe"; Parameters: "--explorer-install"; Flags: runhidden waituntilterminated runasoriginaluser; Check: SetUpWell
 Filename: "{app}\winawdl.exe"; Parameters: "--notifications-install"; Flags: runhidden waituntilterminated runasoriginaluser; Check: SetUpWell
+Filename: "{app}\winawdl.exe"; Parameters: "--share-install"; Flags: runhidden waituntilterminated runasoriginaluser; Check: SetUpWell
 ; As the person who started setup, not as administrator: Explorer cannot drop files on a window that is.
 Filename: "{app}\winawdl.exe"; Description: "Start winawdl"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: SetUpWell
 

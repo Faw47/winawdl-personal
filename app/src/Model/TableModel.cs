@@ -49,7 +49,7 @@ public sealed class TableModel : Observable, IDisposable
     private bool _heldNoticeIsProblem;
     private string _engineProblem = "", _engineDetail = "", _nameDraft = "", _nameError = "", _folderError = "";
     private string _linkDraft = "";
-    private readonly HashSet<string> _temporaryImages = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _temporaryFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, IReadOnlyList<string>> _activeSends = new();
     private readonly string _imageFolder = Path.Combine(Path.GetTempPath(), "winawdl-paste-" + Guid.NewGuid().ToString("N"));
     private string _senderDraft = "", _senderError = "";
@@ -364,7 +364,7 @@ public sealed class TableModel : Observable, IDisposable
         _linkUp = _looking = _receiving = false;
         Peers.Clear();
         _activeSends.Clear();
-        CollectImages();
+        CollectTemporary();
         Incoming.Clear();
         (_engineProblem, _engineDetail) = why switch
         {
@@ -593,14 +593,7 @@ public sealed class TableModel : Observable, IDisposable
         else Peers.Remove(peer);
     }
 
-    private static bool ValidLink(string url) =>
-        url.Length > 0 && Encoding.UTF8.GetByteCount(url) <= 8192
-            && (url.StartsWith("http://", StringComparison.Ordinal) || url.StartsWith("https://", StringComparison.Ordinal))
-            && !url.Any(ch => char.IsWhiteSpace(ch) || char.IsControl(ch)
-                || char.GetUnicodeCategory(ch) is UnicodeCategory.Format or UnicodeCategory.Surrogate)
-            && Uri.TryCreate(url, UriKind.Absolute, out var parsed)
-            && parsed.Host.Length > 0
-            && (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps);
+    private static bool ValidLink(string url) => Shell.Share.ValidLink(url);
 
     private static string HistoryName(string raw, string fallback = "file")
     {
@@ -717,7 +710,7 @@ public sealed class TableModel : Observable, IDisposable
         }
         if (Peers.FirstOrDefault(known => known.SendId == id) is not { } peer)
         {
-            CollectImages();
+            CollectTemporary();
             return;
         }
         var total = Number(said, "total") ?? 0;
@@ -781,7 +774,7 @@ public sealed class TableModel : Observable, IDisposable
                 });
                 break;
         }
-        CollectImages();
+        CollectTemporary();
     }
 
     private void Stopped(PeerModel peer, PeerState state, string status)
@@ -1208,7 +1201,7 @@ public sealed class TableModel : Observable, IDisposable
     {
         _heldNotice = notice;
         _heldNoticeIsProblem = problem;
-        CollectImages();
+        CollectTemporary();
         Refresh();
     }
 
@@ -1227,7 +1220,7 @@ public sealed class TableModel : Observable, IDisposable
                 encoder.Frames.Add(BitmapFrame.Create(image));
                 using (var output = new FileStream(path, FileMode.CreateNew, FileAccess.Write))
                 {
-                    _temporaryImages.Add(path);
+                    _temporaryFiles.Add(path);
                     encoder.Save(output);
                 }
                 Hold([path]);
@@ -1237,28 +1230,50 @@ public sealed class TableModel : Observable, IDisposable
             {
                 HeldChanged("The clipboard image could not be saved. Copy it again and try Paste.", problem: true);
             }
-            CollectImages();
+            CollectTemporary();
             return;
         }
         if (ValidLink(content.Text))
         {
-            LinkDraft = content.Text;
-            HeldChanged(HasHeld ? "Link added. Clear the files to send the link." : "Link added. Press a device to send it.");
+            TakeLink(content.Text);
             return;
         }
         HeldChanged("Copy files, an image, or a valid HTTP or HTTPS link, then try Paste.", problem: true);
     }
 
-    private void CollectImages()
+    private void TakeLink(string link)
+    {
+        LinkDraft = link;
+        HeldChanged(HasHeld ? "Link added. Clear the files to send the link." : "Link added. Press a device to send it.");
+    }
+
+    /// <summary>What another program handed over: Explorer's verbs or the Share sheet.
+    /// Copies the share helper made are deleted once nothing needs them.</summary>
+    public void Receive(string[] paths, string link)
+    {
+        foreach (var path in paths.Where(Shell.Share.InStash)) _temporaryFiles.Add(path);
+        if (paths.Length > 0) Hold(paths);
+        else if (ValidLink(link)) TakeLink(link);
+        CollectTemporary();
+    }
+
+    private void CollectTemporary()
     {
         var needed = new HashSet<string>(Held.Select(file => file.Path), StringComparer.OrdinalIgnoreCase);
         foreach (var paths in _activeSends.Values) needed.UnionWith(paths);
-        foreach (var path in _temporaryImages.Where(path => !needed.Contains(path)).ToArray())
+        foreach (var path in _temporaryFiles.Where(path => !needed.Contains(path)).ToArray())
         {
-            try { File.Delete(path); _temporaryImages.Remove(path); }
+            try
+            {
+                File.Delete(path);
+                _temporaryFiles.Remove(path);
+                // A shared copy has a folder of its own, made for that one share.
+                if (Path.GetDirectoryName(path) is { } folder && Shell.Share.InStash(folder)
+                    && !Directory.EnumerateFileSystemEntries(folder).Any()) Directory.Delete(folder);
+            }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
         }
-        if (_temporaryImages.Count == 0)
+        if (_temporaryFiles.Count == 0)
         {
             try { if (Directory.Exists(_imageFolder)) Directory.Delete(_imageFolder); }
             catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
@@ -1270,7 +1285,7 @@ public sealed class TableModel : Observable, IDisposable
     {
         Held.Clear();
         _activeSends.Clear();
-        CollectImages();
+        CollectTemporary();
     }
 
     public bool SettingsOpen

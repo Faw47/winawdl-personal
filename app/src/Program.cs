@@ -29,6 +29,9 @@ public static class Program
         [ToastRegistration.InstallFlag] => ToastRegistration.Register(true),
         [ToastRegistration.RemoveFlag] => ToastRegistration.Register(false),
         [ToastRegistration.ShortcutFlag, var path] => ToastRegistration.Stamp(path),
+        [ShareRegistration.SignFlag, var package, var thumbprint] => ShareRegistration.Sign(package, thumbprint),
+        [ShareRegistration.InstallFlag] => ShareRegistration.Register(true),
+        [ShareRegistration.RemoveFlag] => ShareRegistration.Register(false),
         _ => RunApp(args),
     };
 
@@ -97,6 +100,7 @@ public static class Program
             Deliver(next, model, window.Surface);
         }));
 
+        Share.Sweep(DateTime.UtcNow.AddDays(-1));
         Deliver(request, model, () => { });
         model.StartTheEngine();
         if (request.Surface || model.SetupOpen) window.Show();
@@ -112,7 +116,7 @@ public static class Program
 
     internal static void Deliver(LaunchRequest request, TableModel model, Action surface)
     {
-        if (request.Paths.Length > 0) model.Hold(request.Paths);
+        model.Receive(request.Paths, request.Link);
         if (request.Surface) surface();
     }
 
