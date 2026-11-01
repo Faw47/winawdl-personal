@@ -111,3 +111,12 @@ target_include_directories(dma_address_test PRIVATE
 if(MSVC)
     target_compile_options(dma_address_test PRIVATE /W4 /WX)
 endif()
+
+# The CAM63 trial is opt-in; encode, ordered write, readback and rollback
+# can be validated without the RTL8852CE or the privileged register proxy.
+add_executable(ack_cam_experiment_test tests/ack_cam_experiment_test.cpp ack_cam_experiment.h)
+target_compile_features(ack_cam_experiment_test PRIVATE cxx_std_20)
+target_include_directories(ack_cam_experiment_test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(ack_cam_experiment_test PRIVATE /W4 /WX)
+endif()
