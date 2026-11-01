@@ -312,12 +312,18 @@ public static class Checks
         var view = new MainView { DataContext = model };
         view.Measure(new Size(460, 688)); view.Arrange(new Rect(0, 0, 460, 688)); view.UpdateLayout();
         Expect(model.SetupOpen && model.SetupName && !model.TableInReach, "setup opens over an unreachable table");
+        var skipButtons = Descendants(view).OfType<Button>()
+            .Where(button => button.Content is string label && (label == "Skip" || label == "Skip Setup"))
+            .ToArray();
+        Expect(skipButtons.Length == 1 && (string)skipButtons[0].Content == "Skip Setup",
+               "setup presents exactly one Skip Setup button");
         model.NameDraft = "bad/name";
         Expect(Press(view, "Continue") && model.SetupName, "Continue waits for the engine to validate a changed name");
         world.Engine.Say(new { @event = "settings", name = settings.Name, folder = settings.Folder,
             ask = true, refused = new { name = "invalid" } });
         Expect(model.HasNameError && model.SetupName, "a refused name stays on its setup step");
-        Expect(Press(view, "Skip this step") && model.SetupVisibility, "a refused field can still be skipped");
+        model.SkipSetupStep.Execute(null);
+        Expect(model.SetupVisibility, "unfinished setup can advance to the next step");
         model.OnlyKnownSenders = true;
         Expect(settings.ContactsOnly && world.Engine.Told.Last().Contains("contacts_only"), "setup uses the existing visibility command");
         model.EveryoneForAWhile = true;
@@ -326,7 +332,8 @@ public static class Checks
         Expect(Press(view, "Continue") && model.SetupFolder && model.AnyoneCanSend, "Everyone remains available");
         world.Desk.PickedFolder = folder;
         Expect(Press(view, "Change folder") && world.Engine.Told.Last().Contains("folder"), "setup uses the existing folder picker command");
-        Expect(Press(view, "Skip this step") && model.SetupStartup, "the receive folder step can be skipped");
+        model.SkipSetupStep.Execute(null);
+        Expect(model.SetupStartup, "the folder step can advance without a folder change");
         Expect(Press(view, "Start with Windows") && world.Startup.Stored, "setup writes startup through its seam");
         Expect(Press(view, "Continue") && model.SetupExplorer, "startup leads to Explorer integration");
         Expect(Press(view, "Send with AirDrop in Explorer") && world.Explorer.Stored, "setup writes Explorer integration through its seam");
@@ -1104,6 +1111,16 @@ public static class Checks
         historyRow.Toggle.Execute(null);
         Expect(historyRow.Expanded && historyRow.DetailsLabel == "Hide Files",
                "a history row reveals its files and names the action");
+        Expect(Words.FriendlyDeviceModel("iPhone14,2") == "iPhone 13 Pro"
+               && Words.FriendlyDeviceModel("iPad13,1") == "iPad"
+               && Words.FriendlyDeviceModel("iPhone99,42") == "iPhone"
+               && Words.FriendlyDeviceModel("iPhone 16 Pro") == "iPhone 16 Pro"
+               && Words.FriendlyDeviceModel("") == "Unknown device",
+               "history uses friendly device names and does not invent unknown models");
+        var historySheet = Descendants(view).OfType<FrameworkElement>().First(item => item.Name == "HistorySheet");
+        Expect(!Descendants(historySheet).OfType<TextBlock>().Any(text =>
+                   text.GetBindingExpression(TextBlock.TextProperty)?.ParentBinding.Path?.Path == "Path"),
+               "history file list omits full-path text bindings");
         world.Model.HistoryRows.Last().Reveal.Execute(null);
         Expect(world.Desk.Opened.Last() == "reveal " + file,
                "Show in Folder uses an existing file from a history entry");
@@ -1125,6 +1142,8 @@ public static class Checks
         world.Engine.Say(new { @event = "answered", id = "r2", how = "accepted" });
         world.Engine.Say(new { @event = "stored", id = "r2", folder, names = new[] { "history-note.txt" } });
         var received = world.HistoryStore.Saved.Last();
+        Expect(world.Model.HistoryRows[0].Device == "iPad" && received.Device == "iPad13,1",
+               "history renders a friendly name but keeps the original device identifier");
         Expect(received is { Direction: "Received", Result: "Finished", Who: "Pat's iPad",
                              Device: "iPad13,1" }
                && received.Files.Single().Path == file
