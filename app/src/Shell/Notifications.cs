@@ -7,7 +7,7 @@ using Windows.UI.Notifications;
 
 namespace Winawdl.Shell;
 
-public sealed record Notice(string Title, string Detail, string Open, string Accept = "", string Decline = "");
+public sealed record Notice(string Title, string Detail, string Open, string Accept = "", string Decline = "", string Preview = "");
 
 public interface IToast
 {
@@ -23,10 +23,16 @@ public sealed class WindowsToast : IToast
 
     internal static string Xml(Notice notice)
     {
+        var binding = new XElement("binding", new XAttribute("template", "ToastGeneric"),
+            new XElement("text", Clean(notice.Title)), new XElement("text", Clean(notice.Detail)));
+        // Desktop toast images use absolute file:/// URLs. Never accept network
+        // images or arbitrary launch URLs as thumbnail sources.
+        if (Uri.TryCreate(notice.Preview, UriKind.Absolute, out var image)
+            && image.IsFile && image.LocalPath.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase))
+            binding.Add(new XElement("image", new XAttribute("placement", "appLogoOverride"),
+                new XAttribute("src", image.AbsoluteUri), new XAttribute("alt", "Received photo")));
         var toast = new XElement("toast", new XAttribute("activationType", "protocol"),
-            new XAttribute("launch", notice.Open),
-            new XElement("visual", new XElement("binding", new XAttribute("template", "ToastGeneric"),
-                new XElement("text", Clean(notice.Title)), new XElement("text", Clean(notice.Detail)))));
+            new XAttribute("launch", notice.Open), new XElement("visual", binding));
         if (notice.Accept.Length > 0 && notice.Decline.Length > 0)
             toast.Add(new XElement("actions",
                 Button("Accept", notice.Accept), Button("Decline", notice.Decline)));
