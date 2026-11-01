@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Text.RegularExpressions;
 
 namespace Winawdl.Model;
 
@@ -66,13 +67,25 @@ public static class Words
         return names.Count == 1 ? one : string.Create(English, $"{names.Count} {many}");
     }
 
-    /// <summary>What kind of device an Apple model identifier names.</summary>
-    public static DeviceKind KindOfDevice(string? model) => model switch
+    /// <summary>What kind of device an Apple model identifier names. An iPhone
+    /// answering who it is may leave its model out; then its name, which Apple
+    /// makes "Fawaz's iPhone" unless it is changed, is the next best word.</summary>
+    public static DeviceKind KindOfDevice(string? model, string? name = null) => model switch
     {
-        null => DeviceKind.Other,
+        null or "" => KindNamed(name),
         _ when model.StartsWith("iPhone", StringComparison.Ordinal) => DeviceKind.Phone,
         _ when model.StartsWith("iPad", StringComparison.Ordinal) => DeviceKind.Tablet,
         _ when model.Contains("Mac", StringComparison.Ordinal) => DeviceKind.Computer,
+        _ => DeviceKind.Other,
+    };
+
+    // Whole words only: "Mackenzie's phone" says nothing about a Mac.
+    private static DeviceKind KindNamed(string? name) => name switch
+    {
+        null => DeviceKind.Other,
+        _ when Regex.IsMatch(name, @"\biPhone\b") => DeviceKind.Phone,
+        _ when Regex.IsMatch(name, @"\biPad\b") => DeviceKind.Tablet,
+        _ when Regex.IsMatch(name, @"\b(Mac|MacBook|iMac)\b") => DeviceKind.Computer,
         _ => DeviceKind.Other,
     };
 
