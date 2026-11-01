@@ -42,6 +42,12 @@ public static class Checks
             var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
             Program.Dress(app).Apply(Palette.Light(Rgb.Hex("#0078D4")));
             Motion.Reduced = true;
+            if (args.Skip(1).Contains("setup"))
+            {
+                Setup(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("compact"))
             {
                 Compact(app);
@@ -94,6 +100,7 @@ public static class Checks
             SenderFolders(app, folder);
             History(app, folder);
             Notifications(app, folder);
+            Setup(app, folder);
             Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
         }
@@ -104,6 +111,74 @@ public static class Checks
         }
         log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
         return _failed == 0 ? 0 : 1;
+    }
+
+    private static void Setup(Application app, string folder)
+    {
+        var path = Path.Combine(folder, "setup-settings.json");
+        var settings = SettingsStore.Load(path);
+        Expect(settings.SetupPending, "no app.json means first-run setup");
+        settings.Save();
+        Expect(SettingsStore.Load(path).SetupPending, "automatic saves cannot mark unfinished setup complete");
+        var world = Stage.NewWorld(app.Dispatcher, setup: true);
+        settings.Name = world.Model.Name;
+        settings.Folder = world.Model.Folder;
+        using var model = new TableModel(world.Engine, world.Radio, world.Desk, settings, world.Startup,
+                                        world.Explorer, world.HistoryStore);
+        var view = new MainView { DataContext = model };
+        view.Measure(new Size(460, 688)); view.Arrange(new Rect(0, 0, 460, 688)); view.UpdateLayout();
+        Expect(model.SetupOpen && model.SetupName && !model.TableInReach, "setup opens over an unreachable table");
+        model.NameDraft = "bad/name";
+        Expect(Press(view, "Continue") && model.SetupName, "Continue waits for the engine to validate a changed name");
+        world.Engine.Say(new { @event = "settings", name = settings.Name, folder = settings.Folder,
+            ask = true, refused = new { name = "invalid" } });
+        Expect(model.HasNameError && model.SetupName, "a refused name stays on its setup step");
+        Expect(Press(view, "Skip this step") && model.SetupVisibility, "a refused field can still be skipped");
+        model.OnlyKnownSenders = true;
+        Expect(settings.ContactsOnly && world.Engine.Told.Last().Contains("contacts_only"), "setup uses the existing visibility command");
+        model.EveryoneForAWhile = true;
+        Expect(model.EveryoneForAWhile, "setup offers Everyone for 10 Minutes");
+        model.AnyoneCanSend = true;
+        Expect(Press(view, "Continue") && model.SetupFolder && model.AnyoneCanSend, "Everyone remains available");
+        world.Desk.PickedFolder = folder;
+        Expect(Press(view, "Change folder") && world.Engine.Told.Last().Contains("folder"), "setup uses the existing folder picker command");
+        Expect(Press(view, "Skip this step") && model.SetupStartup, "the receive folder step can be skipped");
+        Expect(Press(view, "Start with Windows") && world.Startup.Stored, "setup writes startup through its seam");
+        Expect(Press(view, "Continue") && model.SetupExplorer, "startup leads to Explorer integration");
+        Expect(Press(view, "Send with AirDrop in Explorer") && world.Explorer.Stored, "setup writes Explorer integration through its seam");
+        Expect(Press(view, "Done") && !model.SetupOpen && model.TableInReach, "Done completes setup and uncovers the table");
+        Expect(!SettingsStore.Load(path).SetupPending, "finished setup stays finished after restart");
+        var renamed = Stage.NewWorld(app.Dispatcher, setup: true);
+        renamed.Model.NameDraft = "New PC";
+        renamed.Model.NextSetup.Execute(null);
+        renamed.Engine.Say(new { @event = "settings", name = "New PC", folder = renamed.Model.Folder,
+            ask = true, refused = new { } });
+        Expect(renamed.Model.SetupVisibility && renamed.Model.Name == "New PC", "an accepted name advances only after engine confirmation");
+        renamed.Model.Dispose();
+        settings.SetupPending = true;
+        settings.Save();
+        using (var skipStored = new TableModel(world.Engine, world.Radio, world.Desk, settings, world.Startup,
+                                              world.Explorer, world.HistoryStore)) skipStored.SkipSetup.Execute(null);
+        Expect(!SettingsStore.Load(path).SetupPending, "Skip Setup is remembered on disk");
+        using var skipped = Stage.NewWorld(app.Dispatcher, setup: true).Model;
+        skipped.SkipSetup.Execute(null);
+        Expect(!skipped.SetupOpen, "Skip Setup closes the whole sheet");
+        var allSkipped = Stage.NewWorld(app.Dispatcher, setup: true);
+        for (var index = 0; index < 5; index++) allSkipped.Model.SkipSetupStep.Execute(null);
+        Expect(!allSkipped.Model.SetupOpen && !allSkipped.Settings.SetupPending, "all five steps can be skipped");
+        File.WriteAllText(path, "{\"Name\":\"Existing PC\"}");
+        Expect(!SettingsStore.Load(path).SetupPending, "existing installs without the new flag never enter setup");
+        File.WriteAllText(path, "broken");
+        Expect(!SettingsStore.Load(path).SetupPending, "an unreadable existing settings file does not restart setup");
+        foreach (var scene in Stage.Scenes([]).Where(scene => scene.Name.StartsWith("setup-")))
+        {
+            var staged = Stage.NewWorld(app.Dispatcher, setup: true);
+            scene.Build(staged);
+            Expect(staged.Model.SetupOpen, $"{scene.Name} has a light and dark render state");
+            staged.Model.Dispose();
+        }
+        allSkipped.Model.Dispose();
+        world.Model.Dispose();
     }
 
     private static void Compact(Application app)

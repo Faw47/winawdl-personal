@@ -97,7 +97,7 @@ public static class Program
 
         Deliver(request, model, () => { });
         model.StartTheEngine();
-        if (request.Surface) window.Show();
+        if (request.Surface || model.SetupOpen) window.Show();
         app.Run();
         engine.Stop();
         model.Dispose();

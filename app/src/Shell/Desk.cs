@@ -213,24 +213,27 @@ public static class SettingsStore
 
     public static string FilePath => Path.Combine(Repo.DataFolder, "app.json");
 
-    public static AppSettings Load()
+    public static AppSettings Load(string? filePath = null)
     {
+        filePath ??= FilePath;
+        var firstRun = !File.Exists(filePath);
         AppSettings settings;
         try
         {
-            settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath)) ?? new AppSettings();
+            settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(filePath)) ?? new AppSettings();
         }
-        catch (Exception error) when (error is IOException or JsonException)
+        catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException)
         {
             settings = new AppSettings();
         }
+        if (firstRun) settings.SetupPending = true;
         settings.Save = () =>
         {
             try
             {
-                var draft = FilePath + ".new";
+                var draft = filePath + ".new";
                 File.WriteAllText(draft, JsonSerializer.Serialize(settings, Readable));
-                File.Move(draft, FilePath, overwrite: true);
+                File.Move(draft, filePath, overwrite: true);
             }
             catch (IOException)
             {

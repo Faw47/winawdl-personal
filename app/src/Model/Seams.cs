@@ -91,6 +91,8 @@ public sealed class KnownDevice
 
 public sealed class AppSettings
 {
+    /// <summary>Only new installations enter setup; existing app.json files default to finished.</summary>
+    public bool SetupPending { get; set; }
     public string? Name { get; set; }
     public string? Folder { get; set; }
     public bool Ask { get; set; } = true;

@@ -12,11 +12,12 @@ namespace Winawdl.Views;
 
 public partial class MainView : UserControl
 {
-    private bool _sheetShown, _historyShown;
+    private bool _sheetShown, _historyShown, _setupShown;
 
     public MainView()
     {
         InitializeComponent();
+        Loaded += (_, _) => OnModelChanged(this, new PropertyChangedEventArgs(null));
         DataContextChanged += (_, change) =>
         {
             if (change.OldValue is TableModel old) old.PropertyChanged -= OnModelChanged;
@@ -161,6 +162,15 @@ public partial class MainView : UserControl
     private void OnModelChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (Model is not { } model) return;
+        if (model.SetupOpen != _setupShown)
+        {
+            _setupShown = model.SetupOpen;
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (model.SetupOpen) SetupNext.Focus();
+                else SettingsButton.Focus();
+            });
+        }
         if (model.SettingsOpen != _sheetShown)
         {
             _sheetShown = model.SettingsOpen;
