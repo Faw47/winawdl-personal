@@ -5,6 +5,9 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Photo arrival previews:** finished photo notifications can show a bounded local JPEG thumbnail, including HEIC where Windows has a decoder, with a timeout and text-only fallback. Temporary previews are pruned to ten files.
+- **Copy received content:** Recent files and successfully received History items have an explicit Copy to Clipboard action. Images copy as bitmaps when decodable, safe web shortcuts as URLs, and other or unsupported files as File Explorer-compatible file drops. No automatic clipboard replacement.
+
 - **Setup, History and iPad art.** Setup shows a single Skip Setup action. History renders a friendly device model and filename instead of raw hardware codes and full paths; Show in Folder and the saved paths remain available. iPads use the supplied paired iPad mini artwork with mint-to-violet layered ribbon wallpaper.
 
 - **iPhones that keep their model to themselves are still drawn as iPhones.**
