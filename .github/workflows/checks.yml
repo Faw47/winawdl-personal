@@ -47,20 +47,24 @@ jobs:
           $root = $roots | Where-Object { $_ -and (Test-Path (Join-Path $_ 'vcpkg.exe')) } | Select-Object -First 1
           if (-not $root) { throw 'vcpkg.exe unavailable on this runner' }
           "VCPKG_ROOT=$root" | Out-File -Append -FilePath $env:GITHUB_ENV -Encoding utf8
+      - name: Load installed MSVC compiler
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
       - name: Build Windows radio and its hardware-free tests
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          cmake -S radio -B build/radio -G 'Visual Studio 17 2022' -A x64 "-DVCPKG_MANIFEST_DIR=$PWD/deps"
+          cmake -S radio -B build/radio -G Ninja -DCMAKE_BUILD_TYPE=Release "-DVCPKG_MANIFEST_DIR=$PWD/deps"
           if ($LASTEXITCODE -ne 0) { throw 'radio configure failed' }
-          cmake --build build/radio --config Release --target winawdl_radio channel_width_test ack_cam_experiment_test -- /m /v:minimal
+          cmake --build build/radio --target winawdl_radio channel_width_test ack_cam_experiment_test
           if ($LASTEXITCODE -ne 0) { throw 'radio build failed' }
       - name: Headless RTL8852CE radio tests
         shell: pwsh
         run: |
-          & build/radio/Release/ack_cam_experiment_test.exe
+          & build/radio/ack_cam_experiment_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'CAM selftest failed' }
-          & build/radio/Release/channel_width_test.exe
+          & build/radio/channel_width_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'subcarrier test failed' }
 
   awdl:
