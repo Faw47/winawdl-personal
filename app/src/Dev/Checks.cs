@@ -524,6 +524,8 @@ public static class Checks
         world.Engine.Say(Ask("n1", "Phone <&>\u202e", "iPhone"));
         notices.Request();
         var shown = toast.Shown.Single();
+        Expect(NoticeActivation.Valid(new Uri(shown.Accept).AbsoluteUri),
+               "URI parsing preserves notification action capabilities");
         var xml = System.Xml.Linq.XElement.Parse(WindowsToast.Xml(shown));
         Expect(xml.Descendants("action").Select(action => (string?)action.Attribute("content"))
                .SequenceEqual(["Accept", "Decline"]) && !xml.Value.Contains('\u202e'),
@@ -540,7 +542,7 @@ public static class Checks
         now = now.AddMinutes(3);
         Expect(!notices.Activate(toast.Shown.Last().Accept)
                && !NoticeActivation.Valid("winawdl-notice://../accept")
-               && !notices.Activate("winawdl-notice://" + new string('a', 64)),
+               && !notices.Activate(NoticeActivation.Prefix + new string('a', 64)),
                "expired, malformed and unknown notification actions cannot accept a transfer");
         toast.Available = false;
         notices.Request();

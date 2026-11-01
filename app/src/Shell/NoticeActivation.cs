@@ -8,17 +8,18 @@ public sealed class NoticeActivation(TableModel model, Func<bool> inFront, IToas
                                      Action requestCard, Action<ArrivalModel> arrivalCard,
                                      Func<DateTimeOffset> now) : IDisposable
 {
+    internal const string Prefix = "winawdl-notice://action/";
     private readonly Dictionary<string, (IncomingModel? Item, bool? Accept, DateTimeOffset Until)> _actions = [];
 
-    internal static bool Valid(string uri) => uri.Length == 81
-        && uri.StartsWith("winawdl-notice://", StringComparison.Ordinal)
-        && uri[17..].All(ch => ch is >= '0' and <= '9' or >= 'a' and <= 'f');
+    internal static bool Valid(string uri) => uri.Length == Prefix.Length + 64
+        && uri.StartsWith(Prefix, StringComparison.Ordinal)
+        && uri[Prefix.Length..].All(ch => ch is >= '0' and <= '9' or >= 'a' and <= 'f');
 
     private string Action(IncomingModel? item = null, bool? accept = null)
     {
         foreach (var key in _actions.Where(pair => pair.Value.Until <= now()).Select(pair => pair.Key).ToArray())
             _actions.Remove(key);
-        var uri = "winawdl-notice://" + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
+        var uri = Prefix + Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         _actions[uri] = (item, accept, now().AddMinutes(2));
         return uri;
     }
