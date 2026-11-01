@@ -87,8 +87,7 @@ public partial class MainView : UserControl
     private void HandIsTarget(bool target)
     {
         HandFill.Opacity = target ? 1 : 0;
-        HandEdge.Stroke = (Brush)FindResource(target ? "Accent" : "InkSoft");
-        HandEdge.Opacity = target ? 1 : 0.55;
+        HandEdge.Stroke = (Brush)FindResource(target ? "Accent" : "ControlLine");
     }
 
     /// <summary>Something new on the table shows where it came to rest: a file
@@ -167,7 +166,7 @@ public partial class MainView : UserControl
             _setupShown = model.SetupOpen;
             Dispatcher.BeginInvoke(() =>
             {
-                if (model.SetupOpen) SetupNext.Focus();
+                if (model.SetupOpen) SetupNameBox.Focus();
                 else SettingsButton.Focus();
             });
         }

@@ -115,6 +115,8 @@ public sealed class Palette
     public Rgb Ink { get; private init; }
     public Rgb InkSoft { get; private init; }
     public Rgb Line { get; private init; }
+    /// <summary>An interactive boundary, at least 3:1 against each surface.</summary>
+    public Rgb ControlLine { get; private init; }
     public Rgb Ember { get; private init; }
     /// <summary>The accent as a fill: a button, a switch that is on, the bar of a transfer.</summary>
     public Rgb Accent { get; private init; }
@@ -152,7 +154,7 @@ public sealed class Palette
     public static Palette System(Rgb window, Rgb text, Rgb highlight, Rgb highlightText, Rgb hotTrack) => new()
     {
         Dark = window.Luminance < 0.5, Plain = true,
-        Table = window, Raised = window, Well = window, Ink = text, InkSoft = text, Line = text,
+        Table = window, Raised = window, Well = window, Ink = text, InkSoft = text, Line = text, ControlLine = text,
         Ember = text, Accent = highlight, OnAccent = highlightText, AccentText = hotTrack,
         AccentSoft = window, Shadow = 0, Edge = text, EdgeOpacity = 1, Shade = 0,
     };
@@ -172,6 +174,7 @@ public sealed class Palette
         {
             Dark = dark, Table = surfaces[0], Raised = surfaces[1], Well = surfaces[2],
             Ink = inks[0], InkSoft = inks[1], Line = Rgb.Hex(line), Ember = Rgb.Hex(ember),
+            ControlLine = Reaching(Rgb.Hex(line), surfaces, ShapeContrast, towardDark: !dark),
             Accent = fill, OnAccent = onFill, AccentText = text, AccentSoft = soft,
             Shadow = shadow, ShadowTone = Rgb.Hex(shadowTone), Edge = edge, EdgeOpacity = edgeOpacity,
             Shade = shade,

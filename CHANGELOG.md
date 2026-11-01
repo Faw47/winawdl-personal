@@ -5,6 +5,12 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **Keyboard and screen reader access.** Controls and menus have names and
+  visible focus rings. Requests, transfer status and errors announce changes,
+  and transfer rings expose their percentage. Fields, buttons and scroll bars
+  have clearer contrast. Contrast themes follow Windows colors, and the whole
+  table can scroll when enlarged text leaves less room.
+
 - **First-run setup.** A short, skippable sheet sets this PC's name, who can
   find it, the receive folder, start at sign-in and Explorer integration.
   Finished or skipped setup does not appear again. Existing installs keep

@@ -63,6 +63,17 @@
     <Setter Property="HorizontalAlignment" Value="Center" />
   </Style>
 
+  <Style x:Key="FocusDevice">
+    <Setter Property="Control.Template">
+      <Setter.Value>
+        <ControlTemplate>
+          <Ellipse Width="84" Height="84" HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,-4,0,0"
+                   Stroke="{DynamicResource AccentText}" StrokeThickness="2" />
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <!-- Keyboard focus: a ring in the accent, outside the thing it is on. -->
   <Style x:Key="FocusPlate">
     <Setter Property="Control.Template">
@@ -105,7 +116,7 @@
       <Setter.Value>
         <ControlTemplate TargetType="ButtonBase">
           <t:Raised x:Name="Surface" Radius="18" Fill="{DynamicResource Raised}"
-                    Edge="{DynamicResource Edge}" Outline="{DynamicResource Outline}"
+                    Edge="{DynamicResource Edge}" Outline="{DynamicResource ControlLine}"
                     ShadowStrength="{DynamicResource ShadowStrength}">
             <Grid>
               <t:FillBar Radius="18" Tint="{DynamicResource AccentSoft}" Line="{DynamicResource Accent}"
@@ -132,10 +143,10 @@
   <ControlTemplate x:Key="FileFace" TargetType="ContentControl">
     <Grid>
       <Border CornerRadius="8" Background="{DynamicResource Well}" />
-      <TextBlock Style="{StaticResource Glyph}" FontSize="20" Foreground="{DynamicResource InkSoft}"
+      <t:GlyphText Style="{StaticResource Glyph}" FontSize="20" Foreground="{DynamicResource InkSoft}"
                  Text="{Binding Glyph}" />
       <t:RoundClip Radius="8">
-        <Image Source="{Binding Thumbnail}" Stretch="UniformToFill" />
+        <t:DecorativeImage Source="{Binding Thumbnail}" Stretch="UniformToFill" />
       </t:RoundClip>
       <Border CornerRadius="8" BorderBrush="{DynamicResource Outline}" BorderThickness="1" />
     </Grid>
@@ -175,8 +186,9 @@
       <Setter.Value>
         <ControlTemplate TargetType="Button">
           <Grid>
-            <Border CornerRadius="8" Background="{TemplateBinding Background}" />
-            <Border x:Name="Over" CornerRadius="8" Background="{DynamicResource Hover}" Opacity="0" />
+            <Border CornerRadius="8" Background="{TemplateBinding Background}"
+                    BorderBrush="{DynamicResource ControlLine}" BorderThickness="1" />
+            <Border x:Name="Over" CornerRadius="8" BorderBrush="{DynamicResource ControlLine}" BorderThickness="2" Opacity="0" />
             <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center"
                               VerticalAlignment="Center" RecognizesAccessKey="True" />
           </Grid>
@@ -185,10 +197,7 @@
               <Setter TargetName="Over" Property="Opacity" Value="1" />
             </Trigger>
             <Trigger Property="IsPressed" Value="True">
-              <Setter TargetName="Over" Property="Opacity" Value="2.2" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter Property="Opacity" Value="0.5" />
+              <Setter TargetName="Over" Property="Opacity" Value="1" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -234,7 +243,7 @@
       <Setter.Value>
         <ControlTemplate TargetType="ButtonBase">
           <Border x:Name="Back" CornerRadius="8" Background="Transparent">
-            <TextBlock Text="{Binding (t:Plate.Glyph), RelativeSource={RelativeSource TemplatedParent}}"
+            <t:GlyphText Text="{Binding (t:Plate.Glyph), RelativeSource={RelativeSource TemplatedParent}}"
                        Style="{StaticResource Glyph}" Foreground="{TemplateBinding Foreground}" />
           </Border>
           <ControlTemplate.Triggers>
@@ -262,7 +271,7 @@
         <ControlTemplate TargetType="t:Switch">
           <DockPanel Background="Transparent" Margin="{TemplateBinding Padding}">
             <Grid DockPanel.Dock="Right" Width="44" Height="24" Margin="12,0,0,0" VerticalAlignment="Center">
-              <Border CornerRadius="12" Background="{DynamicResource Well}" BorderBrush="{DynamicResource Outline}"
+              <Border CornerRadius="12" Background="{DynamicResource Well}" BorderBrush="{DynamicResource ControlLine}"
                       BorderThickness="1" />
               <Border x:Name="PART_On" CornerRadius="12" Background="{DynamicResource Accent}" Opacity="0" />
               <Ellipse x:Name="PART_Thumb" Width="18" Height="18" Margin="3,0" HorizontalAlignment="Left"
@@ -275,9 +284,6 @@
             <ContentPresenter VerticalAlignment="Center" />
           </DockPanel>
           <ControlTemplate.Triggers>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter Property="Opacity" Value="0.5" />
-            </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
       </Setter.Value>
@@ -297,7 +303,7 @@
       <Setter.Value>
         <ControlTemplate TargetType="TextBox">
           <Border x:Name="Frame" CornerRadius="8" Background="{DynamicResource Raised}"
-                  BorderBrush="{DynamicResource Line}" BorderThickness="1">
+                  BorderBrush="{DynamicResource ControlLine}" BorderThickness="1">
             <Grid>
               <TextBlock x:Name="Hint" Margin="{TemplateBinding Padding}" Padding="2,0,0,0"
                          Style="{StaticResource Soft}" FontSize="14" VerticalAlignment="Center"
@@ -372,7 +378,7 @@
               <Border CornerRadius="5" Background="{DynamicResource Raised}"
                       BorderBrush="{DynamicResource InkSoft}" BorderThickness="1" />
               <Border x:Name="On" CornerRadius="5" Background="{DynamicResource Accent}" Visibility="Collapsed">
-                <TextBlock Text="&#xE73E;" Style="{StaticResource Glyph}" FontSize="12"
+                <t:GlyphText Text="&#xE73E;" Style="{StaticResource Glyph}" FontSize="12"
                            Foreground="{DynamicResource OnAccent}" />
               </Border>
             </Grid>
@@ -390,6 +396,7 @@
 
   <!-- Scroll bars thin enough to stay out of the way of what scrolls. -->
   <Style x:Key="ScrollGap" TargetType="RepeatButton">
+    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusField}" />
     <Setter Property="Focusable" Value="False" />
     <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Template">
@@ -401,6 +408,8 @@
     </Setter>
   </Style>
   <Style x:Key="ScrollGrip" TargetType="Thumb">
+    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusField}" />
+    <Setter Property="AutomationProperties.Name" Value="Scroll position" />
     <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Template">
       <Setter.Value>
@@ -413,36 +422,39 @@
   <ControlTemplate x:Key="ScrollUpright" TargetType="ScrollBar">
     <Track x:Name="PART_Track" IsDirectionReversed="True" Width="10">
       <Track.DecreaseRepeatButton>
-        <RepeatButton Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollGap}" />
+        <RepeatButton AutomationProperties.Name="Page Up" Command="ScrollBar.PageUpCommand" Style="{StaticResource ScrollGap}" />
       </Track.DecreaseRepeatButton>
       <Track.Thumb>
         <Thumb Style="{StaticResource ScrollGrip}" Margin="3,2" />
       </Track.Thumb>
       <Track.IncreaseRepeatButton>
-        <RepeatButton Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollGap}" />
+        <RepeatButton AutomationProperties.Name="Page Down" Command="ScrollBar.PageDownCommand" Style="{StaticResource ScrollGap}" />
       </Track.IncreaseRepeatButton>
     </Track>
   </ControlTemplate>
   <ControlTemplate x:Key="ScrollLevel" TargetType="ScrollBar">
     <Track x:Name="PART_Track" Height="10">
       <Track.DecreaseRepeatButton>
-        <RepeatButton Command="ScrollBar.PageLeftCommand" Style="{StaticResource ScrollGap}" />
+        <RepeatButton AutomationProperties.Name="Page Left" Command="ScrollBar.PageLeftCommand" Style="{StaticResource ScrollGap}" />
       </Track.DecreaseRepeatButton>
       <Track.Thumb>
         <Thumb Style="{StaticResource ScrollGrip}" Margin="2,3" />
       </Track.Thumb>
       <Track.IncreaseRepeatButton>
-        <RepeatButton Command="ScrollBar.PageRightCommand" Style="{StaticResource ScrollGap}" />
+        <RepeatButton AutomationProperties.Name="Page Right" Command="ScrollBar.PageRightCommand" Style="{StaticResource ScrollGap}" />
       </Track.IncreaseRepeatButton>
     </Track>
   </ControlTemplate>
   <Style TargetType="ScrollBar">
+    <Setter Property="AutomationProperties.Name" Value="Vertical scroll bar" />
+    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusField}" />
     <Setter Property="Background" Value="Transparent" />
     <Setter Property="Width" Value="10" />
     <Setter Property="MinWidth" Value="10" />
     <Setter Property="Template" Value="{StaticResource ScrollUpright}" />
     <Style.Triggers>
       <Trigger Property="Orientation" Value="Horizontal">
+        <Setter Property="AutomationProperties.Name" Value="Horizontal scroll bar" />
         <Setter Property="Width" Value="Auto" />
         <Setter Property="MinWidth" Value="0" />
         <Setter Property="Height" Value="10" />
@@ -500,12 +512,13 @@
       <Setter.Value>
         <ControlTemplate TargetType="Button">
           <Grid>
-            <Border CornerRadius="14" Background="{DynamicResource Raised}" BorderBrush="{DynamicResource Outline}"
+            <Border CornerRadius="14" Background="{DynamicResource Raised}" BorderBrush="{DynamicResource ControlLine}"
                     BorderThickness="1" />
-            <Border x:Name="Over" CornerRadius="14" Background="{DynamicResource Hover}" Opacity="0" />
+            <Border x:Name="Over" CornerRadius="14" Background="{DynamicResource Hover}"
+                    BorderBrush="{DynamicResource ControlLine}" BorderThickness="1" Opacity="0" />
             <StackPanel Orientation="Horizontal" Margin="{TemplateBinding Padding}" VerticalAlignment="Center">
               <ContentPresenter VerticalAlignment="Center" />
-              <TextBlock Text="&#xE70D;" Style="{StaticResource Glyph}" FontSize="9" Margin="7,1,0,0"
+              <t:GlyphText Text="&#xE70D;" Style="{StaticResource Glyph}" FontSize="9" Margin="7,1,0,0"
                          Foreground="{DynamicResource InkSoft}" />
             </StackPanel>
           </Grid>
@@ -523,7 +536,7 @@
        and one short line of what is happening. The ring around the face is
        how far a transfer has got. -->
   <Style x:Key="DeviceTile" TargetType="ButtonBase">
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusDevice}" />
     <Setter Property="Width" Value="104" />
     <Setter Property="Cursor" Value="Hand" />
     <Setter Property="Template">
@@ -531,12 +544,11 @@
         <ControlTemplate TargetType="ButtonBase">
           <StackPanel Background="Transparent">
             <Grid Width="76" Height="76" HorizontalAlignment="Center">
-              <Ellipse x:Name="Focus" Margin="-4" Stroke="{DynamicResource AccentText}" StrokeThickness="2"
-                       Visibility="Collapsed" />
               <Ellipse x:Name="Face" Margin="6" Fill="{DynamicResource Avatar}" RenderTransformOrigin="0.5,0.5" />
-              <TextBlock Style="{StaticResource Glyph}" FontSize="28" Foreground="{DynamicResource InkSoft}"
+              <t:GlyphText Style="{StaticResource Glyph}" FontSize="28" Foreground="{DynamicResource InkSoft}"
                          Text="{Binding (t:Plate.Glyph), RelativeSource={RelativeSource TemplatedParent}}" />
-              <t:Ring Thickness="3" Stroke="{DynamicResource Accent}" Track="{DynamicResource Outline}"
+              <t:Ring AutomationProperties.Name="{Binding Name}" AutomationProperties.HelpText="Sending progress"
+                      Thickness="3" Stroke="{DynamicResource Accent}" Track="{DynamicResource Outline}"
                       Progress="{Binding (t:Plate.Progress), RelativeSource={RelativeSource TemplatedParent}}" />
             </Grid>
             <ContentPresenter Margin="0,8,0,0" HorizontalAlignment="Center" />
@@ -555,9 +567,6 @@
                   <ScaleTransform ScaleX="0.95" ScaleY="0.95" />
                 </Setter.Value>
               </Setter>
-            </Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True">
-              <Setter TargetName="Focus" Property="Visibility" Value="Visible" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>
@@ -610,6 +619,7 @@
     </Setter>
   </Style>
   <Style TargetType="MenuItem">
+    <Setter Property="FocusVisualStyle" Value="{StaticResource FocusField}" />
     <Setter Property="OverridesDefaultStyle" Value="True" />
     <Setter Property="Foreground" Value="{DynamicResource Ink}" />
     <Setter Property="Template">
@@ -621,7 +631,7 @@
                 <ColumnDefinition Width="22" />
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
-              <TextBlock x:Name="Check" Text="&#xE73E;" Style="{StaticResource Glyph}" FontSize="12"
+              <t:GlyphText x:Name="Check" Text="&#xE73E;" Style="{StaticResource Glyph}" FontSize="12"
                          HorizontalAlignment="Left" Visibility="Hidden" Foreground="{TemplateBinding Foreground}" />
               <ContentPresenter Grid.Column="1" ContentSource="Header" RecognizesAccessKey="True"
                                 TextElement.Foreground="{TemplateBinding Foreground}" />
@@ -634,9 +644,6 @@
             <Trigger Property="IsHighlighted" Value="True">
               <Setter TargetName="Back" Property="Background" Value="{DynamicResource Accent}" />
               <Setter Property="Foreground" Value="{DynamicResource OnAccent}" />
-            </Trigger>
-            <Trigger Property="IsEnabled" Value="False">
-              <Setter Property="Opacity" Value="0.45" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>

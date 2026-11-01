@@ -72,6 +72,8 @@ public sealed class RequestWindow : Window
         Background = Brushes.Transparent;
         ResizeMode = ResizeMode.NoResize;
         SizeToContent = SizeToContent.WidthAndHeight;
+        MaxHeight = SystemParameters.WorkArea.Height;
+        MaxWidth = SystemParameters.WorkArea.Width;
         WindowStartupLocation = WindowStartupLocation.Manual;
         ShowInTaskbar = false;
         ShowActivated = false;

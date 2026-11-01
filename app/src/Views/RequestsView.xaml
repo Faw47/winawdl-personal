@@ -12,7 +12,7 @@
     <!-- Out of its window, a card says which app it is from. -->
     <DataTemplate x:Key="Whose">
       <StackPanel Orientation="Horizontal">
-        <Image Width="16" Height="16" Margin="0,0,8,0" Source="{x:Static v:RequestsView.Mark}" />
+        <t:DecorativeImage Width="16" Height="16" Margin="0,0,8,0" Source="{x:Static v:RequestsView.Mark}" />
         <TextBlock Style="{StaticResource Soft}" Text="winawdl" VerticalAlignment="Center" />
       </StackPanel>
     </DataTemplate>
@@ -20,6 +20,7 @@
 
   <!-- The window around the cards is clear: the margin is where their shadows fall.
        What wants an answer sits lowest, nearest the corner. -->
+  <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
   <StackPanel Margin="20,20,20,10">
     <ItemsControl ItemsSource="{Binding Arrivals}" Focusable="False">
       <ItemsControl.ItemTemplate>
@@ -45,17 +46,17 @@
                                 DataContext="{Binding File}" Width="44" Height="44" Margin="0,0,14,0"
                                 VerticalAlignment="Top" />
                 <StackPanel Grid.Column="1">
-                  <TextBlock Style="{StaticResource Name}" TextWrapping="Wrap" TextTrimming="None"
+                  <t:LiveText Style="{StaticResource Name}" TextWrapping="Wrap" TextTrimming="None"
                              Text="{Binding Headline}" AutomationProperties.LiveSetting="Polite" />
                   <TextBlock Style="{StaticResource Figures}" Margin="0,3,0,0" TextWrapping="NoWrap"
                              TextTrimming="CharacterEllipsis" Text="{Binding Detail}" />
                 </StackPanel>
               </Grid>
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
-                <Button Style="{StaticResource TextButton}" Content="Show in Folder" Margin="0,0,6,0"
+                <Button AutomationProperties.Name="Show in Folder" Style="{StaticResource TextButton}" Content="Show in Folder" Margin="0,0,6,0"
                         VerticalAlignment="Center" Command="{Binding Reveal}"
                         Visibility="{Binding Single, Converter={StaticResource Shown}}" />
-                <Button Style="{StaticResource RaisedButton}" Content="{Binding PressLabel}"
+                <Button AutomationProperties.Name="{Binding PressLabel}" Style="{StaticResource RaisedButton}" Content="{Binding PressLabel}"
                         Command="{Binding Press}" />
               </StackPanel>
             </StackPanel>
@@ -73,13 +74,13 @@
             <StackPanel>
               <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource Whose}"
                                 Margin="0,0,0,10" />
-              <TextBlock Style="{StaticResource Name}" TextWrapping="Wrap" TextTrimming="None"
+              <t:LiveText Style="{StaticResource Name}" TextWrapping="Wrap" TextTrimming="None"
                          Text="{Binding Headline}" AutomationProperties.LiveSetting="Assertive" />
-              <TextBlock Style="{StaticResource Figures}" Margin="0,3,0,0" Text="{Binding Status}" />
+              <t:LiveText AutomationProperties.LiveSetting="Polite" Style="{StaticResource Figures}" Margin="0,3,0,0" Text="{Binding Status}" />
               <UniformGrid Columns="2" Margin="0,14,0,0">
-                <Button Style="{StaticResource RaisedButton}" Content="Decline" Margin="0,0,5,0"
+                <Button AutomationProperties.Name="Decline" Style="{StaticResource RaisedButton}" Content="Decline" Margin="0,0,5,0"
                         Command="{Binding Decline}" />
-                <Button Style="{StaticResource AccentButton}" Content="Accept" Margin="5,0,0,0"
+                <Button AutomationProperties.Name="Accept" Style="{StaticResource AccentButton}" Content="Accept" Margin="5,0,0,0"
                         Command="{Binding Accept}" />
               </UniformGrid>
             </StackPanel>
@@ -88,4 +89,5 @@
       </ItemsControl.ItemTemplate>
     </ItemsControl>
   </StackPanel>
+  </ScrollViewer>
 </UserControl>
