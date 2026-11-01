@@ -27,7 +27,7 @@ class SelectionTest(unittest.TestCase):
         return path
 
     def test_discovery_name_is_safe_but_keeps_unicode(self):
-        self.assertEqual(sender.clean_peer_name('جود جهاز\\x1b[31m\\u202e'),
+        self.assertEqual(sender.clean_peer_name('جود جهاز\x1b[31m\u202e'),
                          'جود جهاز[31m')
         self.assertEqual(sender.clean_peer_name('مرحبا 👋 café'), 'مرحبا 👋 café')
         self.assertEqual(sender.clean_peer_name('x' * 500), 'x' * 255)
