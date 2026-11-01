@@ -45,6 +45,7 @@ jobs:
         run: |
           git submodule update --init upstream/owl
           git -C upstream/owl submodule update --init radiotap
+          git submodule update --init upstream/devourer
       - uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
@@ -63,6 +64,13 @@ jobs:
             echo "== $test"
             ./build/awdl/$test.exe
           done
+      - name: Portable RTL8852C CAM63 and TX subcarrier tests
+        run: |
+          set -e
+          g++ -std=c++20 -Wall -Wextra -Werror radio/tests/ack_cam_experiment_test.cpp -o build/awdl/ack_cam_experiment_test.exe
+          ./build/awdl/ack_cam_experiment_test.exe
+          g++ -std=c++20 -Wall -Wextra -Werror -Iupstream/devourer/src radio/tests/channel_width_test.cpp -o build/awdl/channel_width_test.exe
+          ./build/awdl/channel_width_test.exe
 
   fuzz:
     name: Fuzzing what a stranger sends, a minute a target
