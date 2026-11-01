@@ -1950,6 +1950,26 @@ public static class Checks
                    "the supervisor's process file is gone once it has stopped");
         }
 
+        Expect(RadioTask.Arguments(42, name) is [ "42", var passed ] && passed == name,
+               "the task is handed an array of strings, the only kind Task Scheduler takes");
+        // Where install.ps1 has registered the task, it is really run: with no stop event of
+        // that name, the copy it starts ends at once (2) and nothing else happens.
+        var registered = false;
+        try
+        {
+            using var tasks = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("schtasks.exe",
+                $"/query /tn \"{RadioTask.Name}\"") { UseShellExecute = false, CreateNoWindow = true,
+                    RedirectStandardOutput = true, RedirectStandardError = true })!;
+            tasks.WaitForExit(10_000);
+            registered = tasks.ExitCode == 0;
+        }
+        catch (System.ComponentModel.Win32Exception) { }
+        if (registered)
+            Expect(RadioTask.Run(Environment.ProcessId, $"winawdl-radio-stop-{Environment.ProcessId}-999999"),
+                   "the installed radio task starts with the app's arguments, with no prompt");
+        else
+            _log.WriteLine("SKIP  the radio task is not registered here: install.ps1 registers it");
+
         var repo = Repo.Find() ?? throw new InvalidOperationException("the repository was not found");
         var install = File.ReadAllText(Path.Combine(repo, "installer", "install.ps1"));
         var uninstall = File.ReadAllText(Path.Combine(repo, "installer", "uninstall.ps1"));

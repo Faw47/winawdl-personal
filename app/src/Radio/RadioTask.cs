@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Security;
 using System.Text.RegularExpressions;
 
 namespace Winawdl.Radio;
@@ -17,6 +16,8 @@ public static partial class RadioTask
     [GeneratedRegex(@"^winawdl-radio-stop-[0-9]{1,10}-[0-9]{1,10}$")]
     public static partial Regex StopName();
 
+    internal static string[] Arguments(int owner, string stopName) => [owner.ToString(), stopName];
+
     /// <summary>Starts the supervisor through the task. False when there is no
     /// task this account may run, or Task Scheduler would not start it.</summary>
     public static bool Run(int owner, string stopName)
@@ -31,13 +32,15 @@ public static partial class RadioTask
             dynamic scheduler = service;
             scheduler.Connect();
             dynamic task = scheduler.GetFolder(@"\").GetTask(Name);
-            // $(Arg0) and $(Arg1) in the task's arguments.
-            task.Run(new object[] { owner.ToString(), stopName });
+            // $(Arg0) and $(Arg1) in the task's arguments. Task Scheduler takes an
+            // array of strings here and refuses an array of variants.
+            task.Run(Arguments(owner, stopName));
             return true;
         }
-        catch (Exception error) when (error is COMException or UnauthorizedAccessException or SecurityException
-                                       or System.IO.FileNotFoundException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
+        catch (Exception error)
         {
+            // Whatever the task did, Windows can still be asked: this never stops the radio.
+            System.Diagnostics.Trace.TraceWarning("The radio task did not run: {0}", error.Message);
             return false;
         }
         finally
