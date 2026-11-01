@@ -105,3 +105,9 @@ add_executable(peer_heard_test tests/peer_heard_test.c compat/ether.c)
 target_link_libraries(peer_heard_test PRIVATE awdl)
 target_compile_options(peer_heard_test PRIVATE -Wall -Wextra -Werror)
 target_link_options(peer_heard_test PRIVATE -static)
+
+# Regression for PSF HT Capabilities in the OWL patch overlay.
+add_executable(psf_ht_test tests/psf_ht_test.c compat/ether.c)
+target_link_libraries(psf_ht_test PRIVATE awdl)
+target_compile_options(psf_ht_test PRIVATE -Wall -Wextra -Werror)
+target_link_options(psf_ht_test PRIVATE -static)
