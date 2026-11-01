@@ -12,7 +12,7 @@ HT-capability writer so this is bit-for-bit the same capability data.
 diff --git a/src/tx.c b/src/tx.c
 --- a/src/tx.c
 +++ b/src/tx.c
-@@ -372,9 +372,8 @@ int awdl_init_full_action_frame(uint8_t *buf, struct awdl_state *state, struct i
+@@ -372,8 +372,7 @@ int awdl_init_full_action_frame(uint8_t *buf, struct awdl_state *state, struct i
  	ptr += awdl_init_chanseq_tlv(ptr, state);
  	ptr += awdl_init_election_params_v2_tlv(ptr, state);
  	ptr += awdl_init_service_params_tlv(ptr, state);
