@@ -54,6 +54,12 @@ public static class Checks
                 log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
                 return _failed == 0 ? 0 : 1;
             }
+            if (args.Skip(1).Contains("sender-folders"))
+            {
+                SenderFolders(app, folder);
+                log.WriteLine(_failed == 0 ? $"ALL {_passed} PASSED" : $"{_failed} FAILED, {_passed} passed");
+                return _failed == 0 ? 0 : 1;
+            }
             if (args.Skip(1).Contains("explorer"))
             {
                 Explorer(app, folder);
@@ -73,6 +79,7 @@ public static class Checks
             Startup(app);
             Explorer(app, folder);
             Selection(app, folder);
+            SenderFolders(app, folder);
             Compact(app);
             Supervisor(Path.Combine(folder, "supervised"));
         }
@@ -381,6 +388,80 @@ public static class Checks
         }
         Expect(await other.Forward(LaunchRequest.FromArguments([first])),
                "the pipe server survives an oversized hostile frame");
+    }
+
+    private static void SenderFolders(Application app, string folder)
+    {
+        var world = Stage.NewWorld(app.Dispatcher);
+        world.Model.SettingsOpen = true;
+        var view = Show(world);
+        var toggle = (Winawdl.Theme.Switch)view.FindName("SenderFoldersSwitch");
+        toggle.BringIntoView();
+        view.UpdateLayout();
+        Expect(!world.Model.SenderFolders && !world.Settings.SenderFolders && toggle.IsChecked == false,
+               "sender folders default off in the model, persisted settings and switch");
+        var saves = 0;
+        world.Settings.Save = () => saves++;
+        Expect(Press(view, "A Folder for Each Sender") && world.Model.SenderFolders
+               && world.Settings.SenderFolders && saves == 1
+               && world.Engine.Told.Last().Contains("\"sender_folders\":true"),
+               "the receive-settings switch saves and sends sender_folders through set");
+        var serialized = System.Text.Json.JsonSerializer.Serialize(world.Settings);
+        var kept = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(serialized)!;
+        var engine = new ScriptedEngine();
+        using var model = new TableModel(engine, world.Radio, world.Desk, kept, world.Startup, world.Explorer);
+        model.StartTheEngine();
+        Expect(engine.StartedSenderFolders && model.SenderFolders,
+               "sender folder persistence reaches the startup engine seam before ready");
+        Expect(Press(view, "A Folder for Each Sender") && !world.Model.SenderFolders && saves == 2
+               && world.Engine.Told.Last().Contains("\"sender_folders\":false"),
+               "turning sender folders off saves and sends false");
+        foreach (var enabled in new[] { false, true })
+        {
+            var scene = Stage.Scenes([]).First(one => one.Name == $"settings-sender-folders-{(enabled ? "on" : "off")}");
+            scene.Build(world);
+            view.UpdateLayout();
+            Expect(world.Model.SenderFolders == enabled && toggle.IsChecked == enabled,
+                   $"the sender folder {(enabled ? "on" : "off")} render scene reflects its bound state");
+        }
+        var actual = Directory.CreateDirectory(Path.Combine(folder, "Sender PC")).FullName;
+        File.WriteAllText(Path.Combine(actual, "note.txt"), "test");
+        world.Engine.Say(new { @event = "stored", id = "folder-test", folder = actual, names = new[] { "note.txt" } });
+        world.Model.Received[0].Reveal!.Execute(null);
+        Expect(world.Model.Received[0].Path == Path.Combine(actual, "note.txt")
+               && world.Desk.Opened.Last() == "reveal " + Path.Combine(actual, "note.txt"),
+               "Show in Folder uses the actual sender folder from stored");
+        world.Model.Dispose();
+
+        var received = new List<System.Text.Json.JsonElement>();
+        var failure = "";
+        var native = new EngineProcess(app.Dispatcher, Repo.Find(),
+            ["--loopback", "--port", "0", "--keys", Path.Combine(folder, "sender-folder-keys")]);
+        native.Said += said => received.Add(said);
+        native.Stopped += (why, detail) => failure = why + " " + detail;
+        bool WaitFor(string kind, bool enabled)
+        {
+            var until = Stopwatch.StartNew();
+            while (until.Elapsed.TotalSeconds < 15 && failure.Length == 0)
+            {
+                if (received.Any(said => said.TryGetProperty("event", out var name) && name.GetString() == kind
+                    && said.TryGetProperty("sender_folders", out var value) && value.GetBoolean() == enabled)) return true;
+                Stage.Pump(app.Dispatcher, 20);
+            }
+            _log.WriteLine("sender folder engine detail: " + failure);
+            return false;
+        }
+        try
+        {
+            native.Start("Test PC", folder, true, false, [], senderFolders: true);
+            Expect(WaitFor("ready", true), "native EngineProcess carries the persisted sender folder startup flag");
+            native.Tell(new() { ["do"] = "set", ["sender_folders"] = false });
+            Expect(WaitFor("settings", false), "native engine protocol acknowledges sender_folders false");
+        }
+        finally
+        {
+            native.Stop();
+        }
     }
 
     private static void Startup(Application app)

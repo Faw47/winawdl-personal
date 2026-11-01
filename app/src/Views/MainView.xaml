@@ -545,6 +545,15 @@
                                  Text="HEIC photos and HEVC videos as taken, not converted." />
                     </StackPanel>
                   </t:Switch>
+                  <Border Style="{StaticResource Hairline}" />
+                  <t:Switch x:Name="SenderFoldersSwitch" Style="{StaticResource RowSwitch}"
+                            IsChecked="{Binding SenderFolders}" AutomationProperties.Name="A Folder for Each Sender">
+                    <StackPanel>
+                      <TextBlock Text="A Folder for Each Sender" />
+                      <TextBlock Style="{StaticResource Caption}"
+                                 Text="Save files in a subfolder named after the device." />
+                    </StackPanel>
+                  </t:Switch>
                 </StackPanel>
               </ContentControl>
 

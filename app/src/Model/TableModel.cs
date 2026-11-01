@@ -141,7 +141,8 @@ public sealed class TableModel : Observable, IDisposable
         _engineProblem = "";
         if (!Directory.Exists(Folder)) _settings.Folder = null;
         ChangedAll();
-        _engine.Start(Name, Folder, _settings.Ask, _settings.ContactsOnly, _settings.KnownSenders);
+        _engine.Start(Name, Folder, _settings.Ask, _settings.ContactsOnly, _settings.KnownSenders,
+                      _settings.SenderFolders);
     }
 
     /// <summary>The window came into view or went out of it. Devices are only
@@ -431,6 +432,8 @@ public sealed class TableModel : Observable, IDisposable
         _settings.Name = Text(said, "name");
         _settings.Folder = Text(said, "folder");
         _settings.Ask = Flag(said, "ask");
+        if (said.TryGetProperty("sender_folders", out var separate))
+            _settings.SenderFolders = separate.GetBoolean();
         AdoptSenders(said);
         _settings.Save();
         _nameDraft = Name;
@@ -1094,6 +1097,20 @@ public sealed class TableModel : Observable, IDisposable
 
     public bool TakeAll { get => !AskFirst; set => AskFirst = !value; }
 
+    public bool SenderFolders
+    {
+        get => _settings.SenderFolders;
+        set
+        {
+            if (_settings.SenderFolders == value) return;
+            _settings.SenderFolders = value;
+            _settings.Save();
+            if (_engineUp)
+                _engine.Tell(new() { ["do"] = "set", ["sender_folders"] = value });
+            Changed();
+        }
+    }
+
     public bool OriginalMedia
     {
         get => _settings.OriginalMedia;
@@ -1296,6 +1313,8 @@ public sealed class TableModel : Observable, IDisposable
         _settings.Name = Text(said, "name");
         _settings.Folder = Text(said, "folder");
         _settings.Ask = Flag(said, "ask");
+        if (said.TryGetProperty("sender_folders", out var separate))
+            _settings.SenderFolders = separate.GetBoolean();
         if (Refused("known_senders")) _senderError = "The list could not be changed. The old one stays.";
         AdoptSenders(said);
         _settings.Save();

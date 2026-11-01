@@ -5,6 +5,10 @@ numbers are in [DESIGN-NOTES.md](DESIGN-NOTES.md).
 
 ## Unreleased
 
+- **A folder for each sender.** An optional switch saves received files and
+  links in a subfolder named after the device. Unsafe device names are
+  cleaned, and links or junctions cannot redirect a sender's folder.
+
 - **Send folders and paste from the clipboard.** Folder contents are sent as
   files without their subfolders. Links and junctions are left out. A send
   holds at most 500 files and 2 GiB. Paste adds copied files, an image as a

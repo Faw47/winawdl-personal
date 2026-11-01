@@ -19,14 +19,19 @@ public sealed class ScriptedEngine : IEngine
     public event Action<JsonElement>? Said;
     public event Action<string, string>? Stopped;
     public List<string> Told { get; } = [];
+    public bool StartedSenderFolders { get; private set; }
 
     public void Start(string name, string folder, bool ask, bool contactsOnly,
-                      IReadOnlyList<string> knownSenders) =>
+                      IReadOnlyList<string> knownSenders, bool senderFolders = false)
+    {
+        StartedSenderFolders = senderFolders;
         Say(new
         {
             @event = "ready", protocol = 1, name, folder, ask,
             contacts_only = contactsOnly, known_senders = knownSenders,
+            sender_folders = senderFolders,
         });
+    }
 
     public void Tell(Dictionary<string, object?> command) => Told.Add(JsonSerializer.Serialize(command));
 
@@ -199,6 +204,14 @@ public static class Stage
                     view.Arrange(new Rect(0, 0, 460, 688));
                     view.UpdateLayout();
                     ((ScrollViewer)view.FindName("SettingsScroll")).ScrollToEnd();
+                    view.UpdateLayout();
+                }
+                if (name.StartsWith("settings-sender-folders-"))
+                {
+                    view.Measure(new Size(460, 688));
+                    view.Arrange(new Rect(0, 0, 460, 688));
+                    view.UpdateLayout();
+                    ((FrameworkElement)view.FindName("SenderFoldersSwitch")).BringIntoView();
                     view.UpdateLayout();
                 }
                 Save(view, 460, 720, Path.Combine(folder, $"{name}-{themeName}.png"));
@@ -423,6 +436,12 @@ public static class Stage
             world.Model.SettingsOpen = true;
         });
         yield return ("settings-startup-off", world => world.Model.SettingsOpen = true);
+        yield return ("settings-sender-folders-off", world => world.Model.SettingsOpen = true);
+        yield return ("settings-sender-folders-on", world =>
+        {
+            world.Model.SenderFolders = true;
+            world.Model.SettingsOpen = true;
+        });
         yield return ("settings-startup-on", world =>
         {
             world.Startup.Stored = true;
