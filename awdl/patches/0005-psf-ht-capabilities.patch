@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: winawdl <winawdl@invalid>
+Date: Sun, 1 Nov 2026 09:27:00 +0000
+Subject: [PATCH] Advertise HT capabilities in PSFs, not only MIFs
+
+Owly protocol rule AWDL-5 expects TLV 7 in PSFs. Reuse OWL's existing
+HT-capability writer so this is bit-for-bit the same capability data.
+---
+ src/tx.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/src/tx.c b/src/tx.c
+--- a/src/tx.c
++++ b/src/tx.c
+@@ -372,9 +372,8 @@ int awdl_init_full_action_frame(uint8_t *buf, struct awdl_state *state, struct i
+ 	ptr += awdl_init_chanseq_tlv(ptr, state);
+ 	ptr += awdl_init_election_params_v2_tlv(ptr, state);
+ 	ptr += awdl_init_service_params_tlv(ptr, state);
+-	if (type == AWDL_ACTION_MIF)
+-		ptr += awdl_init_ht_capabilities_tlv(ptr, state);
++	ptr += awdl_init_ht_capabilities_tlv(ptr, state);
+ 	if (type == AWDL_ACTION_MIF)
+ 		ptr += awdl_init_arpa_tlv(ptr, state);
+ 	ptr += awdl_init_data_path_state_tlv(ptr, state);
