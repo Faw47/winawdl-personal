@@ -51,7 +51,7 @@ public sealed class HistoryRow : Observable
     public IReadOnlyList<TransferFile> Files => Record.Files;
     public string Title => Record.Direction == "Sent" ? $"Sent to {Record.Who}" : $"Received from {Record.Who}";
     public string Detail => $"{Record.Result} · {Record.When.ToLocalTime():g} · {Words.Size(Math.Max(0, Record.TotalSize))}";
-    public string Device => Record.Device.Length > 0 ? Record.Device : "Unknown device";
+    public string Device => Words.FriendlyDeviceModel(Record.Device);
     public string DetailsLabel => Expanded ? "Hide Files" : "Show Files";
     public string ToggleName => $"{Title}, {DetailsLabel}";
     public bool CanReveal => FirstExistingFile() is not null;
